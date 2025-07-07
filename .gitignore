@@ -1,0 +1,28 @@
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+
+#Rider
+.idea/
+
+#macos
+.DS_Store
+
+# RazorX.Framework Project artifacts
+RazorX.Framework/bin/
+RazorX.Framework/obj/
+RazorX.Framework/Node/dist
+RazorX.Framework/Node/node_modules
+
+# RazorX.Integration Project artifacts
+RazorX.Integration/bin/
+RazorX.Integration/obj/
+RazorX.Integration/wwwroot/razorx.*
+RazorX.Integration/appsettings.Development.json

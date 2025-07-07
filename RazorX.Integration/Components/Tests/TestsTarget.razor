@@ -1,0 +1,15 @@
+@implements IComponentModel<string>
+
+<div id="test-@(Model)-target" data-merged="@(Guid.NewGuid().ToString("N"))">
+    <script id="@(Guid.NewGuid().ToString("N"))">
+        function @(Model)TestFn(input) {
+            return `${input} @(Model)`;
+        }
+    </script>
+</div>
+
+
+
+@code {
+    [Parameter] public string Model { get; set; } = null!;
+}

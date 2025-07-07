@@ -1,0 +1,11 @@
+main .grid > div {
+    text-align: center;
+}
+
+th > div {
+    text-align: center;
+}
+
+td > div {
+    text-align: center;
+}

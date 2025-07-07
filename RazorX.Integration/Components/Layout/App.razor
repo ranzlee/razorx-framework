@@ -1,0 +1,38 @@
+﻿@implements IRootComponent
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <meta name="description" content="This is the RazorX Integration Test Application.">
+    <meta name="color-scheme" content="light dark">
+    <link rel="stylesheet" href="pico.min.css">
+    <link rel="stylesheet" href="site.css">
+    <script src="site.js" type="module"></script>
+    @if(HeadContent is not null) {
+      <DynamicComponent Type="@(HeadContent)" />
+    }
+    @if(!string.IsNullOrWhiteSpace(Title)) {
+      <title>@(Title)</title>
+    }
+  </head>
+  <body class="container">
+    <header>
+      RazorX Integration Tests
+    </header>
+    <main class="container">
+      <DynamicComponent Type="@(MainContent)" Parameters="@(MainContentParameters)" />
+    </main>
+    <footer>
+    </footer>
+  </body>
+</html>
+
+@code {
+  [Parameter] public Type? HeadContent { get; set; }
+  [Parameter] public Type MainContent { get; set; } = null!;
+  [Parameter] public Dictionary<string, object?> MainContentParameters { get; set; } = [];
+  [Parameter] public string? Title { get; set; }
+}

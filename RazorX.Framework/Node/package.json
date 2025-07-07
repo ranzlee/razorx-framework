@@ -1,0 +1,22 @@
+{
+  "name": "razorx",
+  "version": "1.0.0",
+  "description": "",
+  "main": "rzx.js",
+  "scripts": {
+    "prebuild": "tsc",
+    "build": "node esbuild.mjs",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "Randy Lee",
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "esbuild": "^0.25.5",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "idiomorph": "^0.7.3"
+  }
+}

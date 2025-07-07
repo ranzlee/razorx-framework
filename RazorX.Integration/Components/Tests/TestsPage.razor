@@ -1,0 +1,60 @@
+@* test matrix *@
+<table>
+    <thead>
+        <tr>
+            <th scope="col">ID</th>
+            <th scope="col">Name</th>
+            <th scope="col"><div>Result</div></th>
+            <th scope="col">Details</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>00</td>
+            <td>Initialize</td>
+            <td><div id="test-init-result">&#10033;</div></td>
+            <td><ul id="test-init-details"></ul></td>
+        </tr>
+        <tr>
+            <td>01</td>
+            <td>Swap</td>
+            <td><div id="test-swap-result">&#10033;</div></td>
+            <td><ul id="test-swap-details"></ul></td>
+        </tr>
+        <tr>
+            <td>02</td>
+            <td>Morph</td>
+            <td><div id="test-morph-result">&#10033;</div></td>
+            <td><ul id="test-morph-details"></ul></td>
+        </tr>
+        <tr>
+            <td>03</td>
+            <td>Remove</td>
+            <td><div id="test-remove-result">&#10033;</div></td>
+            <td><ul id="test-remove-details"></ul></td>
+        </tr>
+    </tbody>
+</table>
+
+@* targets *@
+<div id="test-swap-target"></div>
+<div id="test-morph-target"></div>
+<div id="test-remove-target"></div>
+
+@* triggers *@
+<button id="test-swap" rx-trigger="custom-trigger" rx-action="/test-swap" rx-method="POST" name="test" value="swap">01</button>
+<button id="test-morph" rx-action="/test-morph" rx-method="POST">02</button>
+<button id="test-remove" rx-ignore rx-action="/test-remove" rx-method="POST">03</button>
+
+<script>
+    // fire 2 requests on test-swap click
+    var testSwap = document.getElementById("test-swap");
+    testSwap.onclick = (evt) => {
+        evt.preventDefault();
+        var e = new CustomEvent("custom-trigger");
+        testSwap.dispatchEvent(e);
+        testSwap.dispatchEvent(e);
+    }
+</script>
+
+

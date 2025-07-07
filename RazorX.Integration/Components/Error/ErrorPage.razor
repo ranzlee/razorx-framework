@@ -1,0 +1,7 @@
+﻿@implements IComponentModel<ErrorModel>
+
+<div>Error: @(Model.Code)</div>
+
+@code {
+    [Parameter] public ErrorModel Model { get; set; } = new(404);
+}
