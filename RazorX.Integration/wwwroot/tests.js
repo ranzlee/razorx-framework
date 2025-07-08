@@ -91,11 +91,11 @@ function swapBeforeFetch(requestConfiguration) {
             swapResult = false;
             addDetail(details, "RequestConfiguration body JSON was not equal to { test: \"swap\" }.", true);
         }
-        if (requestConfiguration.headers.get("rx-request") === "true") {
+        if (requestConfiguration.headers.has("rx-request")) {
             addDetail(details, "RequestConfiguration \"rx-request\" header validated.");
         } else {
             swapResult = false;
-            addDetail(details, "RequestConfiguration \"rx-request\" header was not equal to \"true\".", true);
+            addDetail(details, "RequestConfiguration \"rx-request\" header was not found.", true);
         }
         if (requestConfiguration.abort instanceof Function) {
             addDetail(details, "RequestConfiguration abort availability validated.");

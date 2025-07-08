@@ -75,9 +75,28 @@ export type FetchRedirect = "follow" | "error" | "manual";
 
 export type MergeStrategyType = "swap" | "morph" | "remove";
 
+export const RxRequestHeader = "rx-request";
+
+export enum RxResponseHeaders {
+    Merge = "rx-merge",
+    MorphIgnoreActive = "rx-morph-ignore-active"
+}
+
+export enum RxAttributes {
+    Ignore = "rx-ignore",
+    Action = "rx-action",
+    Method = "rx-method",
+    Trigger = "rx-trigger",
+    DisableInFlight = "rx-disable-in-flight"
+}
+
 const _interceptors: DocumentInterceptors = {};
 
-const _requests: Map<string, RequestDetail> = new Map();
+const _requestRefTracker: Set<string> = new Set();
+
+const _fetchRedirect: FetchRedirect = "follow";
+
+const requestVerificationTokenCookieName = "RequestVerificationToken";
 
 const init = (options?: Options): void => {
 
@@ -121,13 +140,13 @@ const init = (options?: Options): void => {
     });
     
     document.addEventListener("DOMContentLoaded", DOMContentLoaded);
-    
-    const requestVerificationTokenCookieName = "RequestVerificationToken";
 
     function getMethod(ele: HTMLElement): HttpMethod {
-        let m = ele.getAttribute("rx-method")?.trim().toUpperCase() ?? "";
+        let m = ele.getAttribute(RxAttributes.Method)?.trim().toUpperCase() ?? "";
         switch (m) {
+            case "":
             case "GET":
+                return "GET";
             case "POST": 
             case "PUT":
             case "PATCH":
@@ -150,48 +169,82 @@ const init = (options?: Options): void => {
         console.error(err);
     }
 
+    function toggleDisable(ele: HTMLElement, disable: boolean = false) {
+        let targetElement: HTMLElement | null = null;
+        const parentFieldset = ele.closest("fieldset");
+        if (parentFieldset) {
+            targetElement = parentFieldset;
+        } else if (ele instanceof HTMLOptionElement) {
+            const parentOptGroup = ele.closest("optgroup");
+            if (parentOptGroup) {
+                targetElement = parentOptGroup;
+            } else {
+                targetElement = ele;
+            }
+        } else if (ele instanceof HTMLInputElement
+            || ele instanceof HTMLTextAreaElement
+            || ele instanceof HTMLSelectElement
+            || ele instanceof HTMLButtonElement) {
+            targetElement = ele;
+        }
+        if (targetElement) {
+            if (disable) {
+                targetElement.setAttribute("disabled", "");
+            } else {
+                targetElement.removeAttribute("disabled");
+            }
+        }
+    }
+
     async function elementTriggerEventHandler(this: HTMLElement, evt: Event): Promise<void> {
+        //TODO: this is an interceptor point potentially for request synchronization needs
+        await elementTriggerProcessor(this, evt);
+    }
+
+    async function elementTriggerProcessor(ele: HTMLElement, evt: Event): Promise<void> {
         evt.preventDefault();
         try {   
-            if (_requests.has(this.id)) {
-                throw new Error(`Element ${this.id} is already executing a request.`);
+            if (_requestRefTracker.has(ele.id)) {
+                throw new Error(`Element ${ele.id} is already executing a request.`);
             }
             if (options?.log) {
-                console.log("elementTriggerEventHandler: Request triggered for element.");
-                console.warn(this);
+                console.log("elementTriggerProcessor: Request triggered for element.");
+                console.warn(ele);
             }
             let form: HTMLFormElement | null = null;
-            if ("form" in this && this.form instanceof HTMLFormElement) {
-                form = this.form; 
+            if ("form" in ele && ele.form instanceof HTMLFormElement) {
+                form = ele.form; 
             }
             if (!form) {
-                form = this.closest("form");
+                form = ele.closest("form");
             }
-            let body = new FormData(form ?? undefined, evt instanceof SubmitEvent ? evt.submitter : null);
-            if (!form && "name" in this && "value" in this && typeof this.name === "string" && typeof this.value === "string") {
-                body.append(this.name, this.value);
+            const body = new FormData(form ?? undefined, evt instanceof SubmitEvent ? evt.submitter : null);
+            if (!form && "name" in ele && "value" in ele && typeof ele.name === "string" && typeof ele.value === "string") {
+                body.append(ele.name, ele.value);
             }
+            const h = new Headers();
+            h.set(RxRequestHeader, "");
             const ac = new AbortController();
             let request: RequestDetail = {
-                action: this.getAttribute("rx-action") ?? "/", 
-                method: getMethod(this),
-                redirect: "follow",
+                action: ele.getAttribute(RxAttributes.Action) ?? "", 
+                method: getMethod(ele),
+                redirect: _fetchRedirect,
                 body,
-                headers: new Headers({ "rx-request": "true" }),
+                headers: h,
                 signal: ac.signal,
             };
             if (options?.addRequestVerificationTokenCookieToRequestHeader === undefined 
                 || options.addRequestVerificationTokenCookieToRequestHeader === true) {
                 addAntiforgeryCookieToRequest(request);
                 if (options?.log) {
-                    console.log("elementTriggerEventHandler: Antiforgery cookie added to request.");
+                    console.log("elementTriggerProcessor: Antiforgery cookie added to request.");
                 }
             }
             if (options?.encodeRequestFormDataAsJson === undefined
                 || options.encodeRequestFormDataAsJson === true) {
                 encodeBodyAsJson(request);
                 if (options?.log) {
-                    console.log("elementTriggerEventHandler: FormData converted to JSON.");
+                    console.log("elementTriggerProcessor: FormData converted to JSON.");
                 }
             }
             if (/GET|DELETE/.test(request.method!)) {
@@ -201,11 +254,11 @@ const init = (options?: Options): void => {
                 }
                 request.body = "";
                 if (options?.log) {
-                    console.log("elementTriggerEventHandler: GET/DELETE Request body converted to URLSearchParams.");
+                    console.log("elementTriggerProcessor: GET/DELETE Request body converted to URLSearchParams.");
                 }
             }
             if (options?.log) {
-                console.log("elementTriggerEventHandler: RequestDetail created.");
+                console.log("elementTriggerProcessor: RequestDetail created.");
                 console.warn(request);
             }
             let config: RequestConfiguration = {
@@ -217,63 +270,70 @@ const init = (options?: Options): void => {
                 abort: ac.abort.bind(ac),
             }
             if (options?.log) {
-                console.log("elementTriggerEventHandler: RequestConfiguration created.");
+                console.log("elementTriggerProcessor: RequestConfiguration created.");
                 console.warn(config);
             }
-            if (this.interceptors.beforeFetch) {
-                this.interceptors.beforeFetch(config);
+            if (ele.interceptors.beforeFetch) {
+                ele.interceptors.beforeFetch(config);
             }
             if (_interceptors.beforeFetch) {
-                _interceptors.beforeFetch(this, config);
+                _interceptors.beforeFetch(ele, config);
             }
             if (ac.signal.aborted) {
                 if (options?.log) {
-                    console.log("elementTriggerEventHandler: Request aborted before fetch for element.");
-                    console.warn(this);
+                    console.log("elementTriggerProcessor: Request aborted before fetch for element.");
+                    console.warn(ele);
                 }
-                _requests.delete(this.id);
+                _requestRefTracker.delete(ele.id);
                 return;
             }
-            _requests.set(this.id, request);
+            _requestRefTracker.add(ele.id);
+            const disableElement = ele.getAttribute(RxAttributes.DisableInFlight);
             let response: Response | null = null;
             try {
+                if (disableElement !== null && disableElement.toLowerCase() !== "false") {
+                    toggleDisable(ele, true);
+                }
                 if (options?.log) {
-                    console.log(`elementTriggerEventHandler: Fetching ${request.action} for element.`);
-                    console.warn(this);
+                    console.log(`elementTriggerProcessor: Fetching ${request.action} for element.`);
+                    console.warn(ele);
                 }
                 response = await fetch(request.action, request);
                 if (ac.signal.aborted) {
                     if (options?.log) {
-                        console.log("elementTriggerEventHandler: Request aborted during fetch for element.");
-                        console.warn(this);
+                        console.log("elementTriggerProcessor: Request aborted during fetch for element.");
+                        console.warn(ele);
                     }
                     return;
                 }
-                if (this.interceptors.afterFetch) {
-                    this.interceptors.afterFetch(request, response);
+                if (ele.interceptors.afterFetch) {
+                    ele.interceptors.afterFetch(request, response);
                 }
                 if (_interceptors.afterFetch) {
-                    _interceptors.afterFetch(this, request, response);
+                    _interceptors.afterFetch(ele, request, response);
                 }
             } catch(error: unknown) {
-                sendError(this, error);
+                sendError(ele, error);
             } finally {
-                _requests.delete(this.id);
+                _requestRefTracker.delete(ele.id);
+                if (disableElement !== null && disableElement.toLowerCase() !== "false") {
+                    toggleDisable(ele, false);
+                }
             }
             if (!response) {
-                sendError(this, `Element ${this.id} has no response after request.`);
+                sendError(ele, `Element ${ele.id} has no response after request.`);
                 return;
             }
             if (response.status === 202) {
                 //used to issue a follow-up GET request for rendering
                 if (options?.log) {
-                    console.log("elementTriggerEventHandler: Response 202 for element.");
-                    console.warn(this);
+                    console.log("elementTriggerProcessor: Response 202 for element.");
+                    console.warn(ele);
                 }
                 const location = response.headers.get("location");
                 if (location && location.trim() !== "") {
                     if (options?.log) {
-                        console.log(`elementTriggerEventHandler: Response 202 replacing location with ${location}.`);
+                        console.log(`elementTriggerProcessor: Response 202 replacing location with ${location}.`);
                     }
                     window.location.replace(location);
                 }
@@ -282,16 +342,16 @@ const init = (options?: Options): void => {
             if (response.status === 204) {
                 //skip response merge 
                 if (options?.log) {
-                    console.log("elementTriggerEventHandler: Response 204 for element.");
-                    console.warn(this);
+                    console.log("elementTriggerProcessor: Response 204 for element.");
+                    console.warn(ele);
                 }
                 return;
             }
             if (response.status >= 400) {
                 //dev error response
                 if (options?.log) {
-                    console.log(`elementTriggerEventHandler: Response ${response.status} for element.`);
-                    console.warn(this);
+                    console.log(`elementTriggerProcessor: Response ${response.status} for element.`);
+                    console.warn(ele);
                 }
                 document.rxMutationObserver?.disconnect();
                 removeTriggers(document.body);
@@ -306,28 +366,29 @@ const init = (options?: Options): void => {
                 return;
             }
             if (options?.log) {
-                console.log("elementTriggerEventHandler: Response merge processing for request triggered by element.");
-                console.warn(this);
+                console.log("elementTriggerProcessor: Response merge processing for request triggered by element.");
+                console.warn(ele);
             }
             if (document.startViewTransition !== undefined) {
-                await document.startViewTransition(async () => await mergeFragments(this, response)).finished;
+                await document.startViewTransition(async () => await mergeFragments(ele, response)).finished;
             } else {
                 if (options?.log) {
-                    console.log("elementTriggerEventHandler: startViewTransition is not supported.");
+                    console.log("elementTriggerProcessor: startViewTransition is not supported.");
                 }
-                await mergeFragments(this, response);
+                await mergeFragments(ele, response);
             }
-            if (this.interceptors.afterDocumentUpdate) {
-                this.interceptors.afterDocumentUpdate();
+            if (ele.interceptors.afterDocumentUpdate) {
+                ele.interceptors.afterDocumentUpdate();
             }
             if (_interceptors.afterDocumentUpdate) {
-                _interceptors.afterDocumentUpdate(this);
+                _interceptors.afterDocumentUpdate(ele);
             }
         } catch(error: unknown) {
-            sendError(this, error);
+            sendError(ele, error);
         } 
     } 
 
+    //TODO: change so that script-only fragment is processed
     function normalizeScriptTags(fragment: HTMLElement): void {
         Array.from(fragment.querySelectorAll("script")).forEach(script => {
             const newScript = document.createElement("script");
@@ -369,9 +430,9 @@ const init = (options?: Options): void => {
     }
 
     async function mergeFragments(triggerElement: HTMLElement, response: Response): Promise<void> {
-        const merge = response?.headers.get("rx-merge");
+        const merge = response?.headers.get(RxResponseHeaders.Merge);
         if (!merge) {
-            throw new Error("Expected a \"rx-merge\" header object.");
+            throw new Error(`Expected a \"${RxResponseHeaders.Merge}\" header object.`);
         }
         const mergeStrategyArray: Array<MergeStrategy> = JSON.parse(merge);
         const parser = new DOMParser();
@@ -409,7 +470,7 @@ const init = (options?: Options): void => {
             if (!target) {
                 return;
             }
-            const ignoreActive = response?.headers.get("rx-morph-ignore-active") === "True";
+            const ignoreActive = response?.headers.has(RxResponseHeaders.MorphIgnoreActive);
             Idiomorph.morph(target, Array.from(fragment.content.children), { 
                 morphStyle: "outerHTML", 
                 ignoreActiveValue: ignoreActive,
@@ -418,8 +479,8 @@ const init = (options?: Options): void => {
                     return;
                 }
                 addTriggers(n);
+                //special processing required for script elements in firefox
                 if (isFirefox) {
-                    //special processing required for script elements in firefox
                     normalizeScriptTags(n);
                 }
                 if (_interceptors.onElementMorphed) {
@@ -476,10 +537,12 @@ const init = (options?: Options): void => {
     }
 
     function DOMContentLoaded(): void {
+        //observe the whole document for changes
         document.rxMutationObserver.observe(document.documentElement, { childList: true, subtree: true });
         if (_interceptors.beforeDocumentProcessed) {
             _interceptors.beforeDocumentProcessed();
         }
+        //process the entire document recursively
         addTriggers(document.body);
         if (_interceptors.afterDocumentProcessed) {
             _interceptors.afterDocumentProcessed();
@@ -487,17 +550,18 @@ const init = (options?: Options): void => {
     }
 
     function addTriggers(ele: HTMLElement) {
-        if (ele.closest("[rx-ignore]") !== null) {
+        const firstIgnore = ele.closest(`[${RxAttributes.Ignore}]`);
+        if (firstIgnore && firstIgnore.getAttribute(RxAttributes.Ignore)?.toLowerCase() !== "false") {
             return;
         }
-        if (ele.matches("[rx-action]")) {
+        if (ele.matches(`[${RxAttributes.Action}]`)) {
             let initializeElement = true;
             if (_interceptors.beforeInitializeElement) {
                 initializeElement = _interceptors.beforeInitializeElement(ele);
             }
             if (initializeElement) {
                 if (!ele.id || ele.id.trim() === "") {
-                    const err = "Element with \"rx-action\" must have a unique ID.";
+                    const err = `Element with \"${RxAttributes.Action}\" must have a unique ID.`;
                     throw new Error(err);
                 }
                 //enforce the existence of the element.interceptors property
@@ -505,7 +569,7 @@ const init = (options?: Options): void => {
                     value: {},
                     writable: false,
                 });
-                ele.trigger = ele.getAttribute("rx-trigger");
+                ele.trigger = ele.getAttribute(RxAttributes.Trigger);
                 if (!ele.trigger) {
                     ele.trigger = ele.matches("form")
                         ? "submit" 
@@ -535,6 +599,7 @@ const init = (options?: Options): void => {
 
     function removeTriggers(ele: HTMLElement) {
         if (ele.trigger) {	
+            //remove the event handler reference
             ele.removeEventListener(ele.trigger, elementTriggerEventHandler);
         }
         const children = ele.children;

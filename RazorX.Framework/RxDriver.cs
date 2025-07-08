@@ -211,7 +211,7 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
         }
         isRendering = true;
         if (ignoreActiveElementValueOnMorph) {
-            context.Response.Headers.Append("rx-morph-ignore-active", true.ToString());
+            context.Response.Headers.Append("rx-morph-ignore-active", string.Empty);
         }
         context.Response.Headers.Append("rx-merge", JsonSerializer.Serialize(mergeStrategies, serializerSettings));
         if (renderTasks.Count != 0) {

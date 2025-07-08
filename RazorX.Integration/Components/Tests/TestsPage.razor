@@ -43,7 +43,7 @@
 
 @* triggers *@
 <button id="test-swap" rx-trigger="custom-trigger" rx-action="/test-swap" rx-method="POST" name="test" value="swap">01</button>
-<button id="test-morph" rx-action="/test-morph" rx-method="POST">02</button>
+<button id="test-morph" rx-action="/test-morph" rx-method="POST" rx-disable-in-flight>02</button>
 <button id="test-remove" rx-ignore rx-action="/test-remove" rx-method="POST">03</button>
 
 <script>
