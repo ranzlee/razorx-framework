@@ -7,13 +7,14 @@ declare global {
 
     interface HTMLElement {
         rxTrigger?: string,
-        rxInterceptors?: ElementInterceptors,
+        addRxCallbacks?: (callbacks: ElementCallbacks) => void,
+        _rxCallbacks?: ElementCallbacks,
     }
 }
 
 export interface RazorX {
     init: (options?: Options) => void,
-    interceptors: DocumentInterceptors
+    addCallbacks: (callbacks: DocumentCallbacks) => void,
 }
 
 export interface Options {
@@ -23,7 +24,7 @@ export interface Options {
     encodeRequestFormDataAsJson?: boolean, //true
 }
 
-export interface DocumentInterceptors {
+export interface DocumentCallbacks {
     beforeDocumentProcessed?: () => void,
     afterDocumentProcessed?: () => void,
     beforeInitializeElement?: (element: HTMLElement) => boolean, //return false to cancel
@@ -38,7 +39,7 @@ export interface DocumentInterceptors {
     onElementTriggerError?: (triggerElement: HTMLElement, error: unknown) => void,
 }
 
-export interface ElementInterceptors {
+export interface ElementCallbacks {
     beforeFetch?: (requestConfiguration: RequestConfiguration) => void, 
     afterFetch?: (requestDetail: RequestDetail, response: Response) => void,
     beforeDocumentUpdate?: (mergeElement: HTMLElement, strategy: MergeStrategyType) => boolean,
@@ -90,19 +91,38 @@ export enum RxAttributes {
     DisableInFlight = "rx-disable-in-flight"
 }
 
-const _interceptors: DocumentInterceptors = {};
-
 const _requestRefTracker: Set<string> = new Set();
 
 const _fetchRedirect: FetchRedirect = "follow";
 
 const requestVerificationTokenCookieName = "RequestVerificationToken";
 
-const init = (options?: Options): void => {
+const _callbacks: DocumentCallbacks = {};
+
+const _addCallbacks = (callbacks: DocumentCallbacks) => {
+    _callbacks.afterDocumentProcessed = callbacks.afterDocumentProcessed;
+    _callbacks.afterDocumentUpdate = callbacks.afterDocumentUpdate;
+    _callbacks.afterFetch = callbacks.afterFetch;
+    _callbacks.afterInitializeElement = callbacks.afterInitializeElement;
+    _callbacks.beforeDocumentProcessed = callbacks.beforeDocumentProcessed;
+    _callbacks.beforeDocumentUpdate = callbacks.beforeDocumentUpdate;
+    _callbacks.beforeFetch = callbacks.beforeFetch;
+    _callbacks.beforeInitializeElement = callbacks.beforeInitializeElement;
+    _callbacks.onElementAdded = callbacks.onElementAdded;
+    _callbacks.onElementMorphed = callbacks.onElementMorphed;
+    _callbacks.onElementRemoved = callbacks.onElementRemoved;
+    _callbacks.onElementTriggerError = callbacks.onElementTriggerError;
+}
+
+const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     if (document.rxMutationObserver) {
         //already initialized
         return;
+    }
+
+    if (callbacks) {
+        _addCallbacks(callbacks);
     }
 
     document.rxMutationObserver = new MutationObserver(recs => {
@@ -119,8 +139,8 @@ const init = (options?: Options): void => {
                     console.warn(node);
                 }
                 removeTriggers(node);
-                if (_interceptors.onElementRemoved) {
-                    _interceptors.onElementRemoved(node);
+                if (_callbacks.onElementRemoved) {
+                    _callbacks.onElementRemoved(node);
                 }
             });
             rec.addedNodes.forEach(node => { 
@@ -132,8 +152,8 @@ const init = (options?: Options): void => {
                     console.warn(node);
                 }
                 addTriggers(node);
-                if (_interceptors.onElementAdded) {
-                    _interceptors.onElementAdded(node);
+                if (_callbacks.onElementAdded) {
+                    _callbacks.onElementAdded(node);
                 }
             });
         });
@@ -160,11 +180,11 @@ const init = (options?: Options): void => {
     }
 
     function sendError(ele: HTMLElement, err: unknown): void {
-        if (ele.rxInterceptors!.onElementTriggerError) {
-            ele.rxInterceptors!.onElementTriggerError(err);
+        if (ele._rxCallbacks!.onElementTriggerError) {
+            ele._rxCallbacks!.onElementTriggerError(err);
         }
-        if (_interceptors.onElementTriggerError) {
-            _interceptors.onElementTriggerError(ele, err);
+        if (_callbacks.onElementTriggerError) {
+            _callbacks.onElementTriggerError(ele, err);
         }
         console.error(err);
     }
@@ -273,11 +293,11 @@ const init = (options?: Options): void => {
                 console.log("elementTriggerProcessor: RequestConfiguration created.");
                 console.warn(config);
             }
-            if (ele.rxInterceptors!.beforeFetch) {
-                ele.rxInterceptors!.beforeFetch(config);
+            if (ele._rxCallbacks!.beforeFetch) {
+                ele._rxCallbacks!.beforeFetch(config);
             }
-            if (_interceptors.beforeFetch) {
-                _interceptors.beforeFetch(ele, config);
+            if (_callbacks.beforeFetch) {
+                _callbacks.beforeFetch(ele, config);
             }
             if (ac.signal.aborted) {
                 if (options?.log) {
@@ -306,11 +326,11 @@ const init = (options?: Options): void => {
                     }
                     return;
                 }
-                if (ele.rxInterceptors!.afterFetch) {
-                    ele.rxInterceptors!.afterFetch(request, response);
+                if (ele._rxCallbacks!.afterFetch) {
+                    ele._rxCallbacks!.afterFetch(request, response);
                 }
-                if (_interceptors.afterFetch) {
-                    _interceptors.afterFetch(ele, request, response);
+                if (_callbacks.afterFetch) {
+                    _callbacks.afterFetch(ele, request, response);
                 }
             } catch(error: unknown) {
                 sendError(ele, error);
@@ -377,11 +397,11 @@ const init = (options?: Options): void => {
                 }
                 await mergeFragments(ele, response);
             }
-            if (ele.rxInterceptors!.afterDocumentUpdate) {
-                ele.rxInterceptors!.afterDocumentUpdate();
+            if (ele._rxCallbacks!.afterDocumentUpdate) {
+                ele._rxCallbacks!.afterDocumentUpdate();
             }
-            if (_interceptors.afterDocumentUpdate) {
-                _interceptors.afterDocumentUpdate(ele);
+            if (_callbacks.afterDocumentUpdate) {
+                _callbacks.afterDocumentUpdate(ele);
             }
         } catch(error: unknown) {
             sendError(ele, error);
@@ -420,10 +440,10 @@ const init = (options?: Options): void => {
         if (!target) {
             throw new Error(`Expected an HTML element with id=\"${mergeStrategy.target}\"`);
         }
-        if (triggerElement.rxInterceptors!.beforeDocumentUpdate && triggerElement.rxInterceptors!.beforeDocumentUpdate(fragment, mergeStrategy.strategy) === false) {
+        if (triggerElement._rxCallbacks!.beforeDocumentUpdate && triggerElement._rxCallbacks!.beforeDocumentUpdate(fragment, mergeStrategy.strategy) === false) {
             return;
         }
-        if (_interceptors.beforeDocumentUpdate && _interceptors.beforeDocumentUpdate(triggerElement, fragment, mergeStrategy.strategy) === false) {
+        if (_callbacks.beforeDocumentUpdate && _callbacks.beforeDocumentUpdate(triggerElement, fragment, mergeStrategy.strategy) === false) {
             return;
         }
         return target;
@@ -483,8 +503,8 @@ const init = (options?: Options): void => {
                 if (isFirefox) {
                     normalizeScriptTags(n);
                 }
-                if (_interceptors.onElementMorphed) {
-                    _interceptors.onElementMorphed(n);
+                if (_callbacks.onElementMorphed) {
+                    _callbacks.onElementMorphed(n);
                 }
             });
         });
@@ -494,10 +514,10 @@ const init = (options?: Options): void => {
             if (!target) {
                 return;
             }
-            if (triggerElement.rxInterceptors!.beforeDocumentUpdate && triggerElement.rxInterceptors!.beforeDocumentUpdate(target, r.strategy) === false) {
+            if (triggerElement._rxCallbacks!.beforeDocumentUpdate && triggerElement._rxCallbacks!.beforeDocumentUpdate(target, r.strategy) === false) {
                 return;
             }
-            if (_interceptors.beforeDocumentUpdate && _interceptors.beforeDocumentUpdate(triggerElement, target, r.strategy) === false) {
+            if (_callbacks.beforeDocumentUpdate && _callbacks.beforeDocumentUpdate(triggerElement, target, r.strategy) === false) {
                 return;
             }
             target.remove();
@@ -543,13 +563,13 @@ const init = (options?: Options): void => {
     function DOMContentLoaded(): void {
         //observe the whole document for changes
         document.rxMutationObserver.observe(document.documentElement, { childList: true, subtree: true });
-        if (_interceptors.beforeDocumentProcessed) {
-            _interceptors.beforeDocumentProcessed();
+        if (_callbacks.beforeDocumentProcessed) {
+            _callbacks.beforeDocumentProcessed();
         }
         //process the entire document recursively
         addTriggers(document.body);
-        if (_interceptors.afterDocumentProcessed) {
-            _interceptors.afterDocumentProcessed();
+        if (_callbacks.afterDocumentProcessed) {
+            _callbacks.afterDocumentProcessed();
         }
     }
 
@@ -560,17 +580,29 @@ const init = (options?: Options): void => {
         }
         if (ele.matches(`[${RxAttributes.Action}]`)) {
             let initializeElement = true;
-            if (_interceptors.beforeInitializeElement) {
-                initializeElement = _interceptors.beforeInitializeElement(ele);
+            if (_callbacks.beforeInitializeElement) {
+                initializeElement = _callbacks.beforeInitializeElement(ele);
             }
             if (initializeElement) {
                 if (!ele.id || ele.id.trim() === "") {
                     const err = `Element with \"${RxAttributes.Action}\" must have a unique ID.`;
                     throw new Error(err);
                 }
-                //enforce the existence of the element rxTrigger and rxInterceptors property
-                Object.defineProperty(ele, "rxInterceptors", {
-                    value: {},
+                //enforce the existence of the element rxTrigger, addRxCallbacks() and _rxCallbacks properties
+                let elementCallbacks: ElementCallbacks = {};
+                const addCallbacks = (callbacks: ElementCallbacks): void => {
+                    elementCallbacks.afterDocumentUpdate = callbacks.afterDocumentUpdate;
+                    elementCallbacks.afterFetch = callbacks.afterFetch;
+                    elementCallbacks.beforeDocumentUpdate = callbacks.beforeDocumentUpdate;
+                    elementCallbacks.beforeFetch = callbacks.beforeFetch;
+                    elementCallbacks.onElementTriggerError = callbacks.onElementTriggerError;
+                }
+                Object.defineProperty(ele, "addRxCallbacks", {
+                    value: addCallbacks,
+                    writable: false,
+                });
+                Object.defineProperty(ele, "_rxCallbacks", {
+                    value: elementCallbacks,
                     writable: false,
                 });
                 let rxTrigger = ele.getAttribute(RxAttributes.Trigger);
@@ -586,8 +618,8 @@ const init = (options?: Options): void => {
                 //id is required and mustn't be modified
                 Object.freeze(ele.id);
                 ele.addEventListener(ele.rxTrigger!, elementTriggerEventHandler);
-                if (_interceptors.afterInitializeElement) {
-                    _interceptors.afterInitializeElement(ele);
+                if (_callbacks.afterInitializeElement) {
+                    _callbacks.afterInitializeElement(ele);
                 }
             }
         }
@@ -622,13 +654,8 @@ const init = (options?: Options): void => {
 }
 
 const razorxProto: any = {
-    init: Object.freeze(init),
+    init: Object.freeze(_init),
+    addCallbacks: Object.freeze(_addCallbacks)
 }
-
-//enforce the existence of the razorx.interceptors property
-Object.defineProperty(razorxProto, "interceptors", {
-    value: _interceptors,
-    writable: false,
-});
 
 export const razorx = razorxProto as RazorX;

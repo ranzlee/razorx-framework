@@ -4,41 +4,47 @@ const triggers = [];
 let swapResult = true;
 let morphResult = true;
 
-razorx.interceptors.beforeDocumentProcessed = () => {
-    const details = document.getElementById("test-init-details");
-    details.replaceChildren([]);
-    addDetail(details, "Hook:beforeDocumentProcessed invoked.");
-    razorx.interceptors.afterInitializeElement = (ele) => {
+razorx.addCallbacks({
+    beforeDocumentProcessed: () => {
+        const details = document.getElementById("test-init-details");
+        details.replaceChildren([]);
+        addDetail(details, "Hook:beforeDocumentProcessed invoked.");
+    },
+    afterInitializeElement: (ele) => {
+        const details = document.getElementById("test-init-details");
         if (ele.id === "test-swap") {
-            ele.rxInterceptors.beforeFetch = swapBeforeFetch;
-            ele.rxInterceptors.afterFetch = swapAfterFetch;
-            ele.rxInterceptors.beforeDocumentUpdate = swapBeforeDocumentUpdate;
-            ele.rxInterceptors.afterDocumentUpdate = swapAfterDocumentUpdate;
-            ele.rxInterceptors.onElementTriggerError = swapOnElementTriggerError;
+            ele.addRxCallbacks({
+                beforeFetch: swapBeforeFetch,
+                afterFetch: swapAfterFetch,
+                beforeDocumentUpdate: swapBeforeDocumentUpdate,
+                afterDocumentUpdate: swapAfterDocumentUpdate,
+                onElementTriggerError: swapOnElementTriggerError,
+            });
         }
         if (ele.id === "test-morph") {
-            ele.rxInterceptors.beforeDocumentUpdate = morphBeforeDocumentUpdate;
-            ele.rxInterceptors.afterDocumentUpdate = morphAfterDocumentUpdate;
+            ele.addRxCallbacks({
+                beforeDocumentUpdate: morphBeforeDocumentUpdate,
+                afterDocumentUpdate: morphAfterDocumentUpdate
+            });
         }
         triggers.push(ele);
         addDetail(details, `Element ${ele.id} initialized.`);
+    },
+    afterDocumentProcessed: () => {
+        const count = triggers.length;
+        const details = document.getElementById("test-init-details");
+        addDetail(details, "Hook:afterDocumentProcessed invoked.");
+        addDetail(details, `${count} of 3 elements initialized.`, count !== 3);
+        if (count === 3) {
+            document.getElementById("test-init-result").style.color = "limegreen";
+        } else {
+            document.getElementById("test-init-result").style.color = "lightcoral";
+        }
+        triggers.forEach(ele => { 
+            ele.click();
+        });
     }
-}
-
-razorx.interceptors.afterDocumentProcessed = () => {
-    const count = triggers.length;
-    const details = document.getElementById("test-init-details");
-    addDetail(details, "Hook:afterDocumentProcessed invoked.");
-    addDetail(details, `${count} of 3 elements initialized.`, count !== 3);
-    if (count === 3) {
-        document.getElementById("test-init-result").style.color = "limegreen";
-    } else {
-        document.getElementById("test-init-result").style.color = "lightcoral";
-    }
-    triggers.forEach(ele => { 
-        ele.click();
-    });
-}
+})
 
 function addDetail(list, msg, isError = false) {
     const li = document.createElement("li");
