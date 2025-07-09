@@ -434,7 +434,7 @@ const init = (options?: Options): void => {
         if (!merge) {
             throw new Error(`Expected a \"${RxResponseHeaders.Merge}\" header object.`);
         }
-        const mergeStrategyArray: Array<MergeStrategy> = JSON.parse(merge);
+        const mergeStrategyArray: MergeStrategy[] = JSON.parse(merge);
         const parser = new DOMParser();
         const doc = parser.parseFromString("<body><template>" + await response.text() + "</template></body>", "text/html");
         const template = doc.body.querySelector("template")?.content;
@@ -519,11 +519,15 @@ const init = (options?: Options): void => {
 
     function encodeBodyAsJson(detail: RequestDetail): void {
         detail.headers?.set("Content-Type", "application/json");
-        const object: any = {};
         if (!(detail.body instanceof FormData)) {
             return;
         }
+        const object: Record<string, string | string[]> = {};
         detail.body?.forEach((value: FormDataEntryValue, key: string) => {
+            if (value instanceof Blob) {
+                //skip any input [type=file] for XMLHttpRequest processing
+                return;
+            }
             if (Object.hasOwn(object, key)) {
                 if (!Array.isArray(object[key])) {
                     object[key] = [object[key]];
