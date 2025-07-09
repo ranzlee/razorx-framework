@@ -6,8 +6,8 @@ declare global {
     }
 
     interface HTMLElement {
-        trigger: string | null,
-        interceptors: ElementInterceptors,
+        rxTrigger?: string,
+        rxInterceptors?: ElementInterceptors,
     }
 }
 
@@ -160,8 +160,8 @@ const init = (options?: Options): void => {
     }
 
     function sendError(ele: HTMLElement, err: unknown): void {
-        if (ele.interceptors.onElementTriggerError) {
-            ele.interceptors.onElementTriggerError(err);
+        if (ele.rxInterceptors!.onElementTriggerError) {
+            ele.rxInterceptors!.onElementTriggerError(err);
         }
         if (_interceptors.onElementTriggerError) {
             _interceptors.onElementTriggerError(ele, err);
@@ -273,8 +273,8 @@ const init = (options?: Options): void => {
                 console.log("elementTriggerProcessor: RequestConfiguration created.");
                 console.warn(config);
             }
-            if (ele.interceptors.beforeFetch) {
-                ele.interceptors.beforeFetch(config);
+            if (ele.rxInterceptors!.beforeFetch) {
+                ele.rxInterceptors!.beforeFetch(config);
             }
             if (_interceptors.beforeFetch) {
                 _interceptors.beforeFetch(ele, config);
@@ -306,8 +306,8 @@ const init = (options?: Options): void => {
                     }
                     return;
                 }
-                if (ele.interceptors.afterFetch) {
-                    ele.interceptors.afterFetch(request, response);
+                if (ele.rxInterceptors!.afterFetch) {
+                    ele.rxInterceptors!.afterFetch(request, response);
                 }
                 if (_interceptors.afterFetch) {
                     _interceptors.afterFetch(ele, request, response);
@@ -377,8 +377,8 @@ const init = (options?: Options): void => {
                 }
                 await mergeFragments(ele, response);
             }
-            if (ele.interceptors.afterDocumentUpdate) {
-                ele.interceptors.afterDocumentUpdate();
+            if (ele.rxInterceptors!.afterDocumentUpdate) {
+                ele.rxInterceptors!.afterDocumentUpdate();
             }
             if (_interceptors.afterDocumentUpdate) {
                 _interceptors.afterDocumentUpdate(ele);
@@ -420,7 +420,7 @@ const init = (options?: Options): void => {
         if (!target) {
             throw new Error(`Expected an HTML element with id=\"${mergeStrategy.target}\"`);
         }
-        if (triggerElement.interceptors.beforeDocumentUpdate && triggerElement.interceptors.beforeDocumentUpdate(fragment, mergeStrategy.strategy) === false) {
+        if (triggerElement.rxInterceptors!.beforeDocumentUpdate && triggerElement.rxInterceptors!.beforeDocumentUpdate(fragment, mergeStrategy.strategy) === false) {
             return;
         }
         if (_interceptors.beforeDocumentUpdate && _interceptors.beforeDocumentUpdate(triggerElement, fragment, mergeStrategy.strategy) === false) {
@@ -494,7 +494,7 @@ const init = (options?: Options): void => {
             if (!target) {
                 return;
             }
-            if (triggerElement.interceptors.beforeDocumentUpdate && triggerElement.interceptors.beforeDocumentUpdate(target, r.strategy) === false) {
+            if (triggerElement.rxInterceptors!.beforeDocumentUpdate && triggerElement.rxInterceptors!.beforeDocumentUpdate(target, r.strategy) === false) {
                 return;
             }
             if (_interceptors.beforeDocumentUpdate && _interceptors.beforeDocumentUpdate(triggerElement, target, r.strategy) === false) {
@@ -564,22 +564,24 @@ const init = (options?: Options): void => {
                     const err = `Element with \"${RxAttributes.Action}\" must have a unique ID.`;
                     throw new Error(err);
                 }
-                //enforce the existence of the element.interceptors property
-                Object.defineProperty(ele, "interceptors", {
+                //enforce the existence of the element rxTrigger and rxInterceptors property
+                Object.defineProperty(ele, "rxInterceptors", {
                     value: {},
                     writable: false,
                 });
-                ele.trigger = ele.getAttribute(RxAttributes.Trigger);
-                if (!ele.trigger) {
-                    ele.trigger = ele.matches("form")
+                let rxTrigger = ele.getAttribute(RxAttributes.Trigger);
+                if (!rxTrigger) {
+                    rxTrigger = ele.matches("form")
                         ? "submit" 
                         : ele.matches("input:not([type=button]),select,textarea") ? "change" : "click";
                 }
+                Object.defineProperty(ele, "rxTrigger", {
+                    value: rxTrigger,
+                    writable: false,
+                });
                 //id is required and mustn't be modified
                 Object.freeze(ele.id);
-                //trigger modification is not allowed since we hook/unhook the event listener based on it
-                Object.freeze(ele.trigger);
-                ele.addEventListener(ele.trigger, elementTriggerEventHandler);
+                ele.addEventListener(ele.rxTrigger!, elementTriggerEventHandler);
                 if (_interceptors.afterInitializeElement) {
                     _interceptors.afterInitializeElement(ele);
                 }
@@ -598,9 +600,9 @@ const init = (options?: Options): void => {
     }
 
     function removeTriggers(ele: HTMLElement) {
-        if (ele.trigger) {	
+        if (ele.rxTrigger) {	
             //remove the event handler reference
-            ele.removeEventListener(ele.trigger, elementTriggerEventHandler);
+            ele.removeEventListener(ele.rxTrigger, elementTriggerEventHandler);
         }
         const children = ele.children;
         if (children?.length <= 0) {

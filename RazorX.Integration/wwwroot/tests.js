@@ -10,15 +10,15 @@ razorx.interceptors.beforeDocumentProcessed = () => {
     addDetail(details, "Hook:beforeDocumentProcessed invoked.");
     razorx.interceptors.afterInitializeElement = (ele) => {
         if (ele.id === "test-swap") {
-            ele.interceptors.beforeFetch = swapBeforeFetch;
-            ele.interceptors.afterFetch = swapAfterFetch;
-            ele.interceptors.beforeDocumentUpdate = swapBeforeDocumentUpdate;
-            ele.interceptors.afterDocumentUpdate = swapAfterDocumentUpdate;
-            ele.interceptors.onElementTriggerError = swapOnElementTriggerError;
+            ele.rxInterceptors.beforeFetch = swapBeforeFetch;
+            ele.rxInterceptors.afterFetch = swapAfterFetch;
+            ele.rxInterceptors.beforeDocumentUpdate = swapBeforeDocumentUpdate;
+            ele.rxInterceptors.afterDocumentUpdate = swapAfterDocumentUpdate;
+            ele.rxInterceptors.onElementTriggerError = swapOnElementTriggerError;
         }
         if (ele.id === "test-morph") {
-            ele.interceptors.beforeDocumentUpdate = morphBeforeDocumentUpdate;
-            ele.interceptors.afterDocumentUpdate = morphAfterDocumentUpdate;
+            ele.rxInterceptors.beforeDocumentUpdate = morphBeforeDocumentUpdate;
+            ele.rxInterceptors.afterDocumentUpdate = morphAfterDocumentUpdate;
         }
         triggers.push(ele);
         addDetail(details, `Element ${ele.id} initialized.`);
