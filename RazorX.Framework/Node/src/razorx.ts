@@ -19,8 +19,7 @@ export interface RazorX {
 
 export interface Options {
     log?: boolean,
-    addRequestVerificationTokenCookieToRequestHeader?: boolean, //true
-    requestVerificationTokenCookieName?: string, //"RequestVerificationToken"
+    addCookieToRequestHeader?: string | string[],
     encodeRequestFormDataAsJson?: boolean, //true
 }
 
@@ -94,8 +93,6 @@ export enum RxAttributes {
 const _requestRefTracker: Set<string> = new Set();
 
 const _fetchRedirect: FetchRedirect = "follow";
-
-const requestVerificationTokenCookieName = "RequestVerificationToken";
 
 const _callbacks: DocumentCallbacks = {};
 
@@ -253,11 +250,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 headers: h,
                 signal: ac.signal,
             };
-            if (options?.addRequestVerificationTokenCookieToRequestHeader === undefined 
-                || options.addRequestVerificationTokenCookieToRequestHeader === true) {
-                addAntiforgeryCookieToRequest(request);
-                if (options?.log) {
-                    console.log("elementTriggerProcessor: Antiforgery cookie added to request.");
+
+            if (options?.addCookieToRequestHeader) {
+                if (Array.isArray(options.addCookieToRequestHeader)) {
+                    options.addCookieToRequestHeader.forEach(cookie => {
+                        addCookieToRequest(request, cookie);
+                    });
+                } else {
+                    addCookieToRequest(request, options.addCookieToRequestHeader);
                 }
             }
             if (options?.encodeRequestFormDataAsJson === undefined
@@ -524,17 +524,17 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         });
     }
 
-    function addAntiforgeryCookieToRequest(detail: RequestDetail): void {
-        let tokenName = options?.requestVerificationTokenCookieName ?? requestVerificationTokenCookieName;
+    function addCookieToRequest(detail: RequestDetail, cookie: string): void {
+        //let tokenName = options?.requestVerificationTokenCookieName ?? requestVerificationTokenCookieName;
         const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${tokenName}=`);
+        const parts = value.split(`; ${cookie}=`);
         if (parts.length !== 2) {
             return;
         }
         if (!detail.headers) {
             return;
         }
-        detail.headers.set(`${tokenName}`, parts.pop()!.split(";").shift() ?? "");
+        detail.headers.set(`${cookie}`, parts.pop()!.split(";").shift() ?? "");
     }
 
     function encodeBodyAsJson(detail: RequestDetail): void {
