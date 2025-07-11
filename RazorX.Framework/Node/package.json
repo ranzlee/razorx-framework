@@ -1,16 +1,15 @@
 {
   "name": "razorx",
   "version": "1.0.0",
-  "description": "",
-  "main": "rzx.js",
+  "description": "Node build of the RazorX.Framework JavaScript client.",
+  "main": "razorx.js",
   "scripts": {
     "prebuild": "tsc",
-    "build": "node esbuild.mjs",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "node esbuild.mjs"
   },
-  "keywords": [],
+  "keywords": ["RazorX", "RazorX.Framework"],
   "author": "Randy Lee",
-  "license": "MIT",
+  "license": "0BSD",
   "type": "module",
   "devDependencies": {
     "esbuild": "^0.25.5",

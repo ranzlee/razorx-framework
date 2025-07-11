@@ -82,6 +82,7 @@ export enum RxResponseHeaders {
     MorphIgnoreActive = "rx-morph-ignore-active"
 }
 
+//TODO: change to "data-" and reference with ".dataset"
 export enum RxAttributes {
     Ignore = "rx-ignore",
     Action = "rx-action",
@@ -215,6 +216,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     async function elementTriggerEventHandler(this: HTMLElement, evt: Event): Promise<void> {
         //TODO: this is an interceptor point potentially for request synchronization needs
+        //TODO: add [rx-debounce="500"] attribute support
         await elementTriggerProcessor(this, evt);
     }
 
@@ -606,6 +608,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     writable: false,
                 });
                 let rxTrigger = ele.getAttribute(RxAttributes.Trigger);
+                //TODO: allow multiple triggers -e.g., "click keydown"
                 if (!rxTrigger) {
                     rxTrigger = ele.matches("form")
                         ? "submit" 
