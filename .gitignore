@@ -26,3 +26,7 @@ RazorX.Integration/bin/
 RazorX.Integration/obj/
 RazorX.Integration/wwwroot/razorx.*
 RazorX.Integration/appsettings.Development.json
+
+# RazorX.Framework.Tests Project artifacts
+RazorX.Framework.Tests/bin/
+RazorX.Framework.Tests/obj/

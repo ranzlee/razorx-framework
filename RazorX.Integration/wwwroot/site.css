@@ -1,11 +1,17 @@
-main .grid > div {
-    text-align: center;
+.pass {
+    color: limegreen;
 }
 
-th > div {
-    text-align: center;
+.fail {
+    color: lightcoral;
 }
 
-td > div {
-    text-align: center;
+ul > li, button {
+    font-family: 'Courier New', Courier, monospace;
+}
+
+.flow {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
 }

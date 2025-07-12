@@ -14,7 +14,7 @@ public class TestsHandler : IRequestHandler
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver) {
         return await rxDriver
             .With(context)
-            .AddPage<App, TestsHead, TestsPage>("Integration Tests")
+            .AddPage<App, TestsHead, TestsPage>("RazorX Framework Integration Tests")
             .Render();
     }
 

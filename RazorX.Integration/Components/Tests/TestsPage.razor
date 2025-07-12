@@ -1,60 +1,49 @@
+@* triggers *@
+<section class="flow">
+    <button id="test-01" rx-trigger="custom-trigger" rx-action="/test-swap" rx-method="POST">01</button>
+    <button id="test-02" rx-action="/test-swap" rx-method="POST">02</button>
+    <button id="test-03" rx-action="/test-swap" rx-method="POST">03</button>
+    <button id="test-04" rx-action="/test-swap" rx-method="POST">04</button>
+    <button id="test-05" rx-action="/test-swap" rx-method="POST" name="test" value="swap">05</button>
+    <button id="test-06" rx-action="/test-swap" rx-method="POST">06</button>
+    <button id="test-07" rx-action="/test-swap" rx-method="POST">07</button>
+    <button id="test-08" rx-trigger="double-trigger" rx-action="/test-swap" rx-method="POST">08</button>
+    <button id="test-09" rx-action="/test-swap" rx-method="POST">09</button>
+    <button id="test-10" rx-action="/test-swap" rx-method="POST">10</button>
+    <button id="test-11" rx-action="/test-swap" rx-method="POST">11</button>
+    <button id="test-12" rx-action="/test-swap" rx-method="POST">12</button>
+    <button id="test-13" rx-action="/test-swap" rx-method="POST">13</button>
+    <button id="test-14" rx-action="/test-morph" rx-method="POST">14</button>
+    <button id="test-15" rx-action="/test-morph" rx-method="POST">15</button>
+    <button id="test-16" rx-action="/test-morph" rx-method="POST">16</button>
+    <button id="test-17" rx-action="/test-morph" rx-method="POST">17</button>
+</section>
+
+
 @* test matrix *@
-<table>
-    <thead>
-        <tr>
-            <th scope="col">ID</th>
-            <th scope="col">Name</th>
-            <th scope="col"><div>Result</div></th>
-            <th scope="col">Details</th>
-        </tr>
-    </thead>
-    <tbody>
-        <tr>
-            <td>00</td>
-            <td>Initialize</td>
-            <td><div id="test-init-result">&#10033;</div></td>
-            <td><ul id="test-init-details"></ul></td>
-        </tr>
-        <tr>
-            <td>01</td>
-            <td>Swap</td>
-            <td><div id="test-swap-result">&#10033;</div></td>
-            <td><ul id="test-swap-details"></ul></td>
-        </tr>
-        <tr>
-            <td>02</td>
-            <td>Morph</td>
-            <td><div id="test-morph-result">&#10033;</div></td>
-            <td><ul id="test-morph-details"></ul></td>
-        </tr>
-        <tr>
-            <td>03</td>
-            <td>Remove</td>
-            <td><div id="test-remove-result">&#10033;</div></td>
-            <td><ul id="test-remove-details"></ul></td>
-        </tr>
-    </tbody>
-</table>
+<ul>
+    <li id="test-01-result">01 - Custom trigger validated.</li>
+    <li id="test-02-result">02 - Request method validated.</li>
+    <li id="test-03-result">03 - Request action validated.</li>
+    <li id="test-04-result">04 - Request body validated.</li>
+    <li id="test-05-result">05 - Request body as JSON validated.</li>
+    <li id="test-06-result">06 - Request "rx-request" header validated.</li>
+    <li id="test-07-result">07 - Request abort availability validated.</li>
+    <li id="test-08-result">08 - Element is already executing a request Error</li>
+    <li id="test-09-result">09 - Response header validated.</li>
+    <li id="test-10-result">10 - Merge swap target validated.</li>
+    <li id="test-11-result">11 - Merge swap strategy validated.</li>
+    <li id="test-12-result">12 - Element swap validated.</li>
+    <li id="test-13-result">13 - Swapped in script execution validated.</li>
+    <li id="test-14-result">14 - Merge morph target validated.</li>
+    <li id="test-15-result">15 - Merge morph strategy validated.</li>
+    <li id="test-16-result">16 - Element morph validated.</li>
+    <li id="test-17-result">17 - Morphed in script execution validated.</li>
+    
+</ul>
 
 @* targets *@
 <div id="test-swap-target"></div>
 <div id="test-morph-target"></div>
 <div id="test-remove-target"></div>
-
-@* triggers *@
-<button id="test-swap" rx-trigger="custom-trigger" rx-action="/test-swap" rx-method="POST" name="test" value="swap">01</button>
-<button id="test-morph" rx-action="/test-morph" rx-method="POST" rx-disable-in-flight>02</button>
-<button id="test-remove" rx-ignore rx-action="/test-remove" rx-method="POST">03</button>
-
-<script>
-    // fire 2 requests on test-swap click
-    var testSwap = document.getElementById("test-swap");
-    testSwap.onclick = (evt) => {
-        evt.preventDefault();
-        var e = new CustomEvent("custom-trigger");
-        testSwap.dispatchEvent(e);
-        testSwap.dispatchEvent(e);
-    }
-</script>
-
 

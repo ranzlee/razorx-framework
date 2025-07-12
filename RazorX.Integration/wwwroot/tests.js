@@ -1,267 +1,180 @@
 import { razorx } from './razorx.js'
 
 const triggers = [];
-let swapResult = true;
-let morphResult = true;
+
+function setResult(ele, passed) {
+    if (passed) {
+        document.getElementById(`${ele.id}-result`).className = "pass";
+    } else {
+        document.getElementById(`${ele.id}-result`).className = "fail";
+    }
+}
 
 razorx.addCallbacks({
-    beforeDocumentProcessed: () => {
-        const details = document.getElementById("test-init-details");
-        details.replaceChildren([]);
-        addDetail(details, "Hook:beforeDocumentProcessed invoked.");
-    },
     afterInitializeElement: (ele) => {
-        const details = document.getElementById("test-init-details");
-        if (ele.id === "test-swap") {
-            ele.addRxCallbacks({
-                beforeFetch: swapBeforeFetch,
-                afterFetch: swapAfterFetch,
-                beforeDocumentUpdate: swapBeforeDocumentUpdate,
-                afterDocumentUpdate: swapAfterDocumentUpdate,
-                onElementTriggerError: swapOnElementTriggerError,
-            });
-        }
-        if (ele.id === "test-morph") {
-            ele.addRxCallbacks({
-                beforeDocumentUpdate: morphBeforeDocumentUpdate,
-                afterDocumentUpdate: morphAfterDocumentUpdate
-            });
-        }
         triggers.push(ele);
-        addDetail(details, `Element ${ele.id} initialized.`);
+        if (ele.id === "test-01") {
+            ele.addRxCallbacks({
+                beforeFetch: (requestConfiguration) => {
+                    setResult(ele, requestConfiguration.trigger.type === "custom-trigger");
+                },
+            });
+        }
+        if (ele.id === "test-02") {
+            ele.addRxCallbacks({
+                beforeFetch: (requestConfiguration) => {
+                    setResult(ele, requestConfiguration.method === "POST");
+                },
+            });
+        }
+        if (ele.id === "test-03") {
+            ele.addRxCallbacks({
+                beforeFetch: (requestConfiguration) => {
+                    setResult(ele, requestConfiguration.action === "/test-swap");
+                },
+            });
+        }
+        if (ele.id === "test-04") {
+            ele.addRxCallbacks({
+                beforeFetch: (requestConfiguration) => {
+                    setResult(ele, requestConfiguration.body);
+                },
+            });
+        }
+        if (ele.id === "test-05") {
+            ele.addRxCallbacks({
+                beforeFetch: (requestConfiguration) => {
+                    var body = JSON.parse(requestConfiguration.body);
+                    setResult(ele, body.test && body.test === "swap");
+                },
+            });
+        }
+        if (ele.id === "test-06") {
+            ele.addRxCallbacks({
+                beforeFetch: (requestConfiguration) => {
+                    setResult(ele, requestConfiguration.headers.has("rx-request"));
+                },
+            });
+        }
+        if (ele.id === "test-07") {
+            ele.addRxCallbacks({
+                beforeFetch: (requestConfiguration) => {
+                    setResult(ele, requestConfiguration.abort instanceof Function);
+                },
+            });
+        }
+        if (ele.id === "test-08") {
+            ele.addRxCallbacks({
+                onElementTriggerError: (error) => {
+                    setResult(ele, error.message.startsWith(`Element ${ele.id} is already executing a request.`));
+                }
+            });
+        }
+        if (ele.id === "test-09") {
+            ele.addRxCallbacks({
+                beforeFetch: (requestConfiguration) => {
+                    requestConfiguration.headers.append("test", "test");
+                },
+                afterFetch: (requestDetail, response) => {
+                    setResult(ele, requestDetail.headers.get("test") !== null && requestDetail.headers.get("test") === response.headers.get("test"));
+                }
+            });
+        }
+        if (ele.id === "test-10") {
+            ele.addRxCallbacks({
+                beforeDocumentUpdate: (mergeElement) => {
+                    setResult(ele, mergeElement instanceof HTMLTemplateElement && mergeElement.id === "test-swap-target-fragment");
+                }
+            });
+        }
+        if (ele.id === "test-11") {
+            ele.addRxCallbacks({
+                beforeDocumentUpdate: (_mergeElement, strategy) => {
+                    setResult(ele, strategy === "swap")
+                }
+            });
+        }
+        if (ele.id === "test-12") {
+            ele.addRxCallbacks({
+                afterDocumentUpdate: () => {
+                    setResult(ele, document.getElementById("test-swap-target").getAttribute("data-merged"));
+                }
+            });
+        }
+        if (ele.id === "test-13") {
+            ele.addRxCallbacks({
+                afterDocumentUpdate: () => {
+                    let val = swapTestFn("hello");
+                    setResult(ele, val === "hello swap");
+                }
+            });
+        }
+        if (ele.id === "test-14") {
+            ele.addRxCallbacks({
+                beforeDocumentUpdate: (mergeElement) => {
+                    setResult(ele, mergeElement instanceof HTMLTemplateElement && mergeElement.id === "test-morph-target-fragment");
+                }
+            });
+        }
+        if (ele.id === "test-15") {
+            ele.addRxCallbacks({
+                beforeDocumentUpdate: (_mergeElement, strategy) => {
+                    setResult(ele, strategy === "morph")
+                }
+            });
+        }
+        if (ele.id === "test-16") {
+            ele.addRxCallbacks({
+                afterDocumentUpdate: () => {
+                    setResult(ele, document.getElementById("test-morph-target").getAttribute("data-merged"));
+                }
+            });
+        }
+        if (ele.id === "test-17") {
+            ele.addRxCallbacks({
+                afterDocumentUpdate: () => {
+                    let val = morphTestFn("hello");
+                    setResult(ele, val === "hello morph");
+                }
+            });
+        }
     },
     afterDocumentProcessed: () => {
-        const count = triggers.length;
-        const details = document.getElementById("test-init-details");
-        addDetail(details, "Hook:afterDocumentProcessed invoked.");
-        addDetail(details, `${count} of 3 elements initialized.`, count !== 3);
-        if (count === 3) {
-            document.getElementById("test-init-result").style.color = "limegreen";
-        } else {
-            document.getElementById("test-init-result").style.color = "lightcoral";
-        }
         triggers.forEach(ele => { 
-            ele.click();
+            //ele.click();
         });
     }
-})
+});
 
-function addDetail(list, msg, isError = false) {
-    const li = document.createElement("li");
-    li.innerText = msg;
-    li.style.color = isError ? "lightcoral" : "limegreen";
-    if (!isError) {
-        li.setAttribute("data-passed", null);
-    }
-    list.appendChild(li); 
+/**
+ * 
+ * @param {HTMLElement} ele 
+ */
+function reset(ele) {
+    document.getElementById(`${ele.id}-result`).className = "";
 }
 
 /**
  * 
- * @param {import('./razorx.js').RequestConfiguration} requestConfiguration 
+ * @param {Event} evt 
  */
-function swapBeforeFetch(requestConfiguration) {
-    swapResult = true;
-    const details = document.getElementById("test-swap-details");
-    details.replaceChildren([]);
-    addDetail(details, "Hook:swapBeforeFetch invoked.");
-    try {
-        if (requestConfiguration.trigger.type === "custom-trigger") {
-            addDetail(details, "RequestConfiguration custom trigger validated.");
-        } else {
-            swapResult = false;
-            addDetail(details, "RequestConfiguration custom trigger was not equal to \"custom-trigger\".", true);
-        }
-        if (requestConfiguration.method === "POST") {
-            addDetail(details, "RequestConfiguration method validated.");
-        } else {
-            swapResult = false;
-            addDetail(details, "RequestConfiguration method was not equal to \"POST\".", true);
-        }
-        if (requestConfiguration.action === "/test-swap") {
-            addDetail(details, "RequestConfiguration action validated.");
-        } else {
-            swapResult = false;
-            addDetail(details, "RequestConfiguration action was not equal to \"/test-swap\".", true);
-        }
-        if (requestConfiguration.body) {
-            addDetail(details, "RequestConfiguration body validated.");
-        } else {
-            swapResult = false;
-            addDetail(details, "RequestConfiguration body was not defined.", true);
-        }
-        var body = JSON.parse(requestConfiguration.body);
-        if (body.test && body.test === "swap") {
-            addDetail(details, "RequestConfiguration body JSON validated.");
-        } else {
-            swapResult = false;
-            addDetail(details, "RequestConfiguration body JSON was not equal to { test: \"swap\" }.", true);
-        }
-        if (requestConfiguration.headers.has("rx-request")) {
-            addDetail(details, "RequestConfiguration \"rx-request\" header validated.");
-        } else {
-            swapResult = false;
-            addDetail(details, "RequestConfiguration \"rx-request\" header was not found.", true);
-        }
-        if (requestConfiguration.abort instanceof Function) {
-            addDetail(details, "RequestConfiguration abort availability validated.");
-        } else {
-            swapResult = false;
-            addDetail(details, "RequestConfiguration abort was not set.", true);
-        }
-        requestConfiguration.headers.append("test", "swap");
-    } catch (error) { 
-        console.error(error);
-    }
+function customTrigger(evt) {
+    reset(evt.target);
+    evt.preventDefault();
+    var e = new CustomEvent("custom-trigger");
+    evt.target.dispatchEvent(e);
 }
+document.getElementById("test-01").onclick = customTrigger;
 
 /**
  * 
- * @param {import('./razorx.js').RequestDetail} requestDetail
- * @param {Response} response 
+ * @param {Event} evt 
  */
-function swapAfterFetch(requestDetail, response) {
-    const details = document.getElementById("test-swap-details");
-    addDetail(details, "Hook:swapAfterFetch invoked.");
-    try {
-        if (requestDetail.headers.get("test") !== null && requestDetail.headers.get("test") === response.headers.get("test")) {
-            addDetail(details, "Response header validated.");
-        } else {
-            swapResult = false;
-            addDetail(details, "Response header was not equal to \"swap\".", true);
-        }
-    } catch(error) { 
-        console.error(error);
-    }
+function doubleTrigger(evt) {
+    reset(evt.target);
+    evt.preventDefault();
+    var e = new CustomEvent("double-trigger");
+    evt.target.dispatchEvent(e);
+    evt.target.dispatchEvent(e);
 }
-
-/**
- * 
- * @param {HTMLElement} mergeElement 
- * @param {import('./razorx.js').MergeStrategyType} strategy 
- */
-function swapBeforeDocumentUpdate(mergeElement, strategy) {
-    const details = document.getElementById("test-swap-details");
-    addDetail(details, "Hook:swapBeforeDocumentUpdate invoked.");
-    try {
-        if (mergeElement instanceof HTMLTemplateElement && mergeElement.id === "test-swap-target-fragment") {
-            addDetail(details, "Hook:beforeDocumentUpdate target validated.");
-        } else {
-            swapResult = false;
-            addDetail(details, "Hook:beforeDocumentUpdate target is not the expected element.", true);
-        }
-        if (strategy === "swap") {
-            addDetail(details, "Hook:beforeDocumentUpdate strategy validated.");
-        } else {
-            swapResult = false;
-            addDetail(details, "Hook:beforeDocumentUpdate strategy was not equal to \"swap\".", true);
-        }
-    } catch(error) { 
-        console.error(error);
-    }
-}
-
-/**
- * 
- * @param {unknown} error 
- */
-function swapOnElementTriggerError(error) {
-    const details = document.getElementById("test-swap-details");
-    addDetail(details, `Hook:swapOnElementTriggerError invoked (${error}).`);
-}
-
-function swapAfterDocumentUpdate() {
-    const details = document.getElementById("test-swap-details");
-    addDetail(details, "Hook:swapAfterDocumentUpdate invoked.");
-    try {
-        if (document.getElementById("test-swap-target").getAttribute("data-merged")) {
-            addDetail(details, "Element swap validated.");
-        } else {
-            swapResult = false;
-            addDetail(details, "Element swap result failed.", true);
-        }
-        let val = swapTestFn("hello");
-        if (val === "hello swap") {
-            addDetail(details, "Swapped in script execution validated.");
-        } else {
-            swapResult = false;
-            addDetail(details, "Swapped in script execution failed.", true);
-        }
-    } catch(error) { 
-        console.error(error);
-    }
-    const assertsPassed = Array.from(details.children).filter(e => e.getAttribute("data-passed")).length;
-    if (assertsPassed === 17) {
-        addDetail(details, `${assertsPassed} of 17 asserts passed.`);
-    } else {
-        swapResult = false;
-        addDetail(details, `${assertsPassed} of 17 asserts passed.`, true);
-    }
-    if (swapResult) {
-        document.getElementById("test-swap-result").style.color = "limegreen";
-    } else {
-        document.getElementById("test-swap-result").style.color = "lightcoral";
-    }
-}
-
-/**
- * 
- * @param {HTMLElement} mergeElement 
- * @param {import('./razorx.js').MergeStrategyType} strategy 
- */
-function morphBeforeDocumentUpdate(mergeElement, strategy) {
-    morphResult = true;
-    const details = document.getElementById("test-morph-details");
-    details.replaceChildren([]);
-    addDetail(details, "Hook:morphBeforeDocumentUpdate invoked.");
-    try {
-        if (mergeElement instanceof HTMLTemplateElement && mergeElement.id === "test-morph-target-fragment") {
-            addDetail(details, "Hook:beforeDocumentUpdate target validated.");
-        } else {
-            morphResult = false;
-            addDetail(details, "Hook:beforeDocumentUpdate target is not the expected element.", true);
-        }
-        if (strategy === "morph") {
-            addDetail(details, "Hook:beforeDocumentUpdate strategy validated.");
-        } else {
-            morphResult = false;
-            addDetail(details, "Hook:beforeDocumentUpdate strategy was not equal to \"morph\".", true);
-        }
-    } catch(error) { 
-        console.error(error);
-    }
-}
-
-function morphAfterDocumentUpdate() {
-    const details = document.getElementById("test-morph-details");
-    addDetail(details, "Hook:morphAfterDocumentUpdate invoked.");
-    try {
-        if (document.getElementById("test-morph-target").getAttribute("data-merged")) {
-            addDetail(details, "Element morph validated.");
-        } else {
-            morphResult = false;
-            addDetail(details, "Element morph result failed.", true);
-        }
-        let val = morphTestFn("hello");
-        if (val === "hello morph") {
-            addDetail(details, "Morphed in script execution validated.");
-        } else {
-            morphResult = false;
-            addDetail(details, "Morphed in script execution failed.", true);
-        }
-    } catch(error) { 
-        console.error(error);
-    }
-    const assertsPassed = Array.from(details.children).filter(e => e.getAttribute("data-passed")).length;
-    if (assertsPassed === 6) {
-        addDetail(details, `${assertsPassed} of 6 asserts passed.`);
-    } else {
-        morphResult = false;
-        addDetail(details, `${assertsPassed} of 6 asserts passed.`, true);
-    }
-    if (morphResult) {
-        document.getElementById("test-morph-result").style.color = "limegreen";
-    } else {
-        document.getElementById("test-morph-result").style.color = "lightcoral";
-    }
-}
+document.getElementById("test-08").onclick = doubleTrigger;
