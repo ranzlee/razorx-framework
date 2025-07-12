@@ -103,6 +103,11 @@ public partial class IntegrationTests : PageTest {
         await TestResult("test-18");
     }
 
+    [TestMethod("Multi-fragment merge (swap, morph, and remove) validated")]
+    public async Task Test19() {
+        await TestResult("test-19");
+    }
+
     private async Task TestResult(string testId) {
         await Page.GotoAsync("https://localhost:44376/");
         var result = Page.Locator($"#{testId}-result");

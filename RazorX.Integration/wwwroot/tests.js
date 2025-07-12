@@ -151,6 +151,24 @@ razorx.addCallbacks({
                 }
             });
         }
+        if (ele.id === "test-19") {
+            let target = null;
+            ele.addRxCallbacks({
+                beforeFetch: () => {
+                    target = document.getElementById("test-remove-target");
+                },
+                afterDocumentUpdate: () => {  
+                    if (target === null) {
+                        setResult(ele, false);
+                    } else {
+                        let swap = document.getElementById("test-swap-target").getAttribute("data-merged");
+                        let morph = document.getElementById("test-morph-target").getAttribute("data-merged");
+                        setResult(ele, swap && morph && document.getElementById("test-remove-target") === null);
+                        document.getElementById("targets").appendChild(target);
+                    }
+                }
+            });
+        }
     }
 });
 

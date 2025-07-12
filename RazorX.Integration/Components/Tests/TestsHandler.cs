@@ -9,6 +9,7 @@ public class TestsHandler : IRequestHandler {
         router.MapPost("/test-swap", TestSwap);
         router.MapPost("/test-morph", TestMorph);
         router.MapPost("/test-remove", TestRemove);
+        router.MapPost("/test-all-merge", TestAllMerge);
     }
 
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver) {
@@ -34,10 +35,19 @@ public class TestsHandler : IRequestHandler {
             .AddFragment<TestsTarget, string>("morph", "test-morph-target", FragmentMergeStrategyType.Morph)
             .Render();
     }
-    
+
     public static async Task<IResult> TestRemove(HttpContext context, IRxDriver rxDriver) {
         return await rxDriver
             .With(context)
+            .RemoveElement("test-remove-target")
+            .Render();
+    }
+    
+    public static async Task<IResult> TestAllMerge(HttpContext context, IRxDriver rxDriver) {
+        return await rxDriver
+            .With(context)
+            .AddFragment<TestsTarget, string>("swap", "test-swap-target", FragmentMergeStrategyType.Swap)
+            .AddFragment<TestsTarget, string>("morph", "test-morph-target", FragmentMergeStrategyType.Morph)
             .RemoveElement("test-remove-target")
             .Render();
     }
