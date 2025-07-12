@@ -10,7 +10,11 @@ namespace RazorX.Framework;
 
 public enum FragmentMergeStrategyType {
     Swap = 0,
-    Morph = 1
+    SwapAfterBegin = 1,
+    SwapAfterEnd = 2,
+    SwapBeforeBegin = 3,
+    SwapBeforeEnd = 4,
+    Morph = 5
 }
 
 public static class RxDriverServices {
@@ -222,9 +226,14 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
     }
 
     private void AddMergeStrategy(string targetId, FragmentMergeStrategyType fragmentMergeStrategy) {
-        var mergeStrategy = fragmentMergeStrategy == FragmentMergeStrategyType.Swap
-            ? "swap"
-            : "morph";
+        var mergeStrategy = fragmentMergeStrategy switch {
+            FragmentMergeStrategyType.Swap => "swap",
+            FragmentMergeStrategyType.SwapAfterBegin => "afterbegin",
+            FragmentMergeStrategyType.SwapAfterEnd => "afterend",
+            FragmentMergeStrategyType.SwapBeforeBegin => "beforebegin",
+            FragmentMergeStrategyType.SwapBeforeEnd => "beforeend",
+            _ => "morph"
+        };
         mergeStrategies.Add(new(targetId, mergeStrategy));
     }
 

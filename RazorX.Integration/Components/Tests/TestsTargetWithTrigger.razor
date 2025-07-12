@@ -1,0 +1,14 @@
+@implements IComponentModel<string>
+
+<div id="test-target-with-trigger" data-merged="@(Guid.NewGuid().ToString("N"))">
+    <button id="new-test-target-with-trigger" 
+        rx-action="/test-target-with-trigger-remove" 
+        rx-method="POST"
+        data-merged="@(Guid.NewGuid().ToString("N"))">
+        *
+    </button>
+</div>
+
+@code {
+    [Parameter] public string Model { get; set; } = null!;
+}

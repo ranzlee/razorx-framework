@@ -73,7 +73,7 @@ export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export type FetchRedirect = "follow" | "error" | "manual";
 
-export type MergeStrategyType = "swap" | "morph" | "remove";
+export type MergeStrategyType = "swap" | "afterbegin" | "afterend" | "beforebegin" | "beforeend" | "morph" | "remove";
 
 export const RxRequestHeader = "rx-request";
 
@@ -96,6 +96,8 @@ const _requestRefTracker: Set<string> = new Set();
 const _fetchRedirect: FetchRedirect = "follow";
 
 const _callbacks: DocumentCallbacks = {};
+
+const _isFirefox = navigator.userAgent.toLowerCase().includes("firefox");
 
 const _addCallbacks = (callbacks: DocumentCallbacks) => {
     _callbacks.afterDocumentProcessed = callbacks.afterDocumentProcessed;
@@ -149,6 +151,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     console.log("rxMutationObserver: Adding DOM Element.");
                     console.warn(node);
                 }
+                normalizeScriptTags(node);
                 addTriggers(node);
                 if (_callbacks.onElementAdded) {
                     _callbacks.onElementAdded(node);
@@ -410,18 +413,32 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         } 
     } 
 
-    //TODO: change so that script-only fragment is processed
     function normalizeScriptTags(fragment: HTMLElement): void {
-        Array.from(fragment.querySelectorAll("script")).forEach(script => {
+        if (!_isFirefox) {
+            return;
+        }
+        const processScript = (script: HTMLScriptElement) => {
+            if (script.hasAttribute("data-script-processed")) {
+                script.removeAttribute("data-script-processed");
+                return;
+            }
             const newScript = document.createElement("script");
             Array.from(script.attributes).forEach(attr => {
                 newScript.setAttribute(attr.name, attr.value);
             });
+            newScript.setAttribute("data-script-processed", "");
             newScript.textContent = script.textContent;
             newScript.async = false;
             const parent = script.parentNode;
             parent?.insertBefore(newScript, script);
             script.remove();
+        }
+        if (fragment instanceof HTMLScriptElement) {
+            processScript(fragment);
+            return;
+        }
+        Array.from(fragment.querySelectorAll("script")).forEach(script => {
+            processScript(script);
         });
     }
 
@@ -461,8 +478,16 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         const doc = parser.parseFromString("<body><template>" + await response.text() + "</template></body>", "text/html");
         const template = doc.body.querySelector("template")?.content;
         const fragments = Array.from(template?.childNodes ?? []);
-        const swaps = mergeStrategyArray.filter(s => s.strategy === "swap");
-        const isFirefox = navigator.userAgent.toLowerCase().includes("firefox");
+        const swaps = mergeStrategyArray.filter(s => {
+            if (s.strategy === "swap" 
+                || s.strategy === "afterbegin"
+                || s.strategy === "afterend"
+                || s.strategy === "beforebegin"
+                || s.strategy === "beforeend") {
+                return true;
+            }
+            return false;
+        });
         swaps.forEach(s => {
             const fragment = getFragment(fragments, s);
             if (!fragment) {
@@ -472,15 +497,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (!target) {
                 return;
             }
-            target.replaceWith(fragment.content);
-            //special processing required for script elements in firefox
-            if (!isFirefox) {
-                return;
-            }
-            const newTarget = document.getElementById(target.id);
-            if (newTarget) {
-                normalizeScriptTags(newTarget);
-            }
+            if (s.strategy === "swap") {
+                target.replaceWith(fragment.content);
+            } 
+            // else {
+            //     target.insertAdjacentHTML(s.strategy as InsertPosition, fragment.innerHTML);
+            // }
         });
         const morphs = mergeStrategyArray.filter(s => s.strategy === "morph");
         morphs.forEach(s => {
@@ -499,11 +521,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             })?.forEach(n => {
                 if (!(n instanceof HTMLElement)) {
                     return;
-                }
-                addTriggers(n);
-                //special processing required for script elements in firefox
-                if (isFirefox) {
-                    normalizeScriptTags(n);
                 }
                 if (_callbacks.onElementMorphed) {
                     _callbacks.onElementMorphed(n);

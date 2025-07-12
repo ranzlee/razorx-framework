@@ -108,6 +108,16 @@ public partial class IntegrationTests : PageTest {
         await TestResult("test-19");
     }
 
+    [TestMethod("Swapped in trigger invoke validated")]
+    public async Task Test20() {
+        await TestResult("test-19");
+    }
+
+    [TestMethod("Morphed in trigger invoke validated")]
+    public async Task Test21() {
+        await TestResult("test-19");
+    }
+
     private async Task TestResult(string testId) {
         await Page.GotoAsync("https://localhost:44376/");
         var result = Page.Locator($"#{testId}-result");

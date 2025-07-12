@@ -169,6 +169,52 @@ razorx.addCallbacks({
                 }
             });
         }
+        if (ele.id === "test-20") {
+            ele.addRxCallbacks({
+                afterDocumentUpdate: () => {  
+                    let newTrigger = document.getElementById("new-test-target-with-trigger");
+                    if (!newTrigger) {
+                        setResult(ele, false);
+                        return;
+                    }
+                    newTrigger.addRxCallbacks({
+                        afterDocumentUpdate: () => {
+                            newTrigger = document.getElementById("new-test-target-with-trigger");
+                            if (newTrigger) {
+                                setResult(ele, false);
+                                return;
+                            } else {
+                               setResult(ele, true); 
+                            }
+                        }
+                    });
+                    newTrigger.click();
+                }
+            });
+        }
+        if (ele.id === "test-21") {
+            ele.addRxCallbacks({
+                afterDocumentUpdate: () => {  
+                    let newTrigger = document.getElementById("new-test-target-with-trigger");
+                    if (!newTrigger) {
+                        setResult(ele, false);
+                        return;
+                    }
+                    newTrigger.addRxCallbacks({
+                        afterDocumentUpdate: () => {
+                            newTrigger = document.getElementById("new-test-target-with-trigger");
+                            if (newTrigger) {
+                                setResult(ele, false);
+                                return;
+                            } else {
+                               setResult(ele, true); 
+                            }
+                        }
+                    });
+                    newTrigger.click();
+                }
+            });
+        }
     }
 });
 
