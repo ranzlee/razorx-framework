@@ -98,6 +98,11 @@ public partial class IntegrationTests : PageTest {
         await TestResult("test-17");
     }
 
+    [TestMethod("Element remove validated")]
+    public async Task Test18() {
+        await TestResult("test-18");
+    }
+
     private async Task TestResult(string testId) {
         await Page.GotoAsync("https://localhost:44376/");
         var result = Page.Locator($"#{testId}-result");

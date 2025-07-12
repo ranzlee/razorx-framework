@@ -1,7 +1,5 @@
 import { razorx } from './razorx.js'
 
-const triggers = [];
-
 function setResult(ele, passed) {
     if (passed) {
         document.getElementById(`${ele.id}-result`).className = "pass";
@@ -12,7 +10,6 @@ function setResult(ele, passed) {
 
 razorx.addCallbacks({
     afterInitializeElement: (ele) => {
-        triggers.push(ele);
         if (ele.id === "test-01") {
             ele.addRxCallbacks({
                 beforeFetch: (requestConfiguration) => {
@@ -138,11 +135,22 @@ razorx.addCallbacks({
                 }
             });
         }
-    },
-    afterDocumentProcessed: () => {
-        triggers.forEach(ele => { 
-            //ele.click();
-        });
+        if (ele.id === "test-18") {
+            let target = null;
+            ele.addRxCallbacks({
+                beforeFetch: () => {
+                    target = document.getElementById("test-remove-target");
+                },
+                afterDocumentUpdate: () => {  
+                    if (target === null) {
+                        setResult(ele, false);
+                    } else {
+                        setResult(ele, document.getElementById("test-remove-target") === null);
+                        document.getElementById("targets").appendChild(target);
+                    }
+                }
+            });
+        }
     }
 });
 
