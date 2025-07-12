@@ -12,6 +12,7 @@ public class TestsHandler : IRequestHandler {
         router.MapPost("/test-all-merge", TestAllMerge);
         router.MapPost("/test-with-trigger", TestWithTrigger);
         router.MapPost("/test-target-with-trigger-remove", TestTriggerRemove);
+        router.MapPost("/test-adjacent-target", TestAdjacentSwap);
     }
 
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver) {
@@ -57,9 +58,9 @@ public class TestsHandler : IRequestHandler {
     public static async Task<IResult> TestWithTrigger(HttpContext context, IRxDriver rxDriver, NameValueModel model) {
         var driver = rxDriver.With(context);
         if (model.Mode == "swap") {
-            driver.AddFragment<TestsTargetWithTrigger, string>("swap", $"test-target-with-trigger", FragmentMergeStrategyType.Swap);
+            driver.AddFragment<TestsTargetWithTrigger, string>("swap", "test-target-with-trigger", FragmentMergeStrategyType.Swap);
         } else {
-            driver.AddFragment<TestsTargetWithTrigger, string>("morph", $"test-target-with-trigger", FragmentMergeStrategyType.Morph);
+            driver.AddFragment<TestsTargetWithTrigger, string>("morph", "test-target-with-trigger", FragmentMergeStrategyType.Morph);
         }
         return await driver.Render();
     }
@@ -68,6 +69,13 @@ public class TestsHandler : IRequestHandler {
         return await rxDriver
             .With(context)
             .RemoveElement("new-test-target-with-trigger")
+            .Render();
+    }
+
+    public static async Task<IResult> TestAdjacentSwap(HttpContext context, IRxDriver rxDriver) {
+        return await rxDriver
+            .With(context)
+            .AddFragment<TestsAdjacentTarget>("test-adjacent-target", FragmentMergeStrategyType.AppendBeforeEnd)
             .Render();
     }
 }

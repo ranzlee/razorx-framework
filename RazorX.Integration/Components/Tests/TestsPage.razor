@@ -21,6 +21,7 @@
     <button id="test-19" rx-action="/test-all-merge" rx-method="POST">19</button>
     <button id="test-20" rx-action="/test-with-trigger" rx-method="POST" name="mode" value="swap">20</button>
     <button id="test-21" rx-action="/test-with-trigger" rx-method="POST" name="mode" value="morph">21</button>
+    <button id="test-22" rx-action="/test-adjacent-target" rx-method="POST">22</button>
 </section>
 
 @* test matrix *@
@@ -45,7 +46,8 @@
     <li id="test-18-result">18 - Element remove validated.</li>
     <li id="test-19-result">19 - Multi-fragment merge (swap, morph, and remove) validated.</li>    
     <li id="test-20-result">20 - Swapped in trigger invoke validated.</li>    
-    <li id="test-21-result">21 - Morphed in trigger invoke validated.</li>    
+    <li id="test-21-result">21 - Morphed in trigger invoke validated.</li>   
+    <li id="test-22-result">22 - Adjacent swap validated.</li>    
 </ul>
 
 @* targets *@
@@ -54,4 +56,7 @@
     <div id="test-morph-target"></div>
     <div id="test-remove-target"></div>
     <div id="test-target-with-trigger"></div>
+    <div id="test-adjacent-target">
+        <div id="test-adjacent-target-marker"></div>
+    </div>
 </div>

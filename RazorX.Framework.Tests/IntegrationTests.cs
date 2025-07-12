@@ -110,12 +110,17 @@ public partial class IntegrationTests : PageTest {
 
     [TestMethod("Swapped in trigger invoke validated")]
     public async Task Test20() {
-        await TestResult("test-19");
+        await TestResult("test-20");
     }
 
     [TestMethod("Morphed in trigger invoke validated")]
     public async Task Test21() {
-        await TestResult("test-19");
+        await TestResult("test-21");
+    }
+
+    [TestMethod("Adjacent swap validated")]
+    public async Task Test22() {
+        await TestResult("test-22");
     }
 
     private async Task TestResult(string testId) {

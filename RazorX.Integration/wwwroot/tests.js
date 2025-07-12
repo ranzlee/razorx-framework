@@ -215,6 +215,21 @@ razorx.addCallbacks({
                 }
             });
         }
+        if (ele.id === "test-22") {
+            ele.addRxCallbacks({
+                afterDocumentUpdate: () => {  
+                    let target = document.getElementById("test-adjacent-target");
+                    if (!target) {
+                        setResult(ele, false);
+                        return;
+                    }
+                    setResult(ele, target.firstChild.id === "test-adjacent-target-marker" && target.children.length === 4);
+                    document.getElementById("test-adjacent-target-1").remove();
+                    document.getElementById("test-adjacent-target-2").remove();
+                    document.getElementById("test-adjacent-target-3").remove();
+                }
+            });
+        }
     }
 });
 

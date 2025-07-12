@@ -499,10 +499,20 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             if (s.strategy === "swap") {
                 target.replaceWith(fragment.content);
-            } 
-            // else {
-            //     target.insertAdjacentHTML(s.strategy as InsertPosition, fragment.innerHTML);
-            // }
+            } else {
+                const newContent = Array.from(fragment.content.children);
+                if (newContent.length === 0) {
+                    return;
+                }
+                //insert the first element based on the strategy
+                target.insertAdjacentElement(s.strategy as InsertPosition, newContent[0]);
+                let thisEle = newContent[0];
+                //insert the remainder afterend of the previous element
+                for (let i = 1; i < newContent.length; i++) {
+                    thisEle.insertAdjacentElement("afterend", newContent[i]);
+                    thisEle = newContent[i];
+                }
+            }
         });
         const morphs = mergeStrategyArray.filter(s => s.strategy === "morph");
         morphs.forEach(s => {
@@ -522,6 +532,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (!(n instanceof HTMLElement)) {
                     return;
                 }
+                //TODO: EDGE CASE - what if the rx-trigger attribute is morphed?
+                //addTriggers(node);
                 if (_callbacks.onElementMorphed) {
                     _callbacks.onElementMorphed(n);
                 }
