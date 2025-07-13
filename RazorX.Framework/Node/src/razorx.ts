@@ -2,7 +2,7 @@ import { Idiomorph } from "idiomorph";
 
 declare global {
     interface Document {
-        rxMutationObserver: MutationObserver;
+        rxMutationObserver: MutationObserver
     }
 
     interface HTMLElement {
@@ -13,7 +13,7 @@ declare global {
             rxTrigger?: string, //data-rx-trigger
             rxDisableInFlight?: string, //data-rx-disable-in-flight
             rxDebounce?: string //data-rx-debounce
-        }
+        },
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
         _rxCallbacks?: ElementCallbacks,
     }
@@ -87,6 +87,8 @@ export enum RxResponseHeaders {
     Merge = "rx-merge",
     MorphIgnoreActive = "rx-morph-ignore-active"
 }
+
+const _processedScriptTag = "data-rx-script-processed";
 
 const _requestRefTracker: Set<string> = new Set();
 
@@ -209,7 +211,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
-    function debounce(func: (ele: HTMLElement, evt: Event) => Promise<void>, wait: number): (ele: HTMLElement, evt: Event) => Promise<void> {
+    function debounce(func: (ele: HTMLElement, evt: Event) => Promise<void>, delay: number): (ele: HTMLElement, evt: Event) => Promise<void> {
         let timeoutId: number | null = null;
         let pending: Array<{ 
             resolve: (value: void) => void; 
@@ -232,14 +234,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                             pending.forEach(({ reject: pReject }) => pReject(error));
                             pending = []; 
                         });
-                }, wait);
+                }, delay);
             });
         };
     }
 
 
     async function elementTriggerEventHandler(this: HTMLElement, evt: Event): Promise<void> {
-        //TODO: this is an interceptor point potentially for request synchronization needs
+        //TODO: is request queueing also needed?
         if (!this.dataset.rxDebounce) {
             await elementTriggerProcessor(this, evt);
             return;
@@ -287,7 +289,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 headers: headers,
                 signal: ac.signal,
             };
-
             if (options?.addCookieToRequestHeader) {
                 if (Array.isArray(options.addCookieToRequestHeader)) {
                     options.addCookieToRequestHeader.forEach(cookie => {
@@ -396,25 +397,26 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         } 
     } 
 
+    function processScript(script: HTMLScriptElement): void {
+        if (script.hasAttribute(_processedScriptTag)) {
+            script.removeAttribute(_processedScriptTag);
+            return;
+        }
+        const newScript = document.createElement("script");
+        Array.from(script.attributes).forEach(attr => {
+            newScript.setAttribute(attr.name, attr.value);
+        });
+        newScript.setAttribute(_processedScriptTag, "");
+        newScript.textContent = script.textContent;
+        newScript.async = false;
+        const parent = script.parentNode;
+        parent?.insertBefore(newScript, script);
+        script.remove();
+    }
+
     function normalizeScriptTags(fragment: HTMLElement): void {
         if (!_isFirefox) {
             return;
-        }
-        const processScript = (script: HTMLScriptElement) => {
-            if (script.hasAttribute("data-script-processed")) {
-                script.removeAttribute("data-script-processed");
-                return;
-            }
-            const newScript = document.createElement("script");
-            Array.from(script.attributes).forEach(attr => {
-                newScript.setAttribute(attr.name, attr.value);
-            });
-            newScript.setAttribute("data-script-processed", "");
-            newScript.textContent = script.textContent;
-            newScript.async = false;
-            const parent = script.parentNode;
-            parent?.insertBefore(newScript, script);
-            script.remove();
         }
         if (fragment instanceof HTMLScriptElement) {
             processScript(fragment);
