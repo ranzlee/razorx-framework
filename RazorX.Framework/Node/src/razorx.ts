@@ -19,17 +19,17 @@ declare global {
     }
 }
 
-export interface RazorX {
+export type RazorX = {
     init: (options?: Options) => void,
     addCallbacks: (callbacks: DocumentCallbacks) => void,
 }
 
-export interface Options {
+export type Options = {
     addCookieToRequestHeader?: string | string[],
     encodeRequestFormDataAsJson?: boolean, //true
 }
 
-export interface DocumentCallbacks {
+export type DocumentCallbacks = {
     beforeDocumentProcessed?: () => void,
     afterDocumentProcessed?: () => void,
     beforeInitializeElement?: (element: HTMLElement) => boolean, //return false to cancel
@@ -44,7 +44,7 @@ export interface DocumentCallbacks {
     onElementTriggerError?: (triggerElement: HTMLElement, error: unknown) => void,
 }
 
-export interface ElementCallbacks {
+export type ElementCallbacks = {
     beforeFetch?: (requestConfiguration: RequestConfiguration) => void, 
     afterFetch?: (requestDetail: RequestDetail, response: Response) => void,
     beforeDocumentUpdate?: (mergeElement: HTMLElement, strategy: MergeStrategyType) => boolean,
@@ -52,7 +52,7 @@ export interface ElementCallbacks {
     onElementTriggerError?: (error: unknown) => void,
 }
 
-export interface RequestConfiguration {
+export type RequestConfiguration = {
     trigger: Event,
     action: string,
     method: HttpMethod,
@@ -61,7 +61,7 @@ export interface RequestConfiguration {
     abort: (reason?: string) => void
 }
 
-export interface RequestDetail {
+export type RequestDetail = {
     action: string,
     method: HttpMethod,
     redirect: FetchRedirect,
@@ -70,7 +70,7 @@ export interface RequestDetail {
     signal: AbortSignal,
 }
 
-export interface MergeStrategy {
+export type MergeStrategy = {
     target: string,
     strategy: MergeStrategyType
 }
