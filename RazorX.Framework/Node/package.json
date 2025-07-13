@@ -7,13 +7,20 @@
     "prebuild": "tsc",
     "build": "node esbuild.mjs"
   },
-  "keywords": ["RazorX", "RazorX.Framework"],
+  "keywords": [
+    "RazorX",
+    "RazorX.Framework"
+  ],
   "author": "Randy Lee",
   "license": "0BSD",
   "type": "module",
   "devDependencies": {
+    "@eslint/js": "^9.31.0",
     "esbuild": "^0.25.5",
-    "typescript": "^5.8.3"
+    "eslint": "^9.31.0",
+    "globals": "^16.3.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.36.0"
   },
   "dependencies": {
     "idiomorph": "^0.7.3"

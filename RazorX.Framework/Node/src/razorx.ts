@@ -156,7 +156,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     document.addEventListener("DOMContentLoaded", DOMContentLoaded);
 
     function getMethod(ele: HTMLElement): HttpMethod {
-        let m = ele.dataset.rxMethod?.trim().toUpperCase() ?? "";
+        const m = ele.dataset.rxMethod?.trim().toUpperCase() ?? "";
         switch (m) {
             case "":
             case "GET":
@@ -166,10 +166,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             case "PATCH":
             case "DELETE":
                 return m;
-            default:
+            default: { 
                 const err = `${m} is not a valid HTTP method.`;
                 sendError(ele, err);
-                throw new Error(err);
+                throw new Error(err); 
+            }
         }
     }
 
@@ -248,7 +249,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             return;
         }
         const delay = parseInt(this.dataset.rxDebounce, 10);
-        if (delay === Number.NaN || delay <= 0) {
+        if (Number.isNaN(delay) || delay <= 0) {
             throw new Error(`Element ${this.id} data-rx-debounce attribute value must be a valid number greater than zero.`);
         }
         let debounceElementTrigger = _debouncedRequests.get(this.id);
@@ -282,7 +283,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             const headers = new Headers();
             headers.set(RxRequestHeader, "");
             const ac = new AbortController();
-            let request: RequestDetail = {
+            const request: RequestDetail = {
                 action: ele.dataset.rxAction ?? "", 
                 method: getMethod(ele),
                 redirect: _fetchRedirect,
@@ -304,13 +305,13 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 encodeBodyAsJson(request);
             }
             if (/GET|DELETE/.test(request.method!)) {
-                let params = new URLSearchParams(request.body! as unknown as Record<string, string>);
+                const params = new URLSearchParams(request.body! as unknown as Record<string, string>);
                 if (params.size) {
                     request.action += (/\?/.test(request.action!) ? "&" : "?") + params;
                 }
                 request.body = "";
             }
-            let config: RequestConfiguration = {
+            const config: RequestConfiguration = {
                 trigger: evt,
                 action: request.action,
                 method: request.method,
@@ -432,10 +433,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         const fragmentId = `${mergeStrategy.target}-fragment`;
         const fragment = fragments.find(f => f instanceof HTMLTemplateElement && f.id === fragmentId) as HTMLTemplateElement | undefined;
         if (!fragment) {
-            throw new Error(`Expected a response body fragment with id=\"${fragmentId}\"`);
+            throw new Error(`Expected a response body fragment with id="${fragmentId}"`);
         }
         if (!fragment.hasChildNodes) {
-            throw new Error(`Expected one or more child elements in fragment with id=\"${fragmentId}\"`);
+            throw new Error(`Expected one or more child elements in fragment with id="${fragmentId}"`);
         }
         return fragment;
     }
@@ -443,7 +444,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     function getTarget(triggerElement: HTMLElement, fragment: HTMLTemplateElement, mergeStrategy: MergeStrategy): HTMLElement | undefined {
         const target = document.getElementById(mergeStrategy.target);
         if (!target) {
-            throw new Error(`Expected an HTML element with id=\"${mergeStrategy.target}\"`);
+            throw new Error(`Expected an HTML element with id="${mergeStrategy.target}"`);
         }
         if (triggerElement._rxCallbacks!.beforeDocumentUpdate && triggerElement._rxCallbacks!.beforeDocumentUpdate(fragment, mergeStrategy.strategy) === false) {
             return;
@@ -457,7 +458,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     async function mergeFragments(triggerElement: HTMLElement, response: Response): Promise<void> {
         const merge = response?.headers.get(RxResponseHeaders.Merge);
         if (!merge) {
-            throw new Error(`Expected a \"${RxResponseHeaders.Merge}\" header object.`);
+            throw new Error(`Expected a "${RxResponseHeaders.Merge}" header object.`);
         }
         const mergeStrategyArray: MergeStrategy[] = JSON.parse(merge);
         const parser = new DOMParser();
@@ -602,11 +603,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             if (initializeElement) {
                 if (!ele.id || ele.id.trim() === "") {
-                    const err = `Element with \"data-rx-action\" must have a unique ID.`;
+                    const err = `Element with "data-rx-action" must have a unique ID.`;
                     throw new Error(err);
                 }
                 //enforce the existence of the element rxTrigger, addRxCallbacks() and _rxCallbacks properties
-                let elementCallbacks: ElementCallbacks = {};
+                const elementCallbacks: ElementCallbacks = {};
                 const addCallbacks = (callbacks: ElementCallbacks): void => {
                     elementCallbacks.afterDocumentUpdate = callbacks.afterDocumentUpdate;
                     elementCallbacks.afterFetch = callbacks.afterFetch;
@@ -668,7 +669,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 }
 
-const razorxProto: any = {
+const razorxProto: unknown = {
     init: Object.freeze(_init),
     addCallbacks: Object.freeze(_addCallbacks)
 }
