@@ -11,7 +11,8 @@ declare global {
             rxAction?: string, //data-rx-action
             rxMethod?: string, //data-rx-method
             rxTrigger?: string, //data-rx-trigger
-            rxDisableInFlight?: string //data-rx-disable-in-flight
+            rxDisableInFlight?: string, //data-rx-disable-in-flight
+            rxDebounce?: string //data-rx-debounce
         }
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
         _rxCallbacks?: ElementCallbacks,
@@ -89,6 +90,8 @@ export enum RxResponseHeaders {
 }
 
 const _requestRefTracker: Set<string> = new Set();
+
+const _debouncedRequests: Map<string, (ele: HTMLElement, evt: Event) => Promise<void>> = new Map();
 
 const _fetchRedirect: FetchRedirect = "follow";
 
@@ -210,19 +213,64 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 targetElement.setAttribute("disabled", "");
             } else {
                 targetElement.removeAttribute("disabled");
+                targetElement.focus();
             }
         }
     }
 
+    function debounce(func: (ele: HTMLElement, evt: Event) => Promise<void>, wait: number): (ele: HTMLElement, evt: Event) => Promise<void> {
+        let timeoutId: number | null = null;
+        let pending: Array<{ 
+            resolve: (value: void) => void; 
+            reject: (reason?: unknown) => void 
+        }> = [];
+        return (ele: HTMLElement, evt: Event): Promise<void> => {
+            return new Promise((resolve, reject) => {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                }
+                pending.push({ resolve, reject });
+                timeoutId = setTimeout(() => {
+                    timeoutId = null;
+                    Promise.resolve(func(ele, evt))
+                        .then((result) => {
+                            pending.forEach(({ resolve: pResolve }) => pResolve(result));
+                            pending = []; 
+                        })
+                        .catch((error: unknown) => {
+                            pending.forEach(({ reject: pReject }) => pReject(error));
+                            pending = []; 
+                        });
+                }, wait);
+            });
+        };
+    }
+
+
     async function elementTriggerEventHandler(this: HTMLElement, evt: Event): Promise<void> {
         //TODO: this is an interceptor point potentially for request synchronization needs
-        //TODO: add [rx-debounce="500"] attribute support
-        await elementTriggerProcessor(this, evt);
+        if (!this.dataset.rxDebounce) {
+            await elementTriggerProcessor(this, evt);
+            return;
+        }
+        const delay = parseInt(this.dataset.rxDebounce, 10);
+        if (delay === Number.NaN || delay <= 0) {
+            throw new Error(`Element ${this.id} data-rx-debounce attribute value must be a valid number greater than zero.`);
+        }
+        let debounceElementTrigger = _debouncedRequests.get(this.id);
+        if (debounceElementTrigger) {
+            await debounceElementTrigger(this, evt);
+        } else {
+            debounceElementTrigger = debounce(elementTriggerProcessor, delay);
+            _debouncedRequests.set(this.id, debounceElementTrigger);
+            await debounceElementTrigger(this, evt);
+        }
     }
 
     async function elementTriggerProcessor(ele: HTMLElement, evt: Event): Promise<void> {
         evt.preventDefault();
         try {   
+            _debouncedRequests.delete(ele.id);
             if (_requestRefTracker.has(ele.id)) {
                 throw new Error(`Element ${ele.id} is already executing a request.`);
             }
@@ -295,20 +343,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 console.log("elementTriggerProcessor: RequestConfiguration created.");
                 console.warn(config);
             }
-            if (ele._rxCallbacks!.beforeFetch) {
-                ele._rxCallbacks!.beforeFetch(config);
-            }
-            if (_callbacks.beforeFetch) {
-                _callbacks.beforeFetch(ele, config);
-            }
-            if (ac.signal.aborted) {
-                if (options?.log) {
-                    console.log("elementTriggerProcessor: Request aborted before fetch for element.");
-                    console.warn(ele);
-                }
-                _requestRefTracker.delete(ele.id);
-                return;
-            }
             _requestRefTracker.add(ele.id);
             const disableElement = ele.dataset.rxDisableInFlight ?? null;
             let response: Response | null = null;
@@ -319,6 +353,19 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (options?.log) {
                     console.log(`elementTriggerProcessor: Fetching ${request.action} for element.`);
                     console.warn(ele);
+                }
+                if (ele._rxCallbacks!.beforeFetch) {
+                    ele._rxCallbacks!.beforeFetch(config);
+                }
+                if (_callbacks.beforeFetch) {
+                    _callbacks.beforeFetch(ele, config);
+                }
+                if (ac.signal.aborted) {
+                    if (options?.log) {
+                        console.log("elementTriggerProcessor: Request aborted before fetch for element.");
+                        console.warn(ele);
+                    }
+                    return;
                 }
                 response = await fetch(request.action, request);
                 if (ac.signal.aborted) {

@@ -22,6 +22,8 @@
     <button id="test-20" data-rx-action="/test-with-trigger" data-rx-method="POST" name="mode" value="swap">20</button>
     <button id="test-21" data-rx-action="/test-with-trigger" data-rx-method="POST" name="mode" value="morph">21</button>
     <button id="test-22" data-rx-action="/test-adjacent-target" data-rx-method="POST">22</button>
+    <button id="test-23" data-rx-trigger="debounced-trigger" data-rx-action="/test-swap" data-rx-method="POST" data-rx-debounce="300" data-rx-disable-in-flight>23</button>
+    <button id="test-all" class="secondary">**</button>
 </section>
 
 @* test matrix *@
@@ -47,7 +49,8 @@
     <li id="test-19-result">19 - Multi-fragment merge (swap, morph, and remove) validated.</li>    
     <li id="test-20-result">20 - Swapped in trigger invoke validated.</li>    
     <li id="test-21-result">21 - Morphed in trigger invoke validated.</li>   
-    <li id="test-22-result">22 - Adjacent swap validated.</li>    
+    <li id="test-22-result">22 - Adjacent swap validated.</li>   
+    <li id="test-23-result">23 - Debounce and disable in-flight validated.</li>    
 </ul>
 
 @* targets *@
@@ -55,7 +58,8 @@
     <div id="test-swap-target"></div>
     <div id="test-morph-target"></div>
     <div id="test-remove-target"></div>
-    <div id="test-target-with-trigger"></div>
+    <div id="swap-target-with-trigger"></div>
+    <div id="morph-target-with-trigger"></div>
     <div id="test-adjacent-target">
         <div id="test-adjacent-target-marker"></div>
     </div>

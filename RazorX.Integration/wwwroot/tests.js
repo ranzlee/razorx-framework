@@ -1,5 +1,20 @@
 import { razorx } from './razorx.js'
 
+const triggers = [];
+
+/**
+ * 
+ * @param {HTMLElement} ele 
+ */
+function reset(ele) {
+    document.getElementById(`${ele.id}-result`).className = "";
+}
+
+/**
+ * 
+ * @param {HTMLElement} ele 
+ * @param {boolean} passed 
+ */
 function setResult(ele, passed) {
     if (passed) {
         document.getElementById(`${ele.id}-result`).className = "pass";
@@ -10,6 +25,9 @@ function setResult(ele, passed) {
 
 razorx.addCallbacks({
     afterInitializeElement: (ele) => {
+        if (ele.id !== "new-swap-target-with-trigger" && ele.id !== "new-morph-target-with-trigger") {
+            triggers.push(ele);
+        }
         if (ele.id === "test-01") {
             ele.addRxCallbacks({
                 beforeFetch: (requestConfiguration) => {
@@ -172,14 +190,14 @@ razorx.addCallbacks({
         if (ele.id === "test-20") {
             ele.addRxCallbacks({
                 afterDocumentUpdate: () => {  
-                    let newTrigger = document.getElementById("new-test-target-with-trigger");
+                    let newTrigger = document.getElementById("new-swap-target-with-trigger");
                     if (!newTrigger) {
                         setResult(ele, false);
                         return;
                     }
                     newTrigger.addRxCallbacks({
                         afterDocumentUpdate: () => {
-                            newTrigger = document.getElementById("new-test-target-with-trigger");
+                            newTrigger = document.getElementById("new-swap-target-with-trigger");
                             if (newTrigger) {
                                 setResult(ele, false);
                                 return;
@@ -195,14 +213,14 @@ razorx.addCallbacks({
         if (ele.id === "test-21") {
             ele.addRxCallbacks({
                 afterDocumentUpdate: () => {  
-                    let newTrigger = document.getElementById("new-test-target-with-trigger");
+                    let newTrigger = document.getElementById("new-morph-target-with-trigger");
                     if (!newTrigger) {
                         setResult(ele, false);
                         return;
                     }
                     newTrigger.addRxCallbacks({
                         afterDocumentUpdate: () => {
-                            newTrigger = document.getElementById("new-test-target-with-trigger");
+                            newTrigger = document.getElementById("new-morph-target-with-trigger");
                             if (newTrigger) {
                                 setResult(ele, false);
                                 return;
@@ -230,16 +248,34 @@ razorx.addCallbacks({
                 }
             });
         }
+        if (ele.id === "test-23") {
+            let resolved = false;
+            ele.addRxCallbacks({
+                beforeFetch: () => {
+                    if (!ele.hasAttribute("disabled")) {
+                        setResult(ele, false);
+                        resolved = true;
+                    }
+                },
+                onElementTriggerError: () => {
+                    //already invoked request
+                    setResult(ele, false);
+                    resolved = true;
+                },
+                afterDocumentUpdate: () => {
+                    if (resolved) {
+                        return;
+                    }
+                    if (ele.hasAttribute("disabled")) {
+                        setResult(ele, false);
+                    } else {
+                        setResult(ele, true);
+                    }
+                }
+            });
+        }
     }
 });
-
-/**
- * 
- * @param {HTMLElement} ele 
- */
-function reset(ele) {
-    document.getElementById(`${ele.id}-result`).className = "";
-}
 
 /**
  * 
@@ -265,3 +301,27 @@ function doubleTrigger(evt) {
     evt.target.dispatchEvent(e);
 }
 document.getElementById("test-08").onclick = doubleTrigger;
+
+/**
+ * 
+ * @param {Event} evt 
+ */
+function debouncedTrigger(evt) {
+    reset(evt.target);
+    evt.preventDefault();
+    var e = new CustomEvent("debounced-trigger");
+    evt.target.dispatchEvent(e);
+    evt.target.dispatchEvent(e);
+    evt.target.dispatchEvent(e);
+    evt.target.dispatchEvent(e);
+}
+document.getElementById("test-23").onclick = debouncedTrigger;
+
+document.getElementById("test-all").onclick = () => {
+    triggers.forEach(ele => {
+        reset(ele);
+    });
+    triggers.forEach(ele => {
+        ele.click();
+    });
+};

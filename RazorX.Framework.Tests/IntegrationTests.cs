@@ -123,6 +123,11 @@ public partial class IntegrationTests : PageTest {
         await TestResult("test-22");
     }
 
+    [TestMethod("Debounce and disable in-flight validated")]
+    public async Task Test23() {
+        await TestResult("test-23");
+    }
+
     private async Task TestResult(string testId) {
         await Page.GotoAsync("https://localhost:44376/");
         var result = Page.Locator($"#{testId}-result");

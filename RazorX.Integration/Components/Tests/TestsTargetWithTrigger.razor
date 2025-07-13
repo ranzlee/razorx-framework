@@ -1,10 +1,11 @@
 @implements IComponentModel<string>
 
-<div id="test-target-with-trigger" data-merged="@(Guid.NewGuid().ToString("N"))">
-    <button id="new-test-target-with-trigger" 
+<div id="@(Model)-target-with-trigger" data-merged="@(Guid.NewGuid().ToString("N"))">
+    <button id="new-@(Model)-target-with-trigger" 
         data-rx-action="/test-target-with-trigger-remove" 
         data-rx-method="POST"
-        data-merged="@(Guid.NewGuid().ToString("N"))">
+        data-merged="@(Guid.NewGuid().ToString("N"))"
+        name="mode" value="@(Model)">
         *
     </button>
 </div>

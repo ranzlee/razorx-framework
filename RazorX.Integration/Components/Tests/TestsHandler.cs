@@ -58,17 +58,17 @@ public class TestsHandler : IRequestHandler {
     public static async Task<IResult> TestWithTrigger(HttpContext context, IRxDriver rxDriver, NameValueModel model) {
         var driver = rxDriver.With(context);
         if (model.Mode == "swap") {
-            driver.AddFragment<TestsTargetWithTrigger, string>("swap", "test-target-with-trigger", FragmentMergeStrategyType.Swap);
+            driver.AddFragment<TestsTargetWithTrigger, string>("swap", "swap-target-with-trigger", FragmentMergeStrategyType.Swap);
         } else {
-            driver.AddFragment<TestsTargetWithTrigger, string>("morph", "test-target-with-trigger", FragmentMergeStrategyType.Morph);
+            driver.AddFragment<TestsTargetWithTrigger, string>("morph", "morph-target-with-trigger", FragmentMergeStrategyType.Morph);
         }
         return await driver.Render();
     }
 
-    public static async Task<IResult> TestTriggerRemove(HttpContext context, IRxDriver rxDriver) {
+    public static async Task<IResult> TestTriggerRemove(HttpContext context, IRxDriver rxDriver, NameValueModel model) {
         return await rxDriver
             .With(context)
-            .RemoveElement("new-test-target-with-trigger")
+            .RemoveElement($"new-{model.Mode}-target-with-trigger")
             .Render();
     }
 
