@@ -8,7 +8,10 @@ namespace RazorX.Framework;
 
 public static class RxAntiforgeryExtensions {
 
-    public static void UseRxAntiforgeryCookie(this WebApplication app) {
+    public static string RequestVerificationTokenCookieName { get; private set; } = null!;
+
+    public static void UseRxAntiforgeryCookie(this WebApplication app, string requestVerificationTokenCookieName = "RequestVerificationToken") {
+        RequestVerificationTokenCookieName = requestVerificationTokenCookieName;
         app.UseMiddleware<RxAntiforgeryCookieMiddleware>();
     }
 }
@@ -21,7 +24,7 @@ public sealed class RxAntiforgeryCookieMiddleware(RequestDelegate next) {
             logger.LogTrace("Adding Antiforgery token cookie for {method}:{request}.",
                 context.Request.Method,
                 context.Request.GetDisplayUrl());
-            context.Response.Cookies.Append("RequestVerificationToken", tokenSet.RequestToken!,
+            context.Response.Cookies.Append(RxAntiforgeryExtensions.RequestVerificationTokenCookieName, tokenSet.RequestToken!,
                 new CookieOptions {
                     HttpOnly = false,
                     Secure = true,
