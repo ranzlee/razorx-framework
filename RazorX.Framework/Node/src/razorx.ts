@@ -6,7 +6,13 @@ declare global {
     }
 
     interface HTMLElement {
-        rxTrigger?: string,
+        dataset: {
+            rxIgnore?: string, //data-rx-ignore
+            rxAction?: string, //data-rx-action
+            rxMethod?: string, //data-rx-method
+            rxTrigger?: string, //data-rx-trigger
+            rxDisableInFlight?: string //data-rx-disable-in-flight
+        }
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
         _rxCallbacks?: ElementCallbacks,
     }
@@ -82,15 +88,6 @@ export enum RxResponseHeaders {
     MorphIgnoreActive = "rx-morph-ignore-active"
 }
 
-//TODO: change to "data-" and reference with ".dataset"
-export enum RxAttributes {
-    Ignore = "rx-ignore",
-    Action = "rx-action",
-    Method = "rx-method",
-    Trigger = "rx-trigger",
-    DisableInFlight = "rx-disable-in-flight"
-}
-
 const _requestRefTracker: Set<string> = new Set();
 
 const _fetchRedirect: FetchRedirect = "follow";
@@ -163,7 +160,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     document.addEventListener("DOMContentLoaded", DOMContentLoaded);
 
     function getMethod(ele: HTMLElement): HttpMethod {
-        let m = ele.getAttribute(RxAttributes.Method)?.trim().toUpperCase() ?? "";
+        let m = ele.dataset.rxMethod?.trim().toUpperCase() ?? "";
         switch (m) {
             case "":
             case "GET":
@@ -244,15 +241,15 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (!form && "name" in ele && "value" in ele && typeof ele.name === "string" && typeof ele.value === "string") {
                 body.append(ele.name, ele.value);
             }
-            const h = new Headers();
-            h.set(RxRequestHeader, "");
+            const headers = new Headers();
+            headers.set(RxRequestHeader, "");
             const ac = new AbortController();
             let request: RequestDetail = {
-                action: ele.getAttribute(RxAttributes.Action) ?? "", 
+                action: ele.dataset.rxAction ?? "", 
                 method: getMethod(ele),
                 redirect: _fetchRedirect,
                 body,
-                headers: h,
+                headers: headers,
                 signal: ac.signal,
             };
 
@@ -313,7 +310,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 return;
             }
             _requestRefTracker.add(ele.id);
-            const disableElement = ele.getAttribute(RxAttributes.DisableInFlight);
+            const disableElement = ele.dataset.rxDisableInFlight ?? null;
             let response: Response | null = null;
             try {
                 if (disableElement !== null && disableElement.toLowerCase() !== "false") {
@@ -532,7 +529,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (!(n instanceof HTMLElement)) {
                     return;
                 }
-                //TODO: EDGE CASE - what if the rx-trigger attribute is morphed?
+                //TODO: EDGE CASE - what if the data-rx-trigger attribute is morphed?
                 //addTriggers(node);
                 if (_callbacks.onElementMorphed) {
                     _callbacks.onElementMorphed(n);
@@ -556,7 +553,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function addCookieToRequest(detail: RequestDetail, cookie: string): void {
-        //let tokenName = options?.requestVerificationTokenCookieName ?? requestVerificationTokenCookieName;
         const value = `; ${document.cookie}`;
         const parts = value.split(`; ${cookie}=`);
         if (parts.length !== 2) {
@@ -605,18 +601,19 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function addTriggers(ele: HTMLElement) {
-        const firstIgnore = ele.closest(`[${RxAttributes.Ignore}]`);
-        if (firstIgnore && firstIgnore.getAttribute(RxAttributes.Ignore)?.toLowerCase() !== "false") {
+        const firstIgnore = ele.closest("[data-rx-ignore]");
+        if (firstIgnore && firstIgnore instanceof HTMLElement && firstIgnore.dataset.rxIgnore?.toLowerCase() !== "false") {
             return;
         }
-        if (ele.matches(`[${RxAttributes.Action}]`)) {
+        //if (ele.matches(`[${RxAttributes.Action}]`)) {
+        if (ele.dataset.rxAction) {
             let initializeElement = true;
             if (_callbacks.beforeInitializeElement) {
                 initializeElement = _callbacks.beforeInitializeElement(ele);
             }
             if (initializeElement) {
                 if (!ele.id || ele.id.trim() === "") {
-                    const err = `Element with \"${RxAttributes.Action}\" must have a unique ID.`;
+                    const err = `Element with \"data-rx-action\" must have a unique ID.`;
                     throw new Error(err);
                 }
                 //enforce the existence of the element rxTrigger, addRxCallbacks() and _rxCallbacks properties
@@ -636,20 +633,17 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     value: elementCallbacks,
                     writable: false,
                 });
-                let rxTrigger = ele.getAttribute(RxAttributes.Trigger);
+                let rxTrigger = ele.dataset.rxTrigger;
                 //TODO: allow multiple triggers -e.g., "click keydown"
                 if (!rxTrigger) {
                     rxTrigger = ele.matches("form")
                         ? "submit" 
                         : ele.matches("input:not([type=button]),select,textarea") ? "change" : "click";
+                    ele.setAttribute("data-rx-trigger", rxTrigger);
                 }
-                Object.defineProperty(ele, "rxTrigger", {
-                    value: rxTrigger,
-                    writable: false,
-                });
                 //id is required and mustn't be modified
                 Object.freeze(ele.id);
-                ele.addEventListener(ele.rxTrigger!, elementTriggerEventHandler);
+                ele.addEventListener(ele.dataset.rxTrigger!, elementTriggerEventHandler);
                 if (_callbacks.afterInitializeElement) {
                     _callbacks.afterInitializeElement(ele);
                 }
@@ -668,9 +662,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function removeTriggers(ele: HTMLElement) {
-        if (ele.rxTrigger) {	
+        if (ele.dataset.rxTrigger) {	
             //remove the event handler reference
-            ele.removeEventListener(ele.rxTrigger, elementTriggerEventHandler);
+            ele.removeEventListener(ele.dataset.rxTrigger, elementTriggerEventHandler);
         }
         const children = ele.children;
         if (children?.length <= 0) {
