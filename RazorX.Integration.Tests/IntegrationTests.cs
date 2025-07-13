@@ -1,4 +1,4 @@
-﻿namespace RazorX.Framework.Tests;
+﻿namespace RazorX.Integration.Tests;
 
 
 [TestClass]

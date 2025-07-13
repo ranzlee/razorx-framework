@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace RazorX.Framework.Tests;
+namespace RazorX.Integration.Tests;
 
 [TestClass]
 public static class Initialize {

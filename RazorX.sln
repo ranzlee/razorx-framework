@@ -7,7 +7,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Framework", "RazorX.
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Integration", "RazorX.Integration\RazorX.Integration.csproj", "{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Framework.Tests", "RazorX.Framework.Tests\RazorX.Framework.Tests.csproj", "{CF795D16-5985-4655-A2A9-ABA5D182B4AA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Integration.Tests", "RazorX.Integration.Tests\RazorX.Integration.Tests.csproj", "{CF795D16-5985-4655-A2A9-ABA5D182B4AA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
