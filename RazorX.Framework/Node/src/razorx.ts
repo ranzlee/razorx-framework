@@ -206,7 +206,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 targetElement.setAttribute("disabled", "");
             } else {
                 targetElement.removeAttribute("disabled");
-                targetElement.focus();
+                //targetElement.focus();
             }
         }
     }
@@ -227,11 +227,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     timeoutId = null;
                     Promise.resolve(func(ele, evt))
                         .then((result) => {
-                            pending.forEach(({ resolve: pResolve }) => pResolve(result));
-                            pending = []; 
+                            pending.forEach(({ resolve: res }) => res(result)); 
                         })
                         .catch((error: unknown) => {
-                            pending.forEach(({ reject: pReject }) => pReject(error));
+                            pending.forEach(({ reject: rej }) => rej(error));
+                        })
+                        .finally(() => {
                             pending = []; 
                         });
                 }, delay);
