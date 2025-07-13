@@ -25,7 +25,6 @@ export interface RazorX {
 }
 
 export interface Options {
-    log?: boolean,
     addCookieToRequestHeader?: string | string[],
     encodeRequestFormDataAsJson?: boolean, //true
 }
@@ -134,10 +133,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (!(node instanceof HTMLElement)) {
                     return;
                 }
-                if (options?.log) {
-                    console.log("rxMutationObserver: Removing DOM Element.");
-                    console.warn(node);
-                }
                 removeTriggers(node);
                 if (_callbacks.onElementRemoved) {
                     _callbacks.onElementRemoved(node);
@@ -146,10 +141,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             rec.addedNodes.forEach(node => { 
                 if (!(node instanceof HTMLElement)) {
                     return;
-                }
-                if (options?.log) {
-                    console.log("rxMutationObserver: Adding DOM Element.");
-                    console.warn(node);
                 }
                 normalizeScriptTags(node);
                 addTriggers(node);
@@ -274,10 +265,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (_requestRefTracker.has(ele.id)) {
                 throw new Error(`Element ${ele.id} is already executing a request.`);
             }
-            if (options?.log) {
-                console.log("elementTriggerProcessor: Request triggered for element.");
-                console.warn(ele);
-            }
             let form: HTMLFormElement | null = null;
             if ("form" in ele && ele.form instanceof HTMLFormElement) {
                 form = ele.form; 
@@ -313,9 +300,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (options?.encodeRequestFormDataAsJson === undefined
                 || options.encodeRequestFormDataAsJson === true) {
                 encodeBodyAsJson(request);
-                if (options?.log) {
-                    console.log("elementTriggerProcessor: FormData converted to JSON.");
-                }
             }
             if (/GET|DELETE/.test(request.method!)) {
                 let params = new URLSearchParams(request.body! as unknown as Record<string, string>);
@@ -323,13 +307,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     request.action += (/\?/.test(request.action!) ? "&" : "?") + params;
                 }
                 request.body = "";
-                if (options?.log) {
-                    console.log("elementTriggerProcessor: GET/DELETE Request body converted to URLSearchParams.");
-                }
-            }
-            if (options?.log) {
-                console.log("elementTriggerProcessor: RequestDetail created.");
-                console.warn(request);
             }
             let config: RequestConfiguration = {
                 trigger: evt,
@@ -339,20 +316,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 headers: request.headers,
                 abort: ac.abort.bind(ac),
             }
-            if (options?.log) {
-                console.log("elementTriggerProcessor: RequestConfiguration created.");
-                console.warn(config);
-            }
             _requestRefTracker.add(ele.id);
             const disableElement = ele.dataset.rxDisableInFlight ?? null;
             let response: Response | null = null;
             try {
                 if (disableElement !== null && disableElement.toLowerCase() !== "false") {
                     toggleDisable(ele, true);
-                }
-                if (options?.log) {
-                    console.log(`elementTriggerProcessor: Fetching ${request.action} for element.`);
-                    console.warn(ele);
                 }
                 if (ele._rxCallbacks!.beforeFetch) {
                     ele._rxCallbacks!.beforeFetch(config);
@@ -361,18 +330,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     _callbacks.beforeFetch(ele, config);
                 }
                 if (ac.signal.aborted) {
-                    if (options?.log) {
-                        console.log("elementTriggerProcessor: Request aborted before fetch for element.");
-                        console.warn(ele);
-                    }
                     return;
                 }
                 response = await fetch(request.action, request);
                 if (ac.signal.aborted) {
-                    if (options?.log) {
-                        console.log("elementTriggerProcessor: Request aborted during fetch for element.");
-                        console.warn(ele);
-                    }
                     return;
                 }
                 if (ele._rxCallbacks!.afterFetch) {
@@ -395,33 +356,18 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             if (response.status === 202) {
                 //used to issue a follow-up GET request for rendering
-                if (options?.log) {
-                    console.log("elementTriggerProcessor: Response 202 for element.");
-                    console.warn(ele);
-                }
                 const location = response.headers.get("location");
                 if (location && location.trim() !== "") {
-                    if (options?.log) {
-                        console.log(`elementTriggerProcessor: Response 202 replacing location with ${location}.`);
-                    }
                     window.location.replace(location);
                 }
                 return; 
             }
             if (response.status === 204) {
                 //skip response merge 
-                if (options?.log) {
-                    console.log("elementTriggerProcessor: Response 204 for element.");
-                    console.warn(ele);
-                }
                 return;
             }
             if (response.status >= 400) {
                 //dev error response
-                if (options?.log) {
-                    console.log(`elementTriggerProcessor: Response ${response.status} for element.`);
-                    console.warn(ele);
-                }
                 document.rxMutationObserver?.disconnect();
                 removeTriggers(document.body);
                 document.head.innerHTML = "<title>Error</title>";
@@ -434,16 +380,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 }
                 return;
             }
-            if (options?.log) {
-                console.log("elementTriggerProcessor: Response merge processing for request triggered by element.");
-                console.warn(ele);
-            }
             if (document.startViewTransition !== undefined) {
                 await document.startViewTransition(async () => await mergeFragments(ele, response)).finished;
             } else {
-                if (options?.log) {
-                    console.log("elementTriggerProcessor: startViewTransition is not supported.");
-                }
                 await mergeFragments(ele, response);
             }
             if (ele._rxCallbacks!.afterDocumentUpdate) {
