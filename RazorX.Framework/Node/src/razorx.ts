@@ -79,6 +79,7 @@ export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export type FetchRedirect = "follow" | "error" | "manual";
 
+//TODO: union with InsertPosition
 export type MergeStrategyType = "swap" | "afterbegin" | "afterend" | "beforebegin" | "beforeend" | "morph" | "remove";
 
 export const RxRequestHeader = "rx-request";
