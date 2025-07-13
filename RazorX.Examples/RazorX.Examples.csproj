@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RazorX.Framework\RazorX.Framework.csproj" />
+  </ItemGroup>
+
+  <Target Name="CopyJsFiles" AfterTargets="Compile">
+    <ItemGroup>
+      <JsFiles Include="../RazorX.Framework/Node/dist/*.*"/>
+    </ItemGroup>
+    <Copy SourceFiles="@(JsFiles)" DestinationFolder="wwwroot" />
+  </Target>
+
+</Project>

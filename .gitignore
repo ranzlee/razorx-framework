@@ -30,3 +30,7 @@ RazorX.Integration/appsettings.Development.json
 # RazorX.Integration.Tests Project artifacts
 RazorX.Integration.Tests/bin/
 RazorX.Integration.Tests/obj/
+
+# RazorX.Examples Project artifacts
+RazorX.Examples/bin/
+RazorX.Examples/obj/
