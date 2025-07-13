@@ -34,3 +34,4 @@ RazorX.Integration.Tests/obj/
 # RazorX.Examples Project artifacts
 RazorX.Examples/bin/
 RazorX.Examples/obj/
+RazorX.Examples/wwwroot/razorx.*
