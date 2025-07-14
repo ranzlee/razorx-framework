@@ -11,7 +11,7 @@ public class ExamplesHandler : IRequestHandler {
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver) {
         return await rxDriver
             .With(context)
-            .AddPage<App, ExamplesHead, ExamplesPage>("RazorX - Examples")
+            .AddPage<App, ExamplesHead, ExamplesPage, ExampleModel>(new ExampleModel([]), "RazorX - Examples")
             .Render();
     }
 }

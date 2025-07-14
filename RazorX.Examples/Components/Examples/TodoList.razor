@@ -1,0 +1,9 @@
+@implements IComponentModel<IEnumerable<TodoModel>>
+
+@foreach (var todo in Model) {
+    <TodoItem Model="@(todo!)"></TodoItem>
+}
+
+@code {
+    [Parameter] public IEnumerable<TodoModel> Model { get; set; } = [];
+}

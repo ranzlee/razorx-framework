@@ -1,0 +1,7 @@
+@implements IComponentModel<ExampleModel>
+
+<TodoExample Model="@(Model.Todos)"></TodoExample>
+
+@code {
+    [Parameter] public ExampleModel Model { get; set; } = null!;
+}

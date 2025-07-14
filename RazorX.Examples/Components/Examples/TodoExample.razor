@@ -1,0 +1,17 @@
+@implements IComponentModel<IEnumerable<TodoModel>>
+
+<div class="grid">
+  <div>
+    <input type="search" name="filter" placeholder="Search TODOs" aria-label="Search TODOs">
+  </div>
+  <div class="flex justify-right">
+    <button>New TODO</button>
+  </div>
+</div>
+<div>
+    <TodoList Model="@(Model)"></TodoList>
+</div>
+
+@code {
+    [Parameter] public IEnumerable<TodoModel> Model { get; set; } = [];
+}
