@@ -33,6 +33,7 @@ public class ExamplesHandler : IRequestHandler {
     }
 
     public static async Task<IResult> DeleteTodo(HttpContext context, IRxDriver rxDriver, int id) {
+        Todos.Remove(Todos.Single(x => x.Id == id));
         return await rxDriver
             .With(context)
             .AddTriggerCloseDialog("delete-todo-modal")
