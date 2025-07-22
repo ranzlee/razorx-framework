@@ -7,12 +7,15 @@ declare global {
 
     interface HTMLElement {
         dataset: {
+            // all dataset props must be strings
             rxIgnore?: string, //data-rx-ignore
             rxAction?: string, //data-rx-action
             rxMethod?: string, //data-rx-method
             rxTrigger?: string, //data-rx-trigger
+            rxAllowEventDefault?: string //data-rx-allow-default
             rxDisableInFlight?: string, //data-rx-disable-in-flight
             rxDebounce?: string //data-rx-debounce
+            rxHoistTo?: string //transfer rx behaviors to another element
         },
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
         _rxCallbacks?: ElementCallbacks,
@@ -82,11 +85,14 @@ export type FetchRedirect = "follow" | "error" | "manual";
 //TODO: union with InsertPosition
 export type MergeStrategyType = "swap" | "afterbegin" | "afterend" | "beforebegin" | "beforeend" | "morph" | "remove";
 
+export type RxResponseHeaders = "rx-merge" | "rx-morph-ignore-active" | "rx-trigger-close-dialog";
+
 export const RxRequestHeader = "rx-request";
 
-export enum RxResponseHeaders {
-    Merge = "rx-merge",
-    MorphIgnoreActive = "rx-morph-ignore-active"
+export type RxCloseDialogTrigger = {
+    dialogId: string,
+    onCloseData?: string,
+    resetFormId?: string
 }
 
 const _processedScriptTag = "data-rx-script-processed";
@@ -242,16 +248,18 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         };
     }
 
-
     async function elementTriggerEventHandler(this: HTMLElement, evt: Event): Promise<void> {
         //TODO: is request queueing also needed?
-        if (!this.dataset.rxDebounce) {
+        const debounceValue = this.dataset.rxDebounce?.trim().toLowerCase();
+        if (debounceValue === undefined) {
             await elementTriggerProcessor(this, evt);
             return;
         }
-        const delay = parseInt(this.dataset.rxDebounce, 10);
+        const delay = parseInt(debounceValue, 10);
         if (Number.isNaN(delay) || delay <= 0) {
-            throw new Error(`Element ${this.id} data-rx-debounce attribute value must be a valid number greater than zero.`);
+            console.warn(`The data-rx-debounce attribute on element ${this.id} is invalid. It must be a number >= zero`);
+            await elementTriggerProcessor(this, evt);
+            return;
         }
         let debounceElementTrigger = _debouncedRequests.get(this.id);
         if (debounceElementTrigger) {
@@ -264,7 +272,13 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     async function elementTriggerProcessor(ele: HTMLElement, evt: Event): Promise<void> {
-        evt.preventDefault();
+        const allowEventDefault = ele.dataset.rxAllowEventDefault?.trim().toLowerCase();
+        if (allowEventDefault !== undefined && allowEventDefault !== "" && allowEventDefault !== "true" && allowEventDefault !== "false") {
+            console.warn(`The data-rx-allow-event-default attribute on element ${ele.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
+        }
+        if (allowEventDefault === undefined || allowEventDefault === "false") {
+            evt.preventDefault();
+        }
         try {   
             _debouncedRequests.delete(ele.id);
             if (_requestRefTracker.has(ele.id)) {
@@ -278,7 +292,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 form = ele.closest("form");
             }
             const body = new FormData(form ?? undefined, evt instanceof SubmitEvent ? evt.submitter : null);
-            if (!form && "name" in ele && "value" in ele && typeof ele.name === "string" && typeof ele.value === "string") {
+            if (!form && "name" in ele && "value" in ele && typeof ele.name === "string" && typeof ele.value === "string" && ele.name.trim() !== "") {
                 body.append(ele.name, ele.value);
             }
             const headers = new Headers();
@@ -306,7 +320,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 encodeBodyAsJson(request);
             }
             if (/GET|DELETE/.test(request.method!)) {
-                const params = new URLSearchParams(request.body! as unknown as Record<string, string>);
+                const params = request.body instanceof FormData 
+                    ? new URLSearchParams(request.body! as unknown as Record<string, string>)
+                    : new URLSearchParams(request.body);
+                //const params = new URLSearchParams(request.body.toString());
                 if (params.size) {
                     request.action += (/\?/.test(request.action!) ? "&" : "?") + params;
                 }
@@ -321,10 +338,13 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 abort: ac.abort.bind(ac),
             }
             _requestRefTracker.add(ele.id);
-            const disableElement = ele.dataset.rxDisableInFlight ?? null;
+            const disableElement = ele.dataset.rxDisableInFlight?.trim().toLowerCase();
+            if (disableElement !== undefined && disableElement !== "" && disableElement !== "true" && disableElement !== "false") {
+                console.warn(`The data-rx-disable-in-flight attribute on element ${ele.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
+            }
             let response: Response | null = null;
             try {
-                if (disableElement !== null && disableElement.toLowerCase() !== "false") {
+                if (disableElement !== undefined && disableElement.toLowerCase() !== "false") {
                     toggleDisable(ele, true);
                 }
                 if (ele._rxCallbacks!.beforeFetch) {
@@ -350,7 +370,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 sendError(ele, error);
             } finally {
                 _requestRefTracker.delete(ele.id);
-                if (disableElement !== null && disableElement.toLowerCase() !== "false") {
+                if (disableElement !== undefined && disableElement.toLowerCase() !== "false") {
                     toggleDisable(ele, false);
                 }
             }
@@ -362,13 +382,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 //used to issue a follow-up GET request for rendering
                 const location = response.headers.get("location");
                 if (location && location.trim() !== "") {
-                    window.location.replace(location);
+                    window.location.assign(location);
                 }
                 return; 
-            }
-            if (response.status === 204) {
-                //skip response merge 
-                return;
             }
             if (response.status >= 400) {
                 //dev error response
@@ -384,10 +400,42 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 }
                 return;
             }
+            const closeDialog: RxResponseHeaders = "rx-trigger-close-dialog";
+            const dialogTriggerString = response.headers.get(closeDialog);
+            if (dialogTriggerString) {
+                const dialogTrigger: RxCloseDialogTrigger = JSON.parse(dialogTriggerString);
+                const modal = document.getElementById(dialogTrigger.dialogId);
+                if (modal instanceof HTMLDialogElement) {
+                    modal.close(dialogTrigger.onCloseData);
+                    if (dialogTrigger.resetFormId) {
+                        const form = document.getElementById(dialogTrigger.resetFormId);
+                        if (form instanceof HTMLFormElement) {
+                            form.reset();
+                        }
+                    }
+                }
+            }
+            const mergeHeader: RxResponseHeaders = "rx-merge";
+            const merge = response?.headers.get(mergeHeader);
+            if (!merge) {
+                throw new Error(`Expected a "${mergeHeader}" header object.`);
+            }
+            const mergeStrategyArray: MergeStrategy[] = JSON.parse(merge);
+            if (response.status === 204) {
+                const removals = mergeStrategyArray.filter(s => s.strategy === "remove");
+                if (removals.length > 0) {
+                    if (document.startViewTransition !== undefined) {
+                        await document.startViewTransition(() => removeElements(ele, removals)).finished;
+                    } else {
+                        removeElements(ele, removals);
+                    }
+                }
+                return;
+            }
             if (document.startViewTransition !== undefined) {
-                await document.startViewTransition(async () => await mergeFragments(ele, response)).finished;
+                await document.startViewTransition(async () => await mergeFragments(ele, response, mergeStrategyArray)).finished;
             } else {
-                await mergeFragments(ele, response);
+                await mergeFragments(ele, response, mergeStrategyArray);
             }
             if (ele._rxCallbacks!.afterDocumentUpdate) {
                 ele._rxCallbacks!.afterDocumentUpdate();
@@ -399,6 +447,22 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             sendError(ele, error);
         } 
     } 
+
+    function removeElements(triggerElement: HTMLElement, removals: MergeStrategy[]): void {
+        removals.forEach(r => {
+            const target = document.getElementById(r.target);
+            if (!target) {
+                return;
+            }
+            if (triggerElement._rxCallbacks!.beforeDocumentUpdate && triggerElement._rxCallbacks!.beforeDocumentUpdate(target, r.strategy) === false) {
+                return;
+            }
+            if (_callbacks.beforeDocumentUpdate && _callbacks.beforeDocumentUpdate(triggerElement, target, r.strategy) === false) {
+                return;
+            }
+            target.remove();
+        });
+    }
 
     function processScript(script: HTMLScriptElement): void {
         if (script.hasAttribute(_processedScriptTag)) {
@@ -456,12 +520,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         return target;
     }
 
-    async function mergeFragments(triggerElement: HTMLElement, response: Response): Promise<void> {
-        const merge = response?.headers.get(RxResponseHeaders.Merge);
-        if (!merge) {
-            throw new Error(`Expected a "${RxResponseHeaders.Merge}" header object.`);
-        }
-        const mergeStrategyArray: MergeStrategy[] = JSON.parse(merge);
+    async function mergeFragments(triggerElement: HTMLElement, response: Response, mergeStrategyArray: MergeStrategy[]): Promise<void> {
+        const removals = mergeStrategyArray.filter(s => s.strategy === "remove");
+        removeElements(triggerElement, removals);
         const parser = new DOMParser();
         const doc = parser.parseFromString("<body><template>" + await response.text() + "</template></body>", "text/html");
         const template = doc.body.querySelector("template")?.content;
@@ -493,12 +554,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     return;
                 }
                 //insert the first element based on the strategy
-                target.insertAdjacentElement(s.strategy as InsertPosition, newContent[0]);
-                let thisEle = newContent[0];
+                target.insertAdjacentElement(s.strategy as InsertPosition, newContent[0]!);
+                let thisEle = newContent[0]!;
                 //insert the remainder afterend of the previous element
                 for (let i = 1; i < newContent.length; i++) {
-                    thisEle.insertAdjacentElement("afterend", newContent[i]);
-                    thisEle = newContent[i];
+                    thisEle.insertAdjacentElement("afterend", newContent[i]!);
+                    thisEle = newContent[i]!;
                 }
             }
         });
@@ -512,7 +573,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (!target) {
                 return;
             }
-            const ignoreActive = response?.headers.has(RxResponseHeaders.MorphIgnoreActive);
+            const ignoreActiveHeader: RxResponseHeaders = "rx-morph-ignore-active"
+            const ignoreActive = response?.headers.has(ignoreActiveHeader);
             Idiomorph.morph(target, Array.from(fragment.content.children), { 
                 morphStyle: "outerHTML", 
                 ignoreActiveValue: ignoreActive,
@@ -526,20 +588,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     _callbacks.onElementMorphed(n);
                 }
             });
-        });
-        const removals = mergeStrategyArray.filter(s => s.strategy === "remove");
-        removals.forEach(r => {
-            const target = document.getElementById(r.target);
-            if (!target) {
-                return;
-            }
-            if (triggerElement._rxCallbacks!.beforeDocumentUpdate && triggerElement._rxCallbacks!.beforeDocumentUpdate(target, r.strategy) === false) {
-                return;
-            }
-            if (_callbacks.beforeDocumentUpdate && _callbacks.beforeDocumentUpdate(triggerElement, target, r.strategy) === false) {
-                return;
-            }
-            target.remove();
         });
     }
 
@@ -561,21 +609,25 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             return;
         }
         const object: Record<string, string | string[]> = {};
+        let hasProps = false;
         detail.body?.forEach((value: FormDataEntryValue, key: string) => {
             if (value instanceof Blob) {
                 //skip any input [type=file] for XMLHttpRequest processing
                 return;
             }
+            hasProps = true;
             if (Object.hasOwn(object, key)) {
-                if (!Array.isArray(object[key])) {
-                    object[key] = [object[key]];
+                if (!Array.isArray(object[key]!)) {
+                    object[key] = [object[key]!];
                 }
                 object[key].push(value);
             } else {
                 object[key] = value;
             }
         })
-        detail.body = JSON.stringify(object);
+        if (hasProps) {
+            detail.body = JSON.stringify(object);
+        }
     }
 
     function DOMContentLoaded(): void {
@@ -591,53 +643,27 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
-    function addTriggers(ele: HTMLElement) {
+    function addTriggers(ele: HTMLElement): void {
         const firstIgnore = ele.closest("[data-rx-ignore]");
-        if (firstIgnore && firstIgnore instanceof HTMLElement && firstIgnore.dataset.rxIgnore?.toLowerCase() !== "false") {
-            return;
-        }
-        //if (ele.matches(`[${RxAttributes.Action}]`)) {
-        if (ele.dataset.rxAction) {
-            let initializeElement = true;
-            if (_callbacks.beforeInitializeElement) {
-                initializeElement = _callbacks.beforeInitializeElement(ele);
+        if (firstIgnore && firstIgnore instanceof HTMLElement) { 
+            const ignore = firstIgnore.dataset.rxIgnore?.trim().toLowerCase();
+            if (ignore !== "" && ignore !== "true" && ignore !== "false") {
+                console.warn(`The data-rx-ignore attribute on element ${firstIgnore.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
             }
-            if (initializeElement) {
-                if (!ele.id || ele.id.trim() === "") {
-                    const err = `Element with "data-rx-action" must have a unique ID.`;
-                    throw new Error(err);
-                }
-                //enforce the existence of the element rxTrigger, addRxCallbacks() and _rxCallbacks properties
-                const elementCallbacks: ElementCallbacks = {};
-                const addCallbacks = (callbacks: ElementCallbacks): void => {
-                    elementCallbacks.afterDocumentUpdate = callbacks.afterDocumentUpdate;
-                    elementCallbacks.afterFetch = callbacks.afterFetch;
-                    elementCallbacks.beforeDocumentUpdate = callbacks.beforeDocumentUpdate;
-                    elementCallbacks.beforeFetch = callbacks.beforeFetch;
-                    elementCallbacks.onElementTriggerError = callbacks.onElementTriggerError;
-                }
-                Object.defineProperty(ele, "addRxCallbacks", {
-                    value: addCallbacks,
-                    writable: false,
-                });
-                Object.defineProperty(ele, "_rxCallbacks", {
-                    value: elementCallbacks,
-                    writable: false,
-                });
-                let rxTrigger = ele.dataset.rxTrigger;
-                //TODO: allow multiple triggers -e.g., "click keydown"
-                if (!rxTrigger) {
-                    rxTrigger = ele.matches("form")
-                        ? "submit" 
-                        : ele.matches("input:not([type=button]),select,textarea") ? "change" : "click";
-                    ele.setAttribute("data-rx-trigger", rxTrigger);
-                }
-                //id is required and mustn't be modified
-                Object.freeze(ele.id);
+            if (ignore !== "false") {
+                return;
+            }  
+        }
+        if (ele.dataset.rxAction && (!_callbacks.beforeInitializeElement || _callbacks.beforeInitializeElement(ele))) {
+            configureElement(ele);
+            setTrigger(ele);
+            if (ele.dataset.rxHoistTo) {
+                ele.addEventListener(ele.dataset.rxTrigger!, elementHoistEventHandler);
+            } else {
                 ele.addEventListener(ele.dataset.rxTrigger!, elementTriggerEventHandler);
-                if (_callbacks.afterInitializeElement) {
-                    _callbacks.afterInitializeElement(ele);
-                }
+            }
+            if (_callbacks.afterInitializeElement) {
+                _callbacks.afterInitializeElement(ele);
             }
         }
         const children = ele.children;
@@ -652,10 +678,73 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
-    function removeTriggers(ele: HTMLElement) {
+    async function elementHoistEventHandler(this: HTMLElement): Promise<void> {
+        const hoistTargetId = this.dataset.rxHoistTo ?? "";
+        const hoistTarget = document.getElementById(hoistTargetId);
+        if (!hoistTarget) {
+            const err = `Element ${this.id} with "data-rx-hoist-to" ${this.dataset.rxHoistTo} does not reference a valid DOM element.`;
+            throw new Error(err);
+        }
+        Array.from(this.attributes).forEach(attr => {
+            if (attr.name === "data-rx-action" || attr.name === "data-rx-method") {
+                hoistTarget.setAttribute(attr.name, attr.value);
+            }
+        });
+        if (!hoistTarget.addRxCallbacks) {
+            configureElement(hoistTarget);
+        }
+        if (hoistTarget.dataset.rxTrigger) {	
+            hoistTarget.removeEventListener(hoistTarget.dataset.rxTrigger, elementTriggerEventHandler);
+        } else {
+            setTrigger(hoistTarget);
+        }
+        hoistTarget.addEventListener(hoistTarget.dataset.rxTrigger!, elementTriggerEventHandler);
+        if (_callbacks.afterInitializeElement) {
+            _callbacks.afterInitializeElement(hoistTarget);
+        }
+    }
+
+    function configureElement(ele: HTMLElement): void {
+        if (!ele.id || ele.id.trim() === "") {
+            const err = `Element with "data-rx-action" must have a unique ID.`;
+            throw new Error(err);
+        }
+        //id is required and mustn't be modified
+        Object.freeze(ele.id);
+        //enforce the existence of the element rxTrigger, addRxCallbacks() and _rxCallbacks properties
+        const elementCallbacks: ElementCallbacks = {};
+        const addCallbacks = (callbacks: ElementCallbacks): void => {
+            elementCallbacks.afterDocumentUpdate = callbacks.afterDocumentUpdate;
+            elementCallbacks.afterFetch = callbacks.afterFetch;
+            elementCallbacks.beforeDocumentUpdate = callbacks.beforeDocumentUpdate;
+            elementCallbacks.beforeFetch = callbacks.beforeFetch;
+            elementCallbacks.onElementTriggerError = callbacks.onElementTriggerError;
+        }
+        Object.defineProperty(ele, "addRxCallbacks", {
+            value: addCallbacks,
+            writable: false,
+        });
+        Object.defineProperty(ele, "_rxCallbacks", {
+            value: elementCallbacks,
+            writable: false,
+        });
+    }
+
+    function setTrigger(ele: HTMLElement): void {
+        //TODO: allow multiple triggers -e.g., "click keydown"
+        let rxTrigger = ele.dataset.rxTrigger;
+        if (!rxTrigger) {
+            rxTrigger = ele.matches("form")
+                ? "submit" 
+                : ele.matches("input:not([type=button]),select,textarea") ? "change" : "click";
+            ele.setAttribute("data-rx-trigger", rxTrigger);
+        }
+    }
+
+    function removeTriggers(ele: HTMLElement): void {
         if (ele.dataset.rxTrigger) {	
-            //remove the event handler reference
             ele.removeEventListener(ele.dataset.rxTrigger, elementTriggerEventHandler);
+            ele.removeEventListener(ele.dataset.rxTrigger, elementHoistEventHandler);
         }
         const children = ele.children;
         if (children?.length <= 0) {

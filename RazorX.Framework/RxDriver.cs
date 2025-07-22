@@ -17,6 +17,8 @@ public enum FragmentMergeStrategyType {
     Morph = 5
 }
 
+public record CloseDialogTrigger(string DialogId, string? OnCloseData, string? ResetFormId);
+
 public static class RxDriverServices {
     public static void AddRxDriver(this IServiceCollection services) {
         if (!services.Any(x => x.ServiceType == typeof(HtmlRenderer))) {
@@ -67,6 +69,8 @@ public interface IRxResponseBuilder {
 
     IRxResponseBuilder RemoveElement(string targetId);
 
+    IRxResponseBuilder AddTriggerCloseDialog(string dialogId, string? onCloseData = null, string? resetFormId = null);
+
     Task<IResult> Render(
         bool ignoreActiveElementValueOnMorph = false
     );
@@ -97,6 +101,7 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
     private readonly StringBuilder content = new();
     private readonly List<Task> renderTasks = [];
     private readonly List<MergeStrategy> mergeStrategies = [];
+    private CloseDialogTrigger? closeDialogTrigger;
     private static readonly JsonSerializerOptions serializerSettings = new(JsonSerializerDefaults.Web);
 
     public IRxResponseBuilder AddPage<TRoot, TComponent, TModel>(TModel model, string? title = null)
@@ -202,6 +207,12 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
         return this;
     }
 
+    public IRxResponseBuilder AddTriggerCloseDialog(string dialogId, string? onCloseData = null, string? resetFormId = null) {
+        CheckRenderingStatus();
+        closeDialogTrigger = new(dialogId, onCloseData, resetFormId);
+        return this;
+    }
+
     public async Task<IResult> Render(
         bool ignoreActiveElementValueOnMorph = false
     ) {
@@ -214,6 +225,11 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
             throw new InvalidOperationException("Partial rendering is not supported for synchronous requests.");
         }
         isRendering = true;
+        //triggers
+        if (closeDialogTrigger != null) {
+            context.Response.Headers.Append("rx-trigger-close-dialog", JsonSerializer.Serialize(closeDialogTrigger, serializerSettings));
+        }
+        //fragments
         if (ignoreActiveElementValueOnMorph) {
             context.Response.Headers.Append("rx-morph-ignore-active", string.Empty);
         }
@@ -222,7 +238,10 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
             logger.LogDebug("Rendering Fragments");
             await Task.WhenAll(renderTasks);
         }
-        return Results.Content(content.ToString(), "text/html");
+        if (content.Length == 0) {
+            return TypedResults.NoContent();
+        }
+        return Results.Content(content.ToString(), contentType: "text/html");
     }
 
     private void AddMergeStrategy(string targetId, FragmentMergeStrategyType fragmentMergeStrategy) {

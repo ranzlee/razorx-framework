@@ -1,6 +1,4 @@
 using RazorX.Framework;
-using RazorX.Examples.Components.Error;
-using RazorX.Examples.Components.Layout;
 
 var builder = WebApplication.CreateBuilder(args);
 var services = builder.Services;
@@ -17,15 +15,10 @@ if (!app.Environment.IsDevelopment()) {
     // Redirect errors to the error handler
     app.UseExceptionHandler(handler => {
         handler.Run(context => {
-            if (context.Request.IsRxRequest()) {
-                // Async response exception returns accepted with a location. The client will issue a GET for the error page
-                context.Response.StatusCode = StatusCodes.Status202Accepted;
-                context.Response.Headers.Append("Location", "/error?code=500");
-            } else {
-                // Sync request redirected to the error page
-                context.Response.Redirect("/error?code=500");
-            }
-            return Task.CompletedTask;
+            IResult result = context.Request.IsRxRequest()
+                ? TypedResults.Accepted("/error?code=500")
+                : TypedResults.Redirect("/error?code=500");
+            return result.ExecuteAsync(context);
         });
     });
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
@@ -40,11 +33,11 @@ app.UseRxAntiforgeryCookie();
 // Setup router group
 app.MapGroup(string.Empty)
     .MapRoutes()
-    .MapFallback(static async (HttpContext context, IRxDriver rxDriver) => {
-        return await rxDriver
-            .With(context)
-            .AddPage<App, ErrorPage>("Error")
-            .Render();
+    .MapFallback(static (HttpContext context) => {
+        IResult result = context.Request.IsRxRequest()
+            ? TypedResults.Accepted("/error?code=404")
+            : TypedResults.Redirect("/error?code=404");
+        return result;
     });
 
 app.Run();

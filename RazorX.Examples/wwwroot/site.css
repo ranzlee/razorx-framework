@@ -9,3 +9,7 @@
 .justify-right {
     justify-content: right;
 }
+
+.error {
+    color: firebrick;
+}

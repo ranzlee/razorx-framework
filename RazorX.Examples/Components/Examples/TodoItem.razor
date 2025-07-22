@@ -1,5 +1,33 @@
 @implements IComponentModel<TodoModel>
 
+@* data-rx-hoist="delete-todo-modal-ok"   *@
+
+<article id="todo-item-@(Model.Id)">
+    <button class="outline">Edit</button>
+    <button id="delete-todo-modal-trigger-@(Model.Id)"
+        data-rx-action="/todo/@(Model.Id)"
+        data-rx-method="DELETE"
+        data-rx-hoist-to="delete-todo-modal-ok"
+        class="outline secondary">
+        Delete
+    </button>
+    @(Model.Text)
+    <script>
+        //delete
+        (function(){
+            const modal = document.getElementById("delete-todo-modal");
+            const dismiss = document.getElementById("delete-todo-modal-close");
+            const trigger = document.getElementById("delete-todo-modal-trigger-@(Model.Id)");
+            trigger.onclick = () => {
+                modal.showModal();
+            }
+            dismiss.onclick = () => {
+                modal.close();
+            }
+        })()
+    </script>
+</article>
+
 @code {
     [Parameter] public TodoModel Model { get; set; } = null!;
 }

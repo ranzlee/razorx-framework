@@ -1,16 +1,54 @@
 @implements IComponentModel<IEnumerable<TodoModel>>
 
+<dialog id="new-todo-modal">
+  <article>
+    <h2>New</h2>
+    <TodoForm Model="@(new TodoModel(0, "", false))"></TodoForm>
+    <footer>
+      <button id="new-todo-modal-close" type="button" class="secondary">Cancel</button>
+      <button form="todo-form">Save</button>
+    </footer>
+  </article>
+</dialog>
+
+<dialog id="delete-todo-modal">
+  <article>
+    <h2>Delete</h2>
+    <p>Are you sure?</p>
+    <footer>
+      <button id="delete-todo-modal-close" type="button" class="secondary">Cancel</button>
+      <button id="delete-todo-modal-ok">OK</button>
+    </footer>
+  </article>
+</dialog>
+
 <div class="grid">
   <div>
-    <input type="search" name="filter" placeholder="Search TODOs" aria-label="Search TODOs">
+    <input type="search" name="filter" placeholder="Search" aria-label="Search">
   </div>
   <div class="flex justify-right">
-    <button>New TODO</button>
+    <button id="new-todo-modal-trigger">New</button>
   </div>
 </div>
-<div>
+<br>
+<div id="todo-list">
     <TodoList Model="@(Model)"></TodoList>
 </div>
+
+<script>
+  //new
+  (function(){
+    const modal = document.getElementById("new-todo-modal");
+    const dismiss = document.getElementById("new-todo-modal-close");
+    const trigger = document.getElementById("new-todo-modal-trigger");
+    trigger.onclick = () => {
+      modal.showModal();
+    }
+    dismiss.onclick = () => {
+      modal.close();
+    }
+  })()
+</script>
 
 @code {
     [Parameter] public IEnumerable<TodoModel> Model { get; set; } = [];

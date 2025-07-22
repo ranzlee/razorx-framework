@@ -1,0 +1,13 @@
+@implements IComponentModel<TodoModel>
+
+<form id="todo-form" method="dialog" data-rx-method="POST" data-rx-action="/todo" novalidate>
+    <textarea
+        name="@(nameof(Model.Text))"
+        placeholder="Describe something you need to do..."
+        aria-label="Description of TODO">
+    </textarea>
+</form>
+
+@code {
+    [Parameter] public TodoModel Model { get; set; } = null!;
+}

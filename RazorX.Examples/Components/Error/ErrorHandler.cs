@@ -3,10 +3,12 @@ using RazorX.Examples.Components.Layout;
 
 namespace RazorX.Examples.Components.Error;
 
+public record ErrorModel(int Code);
+
 public class ErrorHandler : IRequestHandler {
 
     public void MapRoutes(IEndpointRouteBuilder router) {
-        router.MapGet("/error", Get);
+        router.Map("/error", Get);
     }
 
     public static async Task<IResult> Get(
