@@ -191,7 +191,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         console.error(err);
     }
 
-    function toggleDisable(ele: HTMLElement, disable: boolean = false) {
+    function toggleDisable(ele: HTMLElement, disable: boolean = false): void {
         let targetElement: HTMLElement | null = null;
         const parentFieldset = ele.closest("fieldset");
         if (parentFieldset) {
@@ -248,26 +248,26 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         };
     }
 
-    async function elementTriggerEventHandler(this: HTMLElement, evt: Event): Promise<void> {
+    function elementTriggerEventHandler(this: HTMLElement, evt: Event): void {
         //TODO: is request queueing also needed?
         const debounceValue = this.dataset.rxDebounce?.trim().toLowerCase();
         if (debounceValue === undefined) {
-            await elementTriggerProcessor(this, evt);
+            elementTriggerProcessor(this, evt);
             return;
         }
         const delay = parseInt(debounceValue, 10);
         if (Number.isNaN(delay) || delay <= 0) {
             console.warn(`The data-rx-debounce attribute on element ${this.id} is invalid. It must be a number >= zero`);
-            await elementTriggerProcessor(this, evt);
+            elementTriggerProcessor(this, evt);
             return;
         }
         let debounceElementTrigger = _debouncedRequests.get(this.id);
         if (debounceElementTrigger) {
-            await debounceElementTrigger(this, evt);
+            debounceElementTrigger(this, evt);
         } else {
             debounceElementTrigger = debounce(elementTriggerProcessor, delay);
             _debouncedRequests.set(this.id, debounceElementTrigger);
-            await debounceElementTrigger(this, evt);
+            debounceElementTrigger(this, evt);
         }
     }
 
@@ -430,13 +430,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         removeElements(ele, removals);
                     }
                 }
-                return;
-            }
-            if (document.startViewTransition !== undefined) {
-                await document.startViewTransition(async () => await mergeFragments(ele, response, mergeStrategyArray)).finished;
             } else {
-                await mergeFragments(ele, response, mergeStrategyArray);
+                if (document.startViewTransition !== undefined) {
+                    await document.startViewTransition(() => mergeFragments(ele, response, mergeStrategyArray)).finished;
+                } else {
+                    mergeFragments(ele, response, mergeStrategyArray);
+                }
             }
+            
             if (ele._rxCallbacks!.afterDocumentUpdate) {
                 ele._rxCallbacks!.afterDocumentUpdate();
             }
@@ -678,7 +679,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
-    async function elementHoistEventHandler(this: HTMLElement): Promise<void> {
+    function elementHoistEventHandler(this: HTMLElement): void {
         const hoistTargetId = this.dataset.rxHoistTo ?? "";
         const hoistTarget = document.getElementById(hoistTargetId);
         if (!hoistTarget) {

@@ -173,7 +173,7 @@ razorx.addCallbacks({
             let target = null;
             ele.addRxCallbacks({
                 beforeFetch: () => {
-                    target = document.getElementById("test-remove-target");
+                    target = document.getElementById("test-multi-remove-target");
                 },
                 afterDocumentUpdate: () => {  
                     if (target === null) {
@@ -181,7 +181,7 @@ razorx.addCallbacks({
                     } else {
                         let swap = document.getElementById("test-swap-target").getAttribute("data-merged");
                         let morph = document.getElementById("test-morph-target").getAttribute("data-merged");
-                        setResult(ele, swap && morph && document.getElementById("test-remove-target") === null);
+                        setResult(ele, swap && morph && document.getElementById("test-multi-remove-target") === null);
                         document.getElementById("targets").appendChild(target);
                     }
                 }

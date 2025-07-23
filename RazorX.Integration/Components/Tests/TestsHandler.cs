@@ -51,7 +51,7 @@ public class TestsHandler : IRequestHandler {
             .With(context)
             .AddFragment<TestsTarget, string>("swap", "test-swap-target", FragmentMergeStrategyType.Swap)
             .AddFragment<TestsTarget, string>("morph", "test-morph-target", FragmentMergeStrategyType.Morph)
-            .RemoveElement("test-remove-target")
+            .RemoveElement("test-multi-remove-target")
             .Render();
     }
 
