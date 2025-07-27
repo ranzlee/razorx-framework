@@ -7,7 +7,7 @@
     <button id="test-05" data-rx-action="/test-swap" data-rx-method="POST" name="test" value="swap">05</button>
     <button id="test-06" data-rx-action="/test-swap" data-rx-method="POST">06</button>
     <button id="test-07" data-rx-action="/test-swap" data-rx-method="POST">07</button>
-    <button id="test-08" data-rx-trigger="double-trigger" data-rx-action="/test-swap" data-rx-method="POST">08</button>
+    <button id="test-08" data-rx-disable-queueing data-rx-trigger="double-trigger" data-rx-action="/test-swap" data-rx-method="POST">08</button>
     <button id="test-09" data-rx-action="/test-swap" data-rx-method="POST">09</button>
     <button id="test-10" data-rx-action="/test-swap" data-rx-method="POST">10</button>
     <button id="test-11" data-rx-action="/test-swap" data-rx-method="POST">11</button>
@@ -22,7 +22,7 @@
     <button id="test-20" data-rx-action="/test-with-trigger" data-rx-method="POST" name="mode" value="swap">20</button>
     <button id="test-21" data-rx-action="/test-with-trigger" data-rx-method="POST" name="mode" value="morph">21</button>
     <button id="test-22" data-rx-action="/test-adjacent-target" data-rx-method="POST">22</button>
-    <button id="test-23" data-rx-trigger="debounced-trigger" data-rx-action="/test-swap" data-rx-method="POST" data-rx-debounce="300" data-rx-disable-in-flight>23</button>
+    <button id="test-23" name="debounceTest" value="1" data-rx-trigger="debounced-trigger" data-rx-action="/test-swap" data-rx-method="POST" data-rx-debounce="1000" data-rx-disable-in-flight>23</button>
     <button id="test-all" class="secondary">**</button>
 </section>
 
@@ -58,7 +58,6 @@
     <div id="test-swap-target"></div>
     <div id="test-morph-target"></div>
     <div id="test-remove-target"></div>
-    <div id="test-multi-remove-target"></div>
     <div id="swap-target-with-trigger"></div>
     <div id="morph-target-with-trigger"></div>
     <div id="test-adjacent-target">

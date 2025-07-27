@@ -15,6 +15,7 @@ declare global {
             rxAllowEventDefault?: string //data-rx-allow-default
             rxDisableInFlight?: string, //data-rx-disable-in-flight
             rxDebounce?: string //data-rx-debounce
+            rxDisableQueueing?: string // data-rx-disable-queueing
             rxHoistTo?: string //transfer rx behaviors to another element
         },
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
@@ -87,19 +88,19 @@ export type MergeStrategyType = "swap" | "afterbegin" | "afterend" | "beforebegi
 
 export type RxResponseHeaders = "rx-merge" | "rx-morph-ignore-active" | "rx-trigger-close-dialog";
 
-export const RxRequestHeader = "rx-request";
-
 export type RxCloseDialogTrigger = {
     dialogId: string,
     onCloseData?: string,
     resetFormId?: string
 }
 
+export const RxRequestHeader = "rx-request";
+
 const _processedScriptTag = "data-rx-script-processed";
 
 const _requestRefTracker: Set<string> = new Set();
 
-const _debouncedRequests: Map<string, (ele: HTMLElement, evt: Event) => Promise<void>> = new Map();
+const _debouncedRequests: Map<string, () => Promise<void>> = new Map();
 
 const _fetchRedirect: FetchRedirect = "follow";
 
@@ -124,14 +125,14 @@ const _addCallbacks = (callbacks: DocumentCallbacks) => {
 
 const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
+    // initialization
+
     if (document.rxMutationObserver) {
         //already initialized
         return;
     }
 
-    if (callbacks) {
-        _addCallbacks(callbacks);
-    }
+    let _requestQueue = Promise.resolve();
 
     document.rxMutationObserver = new MutationObserver(recs => {
         recs.forEach(rec => {
@@ -159,73 +160,191 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             });
         });
     });
-    
+
+    if (callbacks) {
+        _addCallbacks(callbacks);
+    }
+
     document.addEventListener("DOMContentLoaded", DOMContentLoaded);
 
-    function getMethod(ele: HTMLElement): HttpMethod {
-        const m = ele.dataset.rxMethod?.trim().toUpperCase() ?? "";
-        switch (m) {
-            case "":
-            case "GET":
-                return "GET";
-            case "POST": 
-            case "PUT":
-            case "PATCH":
-            case "DELETE":
-                return m;
-            default: { 
-                const err = `${m} is not a valid HTTP method.`;
-                sendError(ele, err);
-                throw new Error(err); 
+    // configuration functions
+
+    function setTrigger(ele: HTMLElement): void {
+        //TODO: allow multiple triggers -e.g., "click keydown"
+        let rxTrigger = ele.dataset.rxTrigger;
+        if (!rxTrigger) {
+            rxTrigger = ele.matches("form")
+                ? "submit" 
+                : ele.matches("input:not([type=button]),select,textarea") ? "change" : "click";
+            ele.setAttribute("data-rx-trigger", rxTrigger);
+        }
+    }
+
+    function addTriggers(ele: HTMLElement): void {
+        const firstIgnore = ele.closest("[data-rx-ignore]");
+        if (firstIgnore && firstIgnore instanceof HTMLElement) { 
+            const ignore = firstIgnore.dataset.rxIgnore?.trim().toLowerCase();
+            if (ignore !== "" && ignore !== "true" && ignore !== "false") {
+                console.warn(`The data-rx-ignore attribute on element ${firstIgnore.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
             }
+            if (ignore !== "false") {
+                return;
+            }  
         }
-    }
-
-    function sendError(ele: HTMLElement, err: unknown): void {
-        if (ele._rxCallbacks!.onElementTriggerError) {
-            ele._rxCallbacks!.onElementTriggerError(err);
-        }
-        if (_callbacks.onElementTriggerError) {
-            _callbacks.onElementTriggerError(ele, err);
-        }
-        console.error(err);
-    }
-
-    function toggleDisable(ele: HTMLElement, disable: boolean = false): void {
-        let targetElement: HTMLElement | null = null;
-        const parentFieldset = ele.closest("fieldset");
-        if (parentFieldset) {
-            targetElement = parentFieldset;
-        } else if (ele instanceof HTMLOptionElement) {
-            const parentOptGroup = ele.closest("optgroup");
-            if (parentOptGroup) {
-                targetElement = parentOptGroup;
+        if (ele.dataset.rxAction && (!_callbacks.beforeInitializeElement || _callbacks.beforeInitializeElement(ele))) {
+            configureElement(ele);
+            setTrigger(ele);
+            if (ele.dataset.rxHoistTo) {
+                ele.addEventListener(ele.dataset.rxTrigger!, elementHoistEventHandler);
             } else {
-                targetElement = ele;
+                ele.addEventListener(ele.dataset.rxTrigger!, elementTriggerEventHandler);
             }
-        } else if (ele instanceof HTMLInputElement
-            || ele instanceof HTMLTextAreaElement
-            || ele instanceof HTMLSelectElement
-            || ele instanceof HTMLButtonElement) {
-            targetElement = ele;
+            if (_callbacks.afterInitializeElement) {
+                _callbacks.afterInitializeElement(ele);
+            }
         }
-        if (targetElement) {
-            if (disable) {
-                targetElement.setAttribute("disabled", "");
-            } else {
-                targetElement.removeAttribute("disabled");
-                //targetElement.focus();
+        const children = ele.children;
+        if (children?.length <= 0) {
+            return;
+        } 
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (child instanceof HTMLElement) {
+                addTriggers(child);
             }
         }
     }
 
-    function debounce(func: (ele: HTMLElement, evt: Event) => Promise<void>, delay: number): (ele: HTMLElement, evt: Event) => Promise<void> {
+    function removeTriggers(ele: HTMLElement): void {
+        if (ele.dataset.rxTrigger) {	
+            ele.removeEventListener(ele.dataset.rxTrigger, elementTriggerEventHandler);
+            ele.removeEventListener(ele.dataset.rxTrigger, elementHoistEventHandler);
+        }
+        const children = ele.children;
+        if (children?.length <= 0) {
+            return;
+        } 
+        for (let i = 0; i < children.length; i++) {
+            const child = children[i];
+            if (child instanceof HTMLElement) {
+                removeTriggers(child);
+            }
+        }
+    }
+
+    function configureElement(ele: HTMLElement): void {
+        if (!ele.id || ele.id.trim() === "") {
+            const err = `Element with "data-rx-action" must have a unique ID.`;
+            throw new Error(err);
+        }
+        //id is required and mustn't be modified
+        Object.freeze(ele.id);
+        //enforce the existence of the element rxTrigger, addRxCallbacks() and _rxCallbacks properties
+        const elementCallbacks: ElementCallbacks = {};
+        const addCallbacks = (callbacks: ElementCallbacks): void => {
+            elementCallbacks.afterDocumentUpdate = callbacks.afterDocumentUpdate;
+            elementCallbacks.afterFetch = callbacks.afterFetch;
+            elementCallbacks.beforeDocumentUpdate = callbacks.beforeDocumentUpdate;
+            elementCallbacks.beforeFetch = callbacks.beforeFetch;
+            elementCallbacks.onElementTriggerError = callbacks.onElementTriggerError;
+        }
+        Object.defineProperty(ele, "addRxCallbacks", {
+            value: addCallbacks,
+            writable: false,
+        });
+        Object.defineProperty(ele, "_rxCallbacks", {
+            value: elementCallbacks,
+            writable: false,
+        });
+    }
+
+    // event handlers
+
+    function DOMContentLoaded(): void {
+        //observe the whole document for changes
+        document.rxMutationObserver.observe(document.documentElement, { childList: true, subtree: true });
+        if (_callbacks.beforeDocumentProcessed) {
+            _callbacks.beforeDocumentProcessed();
+        }
+        //process the entire document recursively
+        addTriggers(document.body);
+        if (_callbacks.afterDocumentProcessed) {
+            _callbacks.afterDocumentProcessed();
+        }
+    }
+
+    function elementHoistEventHandler(this: HTMLElement): void {
+        const hoistTargetId = this.dataset.rxHoistTo ?? "";
+        const hoistTarget = document.getElementById(hoistTargetId);
+        if (!hoistTarget) {
+            const err = `Element ${this.id} with "data-rx-hoist-to" ${this.dataset.rxHoistTo} does not reference a valid DOM element.`;
+            throw new Error(err);
+        }
+        Array.from(this.attributes).forEach(attr => {
+            if (attr.name === "data-rx-action" || attr.name === "data-rx-method") {
+                hoistTarget.setAttribute(attr.name, attr.value);
+            }
+        });
+        if (!hoistTarget.addRxCallbacks) {
+            configureElement(hoistTarget);
+        }
+        if (hoistTarget.dataset.rxTrigger) {	
+            hoistTarget.removeEventListener(hoistTarget.dataset.rxTrigger, elementTriggerEventHandler);
+        } else {
+            setTrigger(hoistTarget);
+        }
+        hoistTarget.addEventListener(hoistTarget.dataset.rxTrigger!, elementTriggerEventHandler);
+        if (_callbacks.afterInitializeElement) {
+            _callbacks.afterInitializeElement(hoistTarget);
+        }
+    }
+
+    function elementTriggerEventHandler(this: HTMLElement, evt: Event): void {
+        const allowEventDefault = this.dataset.rxAllowEventDefault?.trim().toLowerCase();
+        if (allowEventDefault !== undefined && allowEventDefault !== "" && allowEventDefault !== "true" && allowEventDefault !== "false") {
+            console.warn(`The data-rx-allow-event-default attribute on element ${this.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
+        }
+        if (allowEventDefault === undefined || allowEventDefault === "false") {
+            evt.preventDefault();
+        }
+        const debounceValue = this.dataset.rxDebounce?.trim().toLowerCase();
+        if (debounceValue === undefined) {
+            queue(this, evt);
+            return;
+        }
+        const delay = parseInt(debounceValue, 10);
+        if (Number.isNaN(delay) || delay <= 0) {
+            console.warn(`The data-rx-debounce attribute on element ${this.id} is invalid. It must be a number >= zero`);
+            queue(this, evt);
+            return;
+        }
+        let debounceElementTrigger = _debouncedRequests.get(this.id);
+        if (debounceElementTrigger) {
+            debounceElementTrigger();
+        } else {
+            debounceElementTrigger = debounce(this, evt, delay);
+            _debouncedRequests.set(this.id, debounceElementTrigger);
+            debounceElementTrigger();
+        }
+    }
+    
+    function queue(ele: HTMLElement, evt: Event): void {
+        if (ele.dataset.rxDisableQueueing !== undefined && ele.dataset.rxDisableQueueing.toLowerCase() !== "false") {
+            elementTriggerProcessor(ele, evt);
+            return;
+        }
+        _requestQueue = _requestQueue.then(async () => {
+            await elementTriggerProcessor(ele, evt);
+        });
+    }
+
+    function debounce(ele: HTMLElement, evt: Event, delay: number): () => Promise<void> {
         let timeoutId: number | null = null;
         let pending: Array<{ 
             resolve: (value: void) => void; 
             reject: (reason?: unknown) => void 
         }> = [];
-        return (ele: HTMLElement, evt: Event): Promise<void> => {
+        return (): Promise<void> => {
             return new Promise((resolve, reject) => {
                 if (timeoutId) {
                     clearTimeout(timeoutId);
@@ -233,12 +352,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 pending.push({ resolve, reject });
                 timeoutId = setTimeout(() => {
                     timeoutId = null;
-                    Promise.resolve(func(ele, evt))
+                    Promise.resolve(queue(ele, evt))
                         .then((result) => {
                             pending.forEach(({ resolve: res }) => res(result)); 
-                        })
-                        .catch((error: unknown) => {
-                            pending.forEach(({ reject: rej }) => rej(error));
                         })
                         .finally(() => {
                             pending = []; 
@@ -247,38 +363,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             });
         };
     }
-
-    function elementTriggerEventHandler(this: HTMLElement, evt: Event): void {
-        //TODO: is request queueing also needed?
-        const debounceValue = this.dataset.rxDebounce?.trim().toLowerCase();
-        if (debounceValue === undefined) {
-            elementTriggerProcessor(this, evt);
-            return;
-        }
-        const delay = parseInt(debounceValue, 10);
-        if (Number.isNaN(delay) || delay <= 0) {
-            console.warn(`The data-rx-debounce attribute on element ${this.id} is invalid. It must be a number >= zero`);
-            elementTriggerProcessor(this, evt);
-            return;
-        }
-        let debounceElementTrigger = _debouncedRequests.get(this.id);
-        if (debounceElementTrigger) {
-            debounceElementTrigger(this, evt);
-        } else {
-            debounceElementTrigger = debounce(elementTriggerProcessor, delay);
-            _debouncedRequests.set(this.id, debounceElementTrigger);
-            debounceElementTrigger(this, evt);
-        }
-    }
+    
+    // process request
 
     async function elementTriggerProcessor(ele: HTMLElement, evt: Event): Promise<void> {
-        const allowEventDefault = ele.dataset.rxAllowEventDefault?.trim().toLowerCase();
-        if (allowEventDefault !== undefined && allowEventDefault !== "" && allowEventDefault !== "true" && allowEventDefault !== "false") {
-            console.warn(`The data-rx-allow-event-default attribute on element ${ele.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
-        }
-        if (allowEventDefault === undefined || allowEventDefault === "false") {
-            evt.preventDefault();
-        }
         try {   
             _debouncedRequests.delete(ele.id);
             if (_requestRefTracker.has(ele.id)) {
@@ -366,88 +454,185 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (_callbacks.afterFetch) {
                     _callbacks.afterFetch(ele, request, response);
                 }
-            } catch(error: unknown) {
-                sendError(ele, error);
             } finally {
                 _requestRefTracker.delete(ele.id);
                 if (disableElement !== undefined && disableElement.toLowerCase() !== "false") {
                     toggleDisable(ele, false);
                 }
             }
-            if (!response) {
-                sendError(ele, `Element ${ele.id} has no response after request.`);
-                return;
-            }
-            if (response.status === 202) {
-                //used to issue a follow-up GET request for rendering
-                const location = response.headers.get("location");
-                if (location && location.trim() !== "") {
-                    window.location.assign(location);
-                }
-                return; 
-            }
-            if (response.status >= 400) {
-                //dev error response
-                document.rxMutationObserver?.disconnect();
-                removeTriggers(document.body);
-                document.head.innerHTML = "<title>Error</title>";
-                const contentType = response.headers.get("content-type");
-                if (contentType && (contentType.includes("application/json") || contentType.includes("application/problem+json"))) {
-                    const formattedJson = JSON.stringify(await response.json(), null, 2); 
-                    document.body.innerHTML = `<pre><code>${formattedJson}</code></pre>`;				
-                } else {
-                    document.body.innerText = await response.text();
-                }
-                return;
-            }
-            const closeDialog: RxResponseHeaders = "rx-trigger-close-dialog";
-            const dialogTriggerString = response.headers.get(closeDialog);
-            if (dialogTriggerString) {
-                const dialogTrigger: RxCloseDialogTrigger = JSON.parse(dialogTriggerString);
-                const modal = document.getElementById(dialogTrigger.dialogId);
-                if (modal instanceof HTMLDialogElement) {
-                    modal.close(dialogTrigger.onCloseData);
-                    if (dialogTrigger.resetFormId) {
-                        const form = document.getElementById(dialogTrigger.resetFormId);
-                        if (form instanceof HTMLFormElement) {
-                            form.reset();
-                        }
-                    }
-                }
-            }
-            const mergeHeader: RxResponseHeaders = "rx-merge";
-            const merge = response?.headers.get(mergeHeader);
-            if (!merge) {
-                throw new Error(`Expected a "${mergeHeader}" header object.`);
-            }
-            const mergeStrategyArray: MergeStrategy[] = JSON.parse(merge);
-            if (response.status === 204) {
-                const removals = mergeStrategyArray.filter(s => s.strategy === "remove");
-                if (removals.length > 0) {
-                    if (document.startViewTransition !== undefined) {
-                        await document.startViewTransition(() => removeElements(ele, removals)).finished;
-                    } else {
-                        removeElements(ele, removals);
-                    }
-                }
-            } else {
-                if (document.startViewTransition !== undefined) {
-                    await document.startViewTransition(() => mergeFragments(ele, response, mergeStrategyArray)).finished;
-                } else {
-                    mergeFragments(ele, response, mergeStrategyArray);
-                }
-            }
-            
-            if (ele._rxCallbacks!.afterDocumentUpdate) {
-                ele._rxCallbacks!.afterDocumentUpdate();
-            }
-            if (_callbacks.afterDocumentUpdate) {
-                _callbacks.afterDocumentUpdate(ele);
-            }
+            await responseProcessor(ele, response);
         } catch(error: unknown) {
             sendError(ele, error);
         } 
-    } 
+    }
+
+    async function responseProcessor(ele: HTMLElement, response: Response | null): Promise<void> {
+        if (!response) {
+            throw new Error(`Element ${ele.id} has no response after request.`);
+        }
+        if (response.status === 202) {
+            //used to issue a follow-up GET request for rendering
+            const location = response.headers.get("location");
+            if (location && location.trim() !== "") {
+                window.location.assign(location);
+            }
+            return; 
+        }
+        if (response.status >= 400) {
+            //dev error response
+            document.rxMutationObserver?.disconnect();
+            removeTriggers(document.body);
+            document.head.innerHTML = "<title>Error</title>";
+            const contentType = response.headers.get("content-type");
+            if (contentType && (contentType.includes("application/json") || contentType.includes("application/problem+json"))) {
+                const formattedJson = JSON.stringify(await response.json(), null, 2); 
+                document.body.innerHTML = `<pre><code>${formattedJson}</code></pre>`;				
+            } else {
+                document.body.innerText = await response.text();
+            }
+            return;
+        }
+        const closeDialog: RxResponseHeaders = "rx-trigger-close-dialog";
+        const dialogTriggerString = response.headers.get(closeDialog);
+        if (dialogTriggerString) {
+            const dialogTrigger: RxCloseDialogTrigger = JSON.parse(dialogTriggerString);
+            const modal = document.getElementById(dialogTrigger.dialogId);
+            if (modal instanceof HTMLDialogElement) {
+                modal.close(dialogTrigger.onCloseData);
+                if (dialogTrigger.resetFormId) {
+                    const form = document.getElementById(dialogTrigger.resetFormId);
+                    if (form instanceof HTMLFormElement) {
+                        form.reset();
+                    }
+                }
+            }
+        }
+        const mergeHeader: RxResponseHeaders = "rx-merge";
+        const merge = response?.headers.get(mergeHeader);
+        if (!merge) {
+            throw new Error(`Expected a "${mergeHeader}" header object.`);
+        }
+        const mergeStrategyArray: MergeStrategy[] = JSON.parse(merge);
+        if (response.status === 204) {
+            const removals = mergeStrategyArray.filter(s => s.strategy === "remove");
+            if (removals.length > 0) {
+                if (document.startViewTransition !== undefined) {
+                    await document.startViewTransition(async () => removeElements(ele, removals)).finished;
+                } else {
+                    removeElements(ele, removals);
+                }
+            }
+        } else {
+            if (document.startViewTransition !== undefined) {
+                await document.startViewTransition(async () => await mergeFragments(ele, response, mergeStrategyArray)).finished;
+            } else {
+                await mergeFragments(ele, response, mergeStrategyArray);
+            }
+        }
+        if (ele._rxCallbacks!.afterDocumentUpdate) {
+            ele._rxCallbacks!.afterDocumentUpdate();
+        }
+        if (_callbacks.afterDocumentUpdate) {
+            _callbacks.afterDocumentUpdate(ele);
+        }
+    }
+    
+    function getMethod(ele: HTMLElement): HttpMethod {
+        const m = ele.dataset.rxMethod?.trim().toUpperCase() ?? "";
+        switch (m) {
+            case "":
+            case "GET":
+                return "GET";
+            case "POST": 
+            case "PUT":
+            case "PATCH":
+            case "DELETE":
+                return m;
+            default: { 
+                const err = `${m} is not a valid HTTP method.`;
+                throw new Error(err); 
+            }
+        }
+    }
+
+    function sendError(ele: HTMLElement, err: unknown): void {
+        if (ele._rxCallbacks!.onElementTriggerError) {
+            ele._rxCallbacks!.onElementTriggerError(err);
+        }
+        if (_callbacks.onElementTriggerError) {
+            _callbacks.onElementTriggerError(ele, err);
+        }
+        console.error(err);
+    }
+
+    function toggleDisable(ele: HTMLElement, disable: boolean = false): void {
+        let targetElement: HTMLElement | null = null;
+        const parentFieldset = ele.closest("fieldset");
+        if (parentFieldset) {
+            targetElement = parentFieldset;
+        } else if (ele instanceof HTMLOptionElement) {
+            const parentOptGroup = ele.closest("optgroup");
+            if (parentOptGroup) {
+                targetElement = parentOptGroup;
+            } else {
+                targetElement = ele;
+            }
+        } else if (ele instanceof HTMLInputElement
+            || ele instanceof HTMLTextAreaElement
+            || ele instanceof HTMLSelectElement
+            || ele instanceof HTMLButtonElement) {
+            targetElement = ele;
+        }
+        if (targetElement) {
+            if (disable) {
+                targetElement.setAttribute("disabled", "");
+            } else {
+                targetElement.removeAttribute("disabled");
+                //targetElement.focus();
+            }
+        }
+    }
+
+    function addCookieToRequest(detail: RequestDetail, cookie: string): void {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${cookie}=`);
+        if (parts.length !== 2) {
+            return;
+        }
+        if (!detail.headers) {
+            return;
+        }
+        detail.headers.set(`${cookie}`, parts.pop()!.split(";").shift() ?? "");
+    }
+
+    function encodeBodyAsJson(detail: RequestDetail): void {
+        detail.headers?.set("Content-Type", "application/json");
+        if (!(detail.body instanceof FormData)) {
+            return;
+        }
+        const object: Record<string, string | string[]> = {};
+        let hasProps = false;
+        detail.body?.forEach((value: FormDataEntryValue, key: string) => {
+            if (value instanceof Blob) {
+                //skip any input [type=file] for XMLHttpRequest processing
+                return;
+            }
+            hasProps = true;
+            if (Object.hasOwn(object, key)) {
+                if (!Array.isArray(object[key]!)) {
+                    object[key] = [object[key]!];
+                }
+                object[key].push(value);
+            } else {
+                object[key] = value;
+            }
+        })
+        if (hasProps) {
+            detail.body = JSON.stringify(object);
+        }
+    }
+
+    // response rendering
 
     function removeElements(triggerElement: HTMLElement, removals: MergeStrategy[]): void {
         removals.forEach(r => {
@@ -463,62 +648,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             target.remove();
         });
-    }
-
-    function processScript(script: HTMLScriptElement): void {
-        if (script.hasAttribute(_processedScriptTag)) {
-            script.removeAttribute(_processedScriptTag);
-            return;
-        }
-        const newScript = document.createElement("script");
-        Array.from(script.attributes).forEach(attr => {
-            newScript.setAttribute(attr.name, attr.value);
-        });
-        newScript.setAttribute(_processedScriptTag, "");
-        newScript.textContent = script.textContent;
-        newScript.async = false;
-        const parent = script.parentNode;
-        parent?.insertBefore(newScript, script);
-        script.remove();
-    }
-
-    function normalizeScriptTags(fragment: HTMLElement): void {
-        if (!_isFirefox) {
-            return;
-        }
-        if (fragment instanceof HTMLScriptElement) {
-            processScript(fragment);
-            return;
-        }
-        Array.from(fragment.querySelectorAll("script")).forEach(script => {
-            processScript(script);
-        });
-    }
-
-    function getFragment(fragments: ChildNode[], mergeStrategy: MergeStrategy): HTMLTemplateElement | undefined {
-        const fragmentId = `${mergeStrategy.target}-fragment`;
-        const fragment = fragments.find(f => f instanceof HTMLTemplateElement && f.id === fragmentId) as HTMLTemplateElement | undefined;
-        if (!fragment) {
-            throw new Error(`Expected a response body fragment with id="${fragmentId}"`);
-        }
-        if (!fragment.hasChildNodes) {
-            throw new Error(`Expected one or more child elements in fragment with id="${fragmentId}"`);
-        }
-        return fragment;
-    }
-
-    function getTarget(triggerElement: HTMLElement, fragment: HTMLTemplateElement, mergeStrategy: MergeStrategy): HTMLElement | undefined {
-        const target = document.getElementById(mergeStrategy.target);
-        if (!target) {
-            throw new Error(`Expected an HTML element with id="${mergeStrategy.target}"`);
-        }
-        if (triggerElement._rxCallbacks!.beforeDocumentUpdate && triggerElement._rxCallbacks!.beforeDocumentUpdate(fragment, mergeStrategy.strategy) === false) {
-            return;
-        }
-        if (_callbacks.beforeDocumentUpdate && _callbacks.beforeDocumentUpdate(triggerElement, fragment, mergeStrategy.strategy) === false) {
-            return;
-        }
-        return target;
     }
 
     async function mergeFragments(triggerElement: HTMLElement, response: Response, mergeStrategyArray: MergeStrategy[]): Promise<void> {
@@ -592,172 +721,61 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         });
     }
 
-    function addCookieToRequest(detail: RequestDetail, cookie: string): void {
-        const value = `; ${document.cookie}`;
-        const parts = value.split(`; ${cookie}=`);
-        if (parts.length !== 2) {
+    function getFragment(fragments: ChildNode[], mergeStrategy: MergeStrategy): HTMLTemplateElement | undefined {
+        const fragmentId = `${mergeStrategy.target}-fragment`;
+        const fragment = fragments.find(f => f instanceof HTMLTemplateElement && f.id === fragmentId) as HTMLTemplateElement | undefined;
+        if (!fragment) {
+            throw new Error(`Expected a response body fragment with id="${fragmentId}"`);
+        }
+        if (!fragment.hasChildNodes) {
+            throw new Error(`Expected one or more child elements in fragment with id="${fragmentId}"`);
+        }
+        return fragment;
+    }
+
+    function getTarget(triggerElement: HTMLElement, fragment: HTMLTemplateElement, mergeStrategy: MergeStrategy): HTMLElement | undefined {
+        const target = document.getElementById(mergeStrategy.target);
+        if (!target) {
+            throw new Error(`Expected an HTML element with id="${mergeStrategy.target}"`);
+        }
+        if (triggerElement._rxCallbacks!.beforeDocumentUpdate && triggerElement._rxCallbacks!.beforeDocumentUpdate(fragment, mergeStrategy.strategy) === false) {
             return;
         }
-        if (!detail.headers) {
+        if (_callbacks.beforeDocumentUpdate && _callbacks.beforeDocumentUpdate(triggerElement, fragment, mergeStrategy.strategy) === false) {
             return;
         }
-        detail.headers.set(`${cookie}`, parts.pop()!.split(";").shift() ?? "");
+        return target;
     }
 
-    function encodeBodyAsJson(detail: RequestDetail): void {
-        detail.headers?.set("Content-Type", "application/json");
-        if (!(detail.body instanceof FormData)) {
+    function normalizeScriptTags(fragment: HTMLElement): void {
+        if (!_isFirefox) {
             return;
         }
-        const object: Record<string, string | string[]> = {};
-        let hasProps = false;
-        detail.body?.forEach((value: FormDataEntryValue, key: string) => {
-            if (value instanceof Blob) {
-                //skip any input [type=file] for XMLHttpRequest processing
-                return;
-            }
-            hasProps = true;
-            if (Object.hasOwn(object, key)) {
-                if (!Array.isArray(object[key]!)) {
-                    object[key] = [object[key]!];
-                }
-                object[key].push(value);
-            } else {
-                object[key] = value;
-            }
-        })
-        if (hasProps) {
-            detail.body = JSON.stringify(object);
-        }
-    }
-
-    function DOMContentLoaded(): void {
-        //observe the whole document for changes
-        document.rxMutationObserver.observe(document.documentElement, { childList: true, subtree: true });
-        if (_callbacks.beforeDocumentProcessed) {
-            _callbacks.beforeDocumentProcessed();
-        }
-        //process the entire document recursively
-        addTriggers(document.body);
-        if (_callbacks.afterDocumentProcessed) {
-            _callbacks.afterDocumentProcessed();
-        }
-    }
-
-    function addTriggers(ele: HTMLElement): void {
-        const firstIgnore = ele.closest("[data-rx-ignore]");
-        if (firstIgnore && firstIgnore instanceof HTMLElement) { 
-            const ignore = firstIgnore.dataset.rxIgnore?.trim().toLowerCase();
-            if (ignore !== "" && ignore !== "true" && ignore !== "false") {
-                console.warn(`The data-rx-ignore attribute on element ${firstIgnore.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
-            }
-            if (ignore !== "false") {
-                return;
-            }  
-        }
-        if (ele.dataset.rxAction && (!_callbacks.beforeInitializeElement || _callbacks.beforeInitializeElement(ele))) {
-            configureElement(ele);
-            setTrigger(ele);
-            if (ele.dataset.rxHoistTo) {
-                ele.addEventListener(ele.dataset.rxTrigger!, elementHoistEventHandler);
-            } else {
-                ele.addEventListener(ele.dataset.rxTrigger!, elementTriggerEventHandler);
-            }
-            if (_callbacks.afterInitializeElement) {
-                _callbacks.afterInitializeElement(ele);
-            }
-        }
-        const children = ele.children;
-        if (children?.length <= 0) {
+        if (fragment instanceof HTMLScriptElement) {
+            processScript(fragment);
             return;
-        } 
-        for (let i = 0; i < children.length; i++) {
-            const child = children[i];
-            if (child instanceof HTMLElement) {
-                addTriggers(child);
-            }
         }
-    }
-
-    function elementHoistEventHandler(this: HTMLElement): void {
-        const hoistTargetId = this.dataset.rxHoistTo ?? "";
-        const hoistTarget = document.getElementById(hoistTargetId);
-        if (!hoistTarget) {
-            const err = `Element ${this.id} with "data-rx-hoist-to" ${this.dataset.rxHoistTo} does not reference a valid DOM element.`;
-            throw new Error(err);
-        }
-        Array.from(this.attributes).forEach(attr => {
-            if (attr.name === "data-rx-action" || attr.name === "data-rx-method") {
-                hoistTarget.setAttribute(attr.name, attr.value);
-            }
-        });
-        if (!hoistTarget.addRxCallbacks) {
-            configureElement(hoistTarget);
-        }
-        if (hoistTarget.dataset.rxTrigger) {	
-            hoistTarget.removeEventListener(hoistTarget.dataset.rxTrigger, elementTriggerEventHandler);
-        } else {
-            setTrigger(hoistTarget);
-        }
-        hoistTarget.addEventListener(hoistTarget.dataset.rxTrigger!, elementTriggerEventHandler);
-        if (_callbacks.afterInitializeElement) {
-            _callbacks.afterInitializeElement(hoistTarget);
-        }
-    }
-
-    function configureElement(ele: HTMLElement): void {
-        if (!ele.id || ele.id.trim() === "") {
-            const err = `Element with "data-rx-action" must have a unique ID.`;
-            throw new Error(err);
-        }
-        //id is required and mustn't be modified
-        Object.freeze(ele.id);
-        //enforce the existence of the element rxTrigger, addRxCallbacks() and _rxCallbacks properties
-        const elementCallbacks: ElementCallbacks = {};
-        const addCallbacks = (callbacks: ElementCallbacks): void => {
-            elementCallbacks.afterDocumentUpdate = callbacks.afterDocumentUpdate;
-            elementCallbacks.afterFetch = callbacks.afterFetch;
-            elementCallbacks.beforeDocumentUpdate = callbacks.beforeDocumentUpdate;
-            elementCallbacks.beforeFetch = callbacks.beforeFetch;
-            elementCallbacks.onElementTriggerError = callbacks.onElementTriggerError;
-        }
-        Object.defineProperty(ele, "addRxCallbacks", {
-            value: addCallbacks,
-            writable: false,
-        });
-        Object.defineProperty(ele, "_rxCallbacks", {
-            value: elementCallbacks,
-            writable: false,
+        Array.from(fragment.querySelectorAll("script")).forEach(script => {
+            processScript(script);
         });
     }
 
-    function setTrigger(ele: HTMLElement): void {
-        //TODO: allow multiple triggers -e.g., "click keydown"
-        let rxTrigger = ele.dataset.rxTrigger;
-        if (!rxTrigger) {
-            rxTrigger = ele.matches("form")
-                ? "submit" 
-                : ele.matches("input:not([type=button]),select,textarea") ? "change" : "click";
-            ele.setAttribute("data-rx-trigger", rxTrigger);
-        }
-    }
-
-    function removeTriggers(ele: HTMLElement): void {
-        if (ele.dataset.rxTrigger) {	
-            ele.removeEventListener(ele.dataset.rxTrigger, elementTriggerEventHandler);
-            ele.removeEventListener(ele.dataset.rxTrigger, elementHoistEventHandler);
-        }
-        const children = ele.children;
-        if (children?.length <= 0) {
+    function processScript(script: HTMLScriptElement): void {
+        if (script.hasAttribute(_processedScriptTag)) {
+            script.removeAttribute(_processedScriptTag);
             return;
-        } 
-        for (let i = 0; i < children.length; i++) {
-            const child = children[i];
-            if (child instanceof HTMLElement) {
-                removeTriggers(child);
-            }
         }
-    }
+        const newScript = document.createElement("script");
+        Array.from(script.attributes).forEach(attr => {
+            newScript.setAttribute(attr.name, attr.value);
+        });
+        newScript.setAttribute(_processedScriptTag, "");
+        newScript.textContent = script.textContent;
+        newScript.async = false;
+        const parent = script.parentNode;
+        parent?.insertBefore(newScript, script);
+        script.remove();
+    }   
 }
 
 const razorxProto: unknown = {
