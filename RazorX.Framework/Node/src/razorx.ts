@@ -86,12 +86,17 @@ export type FetchRedirect = "follow" | "error" | "manual";
 //TODO: union with InsertPosition
 export type MergeStrategyType = "swap" | "afterbegin" | "afterend" | "beforebegin" | "beforeend" | "morph" | "remove";
 
-export type RxResponseHeaders = "rx-merge" | "rx-morph-ignore-active" | "rx-trigger-close-dialog";
+export type RxResponseHeaders = "rx-merge" | "rx-morph-ignore-active" | "rx-trigger-close-dialog" | "rx-trigger-focus-element";
 
 export type RxCloseDialogTrigger = {
     dialogId: string,
     onCloseData?: string,
     resetFormId?: string
+}
+
+export type RxFocusElementTrigger = {
+    elementId: string,
+    positionCursorEnd: boolean,
 }
 
 export const RxRequestHeader = "rx-request";
@@ -492,15 +497,15 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return;
         }
-        const closeDialog: RxResponseHeaders = "rx-trigger-close-dialog";
-        const dialogTriggerString = response.headers.get(closeDialog);
-        if (dialogTriggerString) {
-            const dialogTrigger: RxCloseDialogTrigger = JSON.parse(dialogTriggerString);
-            const modal = document.getElementById(dialogTrigger.dialogId);
+        const closeDialogHeader: RxResponseHeaders = "rx-trigger-close-dialog";
+        const closeDialogTriggerString = response.headers.get(closeDialogHeader);
+        if (closeDialogTriggerString) {
+            const closeDialogTrigger: RxCloseDialogTrigger = JSON.parse(closeDialogTriggerString);
+            const modal = document.getElementById(closeDialogTrigger.dialogId);
             if (modal instanceof HTMLDialogElement) {
-                modal.close(dialogTrigger.onCloseData);
-                if (dialogTrigger.resetFormId) {
-                    const form = document.getElementById(dialogTrigger.resetFormId);
+                modal.close(closeDialogTrigger.onCloseData);
+                if (closeDialogTrigger.resetFormId) {
+                    const form = document.getElementById(closeDialogTrigger.resetFormId);
                     if (form instanceof HTMLFormElement) {
                         form.reset();
                     }
@@ -534,6 +539,25 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
         if (_callbacks.afterDocumentUpdate) {
             _callbacks.afterDocumentUpdate(ele);
+        }
+        const focusElementTriggerHeader: RxResponseHeaders = "rx-trigger-focus-element";
+        const focusElementTriggerString = response.headers.get(focusElementTriggerHeader);
+        if (focusElementTriggerString) {
+            const focusElementTrigger: RxFocusElementTrigger = JSON.parse(focusElementTriggerString);
+            const focusElement = document.getElementById(focusElementTrigger.elementId);
+            if (focusElement) {
+                //queue macro-task to focus
+                setTimeout(() => {
+                    focusElement.focus();
+                    if (!focusElementTrigger.positionCursorEnd) {
+                        return;
+                    }
+                    if (focusElement instanceof HTMLInputElement || focusElement instanceof HTMLTextAreaElement) {
+                        const textLength = focusElement.value.length;
+                        focusElement.setSelectionRange(textLength, textLength);
+                    }   
+                }, 0);
+            }
         }
     }
     

@@ -19,6 +19,8 @@ public enum FragmentMergeStrategyType {
 
 public record CloseDialogTrigger(string DialogId, string? OnCloseData, string? ResetFormId);
 
+public record FocusElementTrigger(string ElementId, bool PositionCursorEnd);
+
 public static class RxDriverServices {
     public static void AddRxDriver(this IServiceCollection services) {
         if (!services.Any(x => x.ServiceType == typeof(HtmlRenderer))) {
@@ -70,6 +72,7 @@ public interface IRxResponseBuilder {
     IRxResponseBuilder RemoveElement(string targetId);
 
     IRxResponseBuilder AddTriggerCloseDialog(string dialogId, string? onCloseData = null, string? resetFormId = null);
+    IRxResponseBuilder AddTriggerFocusElement(string elementId, bool positionCursorEnd = false);
 
     Task<IResult> Render(
         bool ignoreActiveElementValueOnMorph = false
@@ -101,7 +104,8 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
     private readonly StringBuilder content = new();
     private readonly List<Task> renderTasks = [];
     private readonly List<MergeStrategy> mergeStrategies = [];
-    private CloseDialogTrigger? closeDialogTrigger;
+    private CloseDialogTrigger? closeDialogTrigger = null;
+    private FocusElementTrigger? focusElementTrigger = null;
     private static readonly JsonSerializerOptions serializerSettings = new(JsonSerializerDefaults.Web);
 
     public IRxResponseBuilder AddPage<TRoot, TComponent, TModel>(TModel model, string? title = null)
@@ -213,6 +217,12 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
         return this;
     }
 
+    public IRxResponseBuilder AddTriggerFocusElement(string elementId, bool positionCursorEnd = false) {
+        CheckRenderingStatus();
+        focusElementTrigger = new(elementId, positionCursorEnd); 
+        return this;
+    }
+
     public async Task<IResult> Render(
         bool ignoreActiveElementValueOnMorph = false
     ) {
@@ -228,6 +238,9 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
         //triggers
         if (closeDialogTrigger != null) {
             context.Response.Headers.Append("rx-trigger-close-dialog", JsonSerializer.Serialize(closeDialogTrigger, serializerSettings));
+        }
+        if (focusElementTrigger != null) {
+            context.Response.Headers.Append("rx-trigger-focus-element", JsonSerializer.Serialize(focusElementTrigger,  serializerSettings));
         }
         //fragments
         if (ignoreActiveElementValueOnMorph) {

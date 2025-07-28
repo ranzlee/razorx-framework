@@ -6,7 +6,7 @@
     data-rx-action="@(Model.IsEdit ? $"/todo/{Model.Id}" : "/todo")" 
     novalidate>
     <textarea
-        id="todo-text"
+        id="@($"todo-text-{Model.Id}")"
         name="@(nameof(Model.Text))"
         placeholder="Describe something you need to do..."
         aria-label="Description of TODO"

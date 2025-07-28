@@ -42,6 +42,7 @@ public class ExamplesHandler : IRequestHandler {
         return await rxDriver
             .With(context)
             .AddTriggerCloseDialog("new-todo-modal")
+            .AddTriggerFocusElement("new-todo-modal-trigger")
             .AddFragment<TodoForm, TodoFormModel>(new TodoFormModel(0, "", false, false, false), "new-todo-form", FragmentMergeStrategyType.Swap)
             .AddFragment<TodoItem, TodoModel>(todo, "todo-list", FragmentMergeStrategyType.AppendBeforeEnd)
             .Render();
@@ -61,6 +62,7 @@ public class ExamplesHandler : IRequestHandler {
         return await rxDriver
             .With(context)
             .AddTriggerCloseDialog("edit-todo-modal")
+            .AddTriggerFocusElement("search-todos", true)
             .RemoveElement("edit-todo-form")
             .AddFragment<TodoItem, TodoModel>(todo, $"todo-item-{todo.Id}", FragmentMergeStrategyType.Swap)
             .Render();
@@ -91,6 +93,7 @@ public class ExamplesHandler : IRequestHandler {
             .With(context)
             .AddTriggerCloseDialog("delete-todo-modal")
             .RemoveElement($"todo-item-{id}")
+            .AddTriggerFocusElement("search-todos", true)
             .Render();
     }
 
@@ -102,6 +105,7 @@ public class ExamplesHandler : IRequestHandler {
         var model = new TodoFormModel(todo.Id, todo.Text, todo.IsComplete, false, true);
         return await rxDriver
             .With(context)
+            .AddTriggerFocusElement($"todo-text-{id}", true)
             .AddFragment<TodoForm, TodoFormModel>(model, "edit-todo-form-container", FragmentMergeStrategyType.AppendAfterBegin)
             .Render();
     }
