@@ -1,9 +1,13 @@
 @implements IComponentModel<TodoModel>
 
-@* data-rx-hoist="delete-todo-modal-ok"   *@
-
 <article id="todo-item-@(Model.Id)">
-    <button class="outline">Edit</button>
+    <button
+        id="edit-todo-modal-trigger-@(Model.Id)"
+        data-rx-action="/todo/@(Model.Id)"
+        data-rx-method="GET"
+        class="outline">
+        Edit
+    </button>
     <button id="delete-todo-modal-trigger-@(Model.Id)"
         data-rx-action="/todo/@(Model.Id)"
         data-rx-method="DELETE"
@@ -15,14 +19,19 @@
     <script>
         //delete
         (function(){
-            const modal = document.getElementById("delete-todo-modal");
+            const todoModal = document.getElementById("edit-todo-modal");
+            const confirmModal = document.getElementById("delete-todo-modal");
             const dismiss = document.getElementById("delete-todo-modal-close");
-            const trigger = document.getElementById("delete-todo-modal-trigger-@(Model.Id)");
-            trigger.onclick = () => {
-                modal.showModal();
+            const deleteTrigger = document.getElementById("delete-todo-modal-trigger-@(Model.Id)");
+            const editTrigger = document.getElementById("edit-todo-modal-trigger-@(Model.Id)");
+            deleteTrigger.onclick = () => {
+                confirmModal.showModal();
+            }
+            editTrigger.onclick = () => {
+                todoModal.showModal();
             }
             dismiss.onclick = () => {
-                modal.close();
+                confirmModal.close();
             }
         })()
     </script>

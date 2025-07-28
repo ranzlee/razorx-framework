@@ -61,7 +61,7 @@ export type RequestConfiguration = {
     action: string,
     method: HttpMethod,
     headers: Headers,
-    body: FormData | string,
+    body: FormData | string | undefined,
     abort: (reason?: string) => void
 }
 
@@ -69,7 +69,7 @@ export type RequestDetail = {
     action: string,
     method: HttpMethod,
     redirect: FetchRedirect,
-    body: FormData | string,
+    body: FormData | string | undefined,
     headers: Headers,
     signal: AbortSignal,
 }
@@ -415,7 +415,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (params.size) {
                     request.action += (/\?/.test(request.action!) ? "&" : "?") + params;
                 }
-                request.body = "";
+                delete request.body;
             }
             const config: RequestConfiguration = {
                 trigger: evt,

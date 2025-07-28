@@ -1,13 +1,22 @@
-@implements IComponentModel<TodoModel>
+@implements IComponentModel<TodoFormModel>
 
-<form id="todo-form" method="dialog" data-rx-method="POST" data-rx-action="/todo" novalidate>
+<form id="@(Model.IsEdit ? "edit-todo-form" : "new-todo-form")" 
+    method="dialog" 
+    data-rx-method="@(Model.IsEdit ? "PUT" : "POST")" 
+    data-rx-action="@(Model.IsEdit ? $"/todo/{Model.Id}" : "/todo")" 
+    novalidate>
     <textarea
+        id="todo-text"
         name="@(nameof(Model.Text))"
         placeholder="Describe something you need to do..."
-        aria-label="Description of TODO">
+        aria-label="Description of TODO"
+        aria-invalid="@(Model.HasError ? "true" : false)"
+        aria-describedby="todo-help">
+        @(Model.Text)
     </textarea>
+    <small id="todo-help">Required</small>
 </form>
 
 @code {
-    [Parameter] public TodoModel Model { get; set; } = null!;
+    [Parameter] public TodoFormModel Model { get; set; } = null!;
 }

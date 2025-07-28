@@ -3,10 +3,21 @@
 <dialog id="new-todo-modal">
   <article>
     <h2>New</h2>
-    <TodoForm Model="@(new TodoModel(0, "", false))"></TodoForm>
+    <TodoForm Model="@(new TodoFormModel(0, "", false, false, false))"></TodoForm>
     <footer>
-      <button id="new-todo-modal-close" type="button" class="secondary">Cancel</button>
-      <button form="todo-form">Save</button>
+      <button id="new-todo-modal-close" type="button" class="secondary" data-rx-method="GET" data-rx-action="/new-todo-reset">Cancel</button>
+      <button id="new-todo-save" form="new-todo-form">Save</button>
+    </footer>
+  </article>
+</dialog>
+
+<dialog id="edit-todo-modal">
+  <article>
+    <h2>Edit</h2>
+    <div id="edit-todo-form-container"></div>
+    <footer>
+      <button id="edit-todo-modal-close" type="button" class="secondary" data-rx-method="GET" data-rx-action="/edit-todo-reset">Cancel</button>
+      <button id="edit-todo-save" form="edit-todo-form">Save</button>
     </footer>
   </article>
 </dialog>
@@ -38,14 +49,14 @@
 <script>
   //new
   (function(){
-    const modal = document.getElementById("new-todo-modal");
-    const dismiss = document.getElementById("new-todo-modal-close");
-    const trigger = document.getElementById("new-todo-modal-trigger");
-    trigger.onclick = () => {
-      modal.showModal();
+    const newModal = document.getElementById("new-todo-modal");
+    const newDismiss = document.getElementById("new-todo-modal-close");
+    const newTrigger = document.getElementById("new-todo-modal-trigger");
+    newTrigger.onclick = () => {
+      newModal.showModal();
     }
-    dismiss.onclick = () => {
-      modal.close();
+    newDismiss.onclick = () => {
+      newModal.close(); 
     }
   })()
 </script>
