@@ -45,6 +45,7 @@ public class ExamplesHandler : IRequestHandler {
             .AddTriggerFocusElement("new-todo-modal-trigger")
             .AddFragment<TodoForm, TodoFormModel>(new TodoFormModel(0, "", false, false, false), "new-todo-form", FragmentMergeStrategyType.Swap)
             .AddFragment<TodoItem, TodoModel>(todo, "todo-list", FragmentMergeStrategyType.AppendBeforeEnd)
+            .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Morph)
             .Render();
     }
 
@@ -62,7 +63,7 @@ public class ExamplesHandler : IRequestHandler {
         return await rxDriver
             .With(context)
             .AddTriggerCloseDialog("edit-todo-modal")
-            .AddTriggerFocusElement("search-todos", true)
+            .AddTriggerFocusElement($"edit-todo-modal-trigger-{id}")
             .RemoveElement("edit-todo-form")
             .AddFragment<TodoItem, TodoModel>(todo, $"todo-item-{todo.Id}", FragmentMergeStrategyType.Swap)
             .Render();
@@ -88,13 +89,23 @@ public class ExamplesHandler : IRequestHandler {
         if (todo == null) {
             return TypedResults.NotFound();
         }
+        var index = Todos.IndexOf(todo);
         Todos.Remove(todo);
-        return await rxDriver
+        var driver = rxDriver
             .With(context)
             .AddTriggerCloseDialog("delete-todo-modal")
-            .RemoveElement($"todo-item-{id}")
-            .AddTriggerFocusElement("search-todos", true)
-            .Render();
+            .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Morph)
+            .RemoveElement($"todo-item-{id}");
+        if (Todos.Count == 0) {
+            driver.AddTriggerFocusElement("new-todo-modal-trigger", true);
+        } else {
+            if (Todos.Count - 1 < index) {
+                driver.AddTriggerFocusElement($"edit-todo-modal-trigger-{Todos.Last().Id}");
+            } else {
+                driver.AddTriggerFocusElement($"edit-todo-modal-trigger-{Todos[index].Id}");
+            }
+        }
+        return await driver.Render();
     }
 
     public static async Task<IResult> EditTodo(HttpContext context, IRxDriver rxDriver, int id) {
@@ -115,8 +126,12 @@ public class ExamplesHandler : IRequestHandler {
             model = model with { IsEdit = isEdit, HasError = true };
             return rxDriver
                 .With(context)
-                .AddFragment<TodoForm, TodoFormModel>(model, isEdit ? "edit-todo-form" : "new-todo-form", FragmentMergeStrategyType.Morph);
+                .AddFragment<TodoForm, TodoFormModel>(model, isEdit ? "edit-todo-form" : "new-todo-form", FragmentMergeStrategyType.Swap);
         }
         return null;
+    }
+
+    private static (int Completed, int Total) GetCount() {
+        return new(Todos.Count(x => x.IsComplete), Todos.Count);
     }
 }

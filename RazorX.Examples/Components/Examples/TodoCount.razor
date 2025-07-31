@@ -1,0 +1,7 @@
+@implements IComponentModel<(int Completed, int Total)>
+
+<span id="todo-count">Completed @(Model.Completed) of @(Model.Total)</span>
+
+@code {
+    [Parameter] public (int Completed, int Total) Model { get; set; }
+}

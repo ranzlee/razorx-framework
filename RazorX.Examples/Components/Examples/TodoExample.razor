@@ -41,13 +41,15 @@
     <button id="new-todo-modal-trigger">New</button>
   </div>
 </div>
+<div>
+  <TodoCount Model="(Model.Count(x => x.IsComplete), Model.Count())"/>
+</div>
 <br>
 <div id="todo-list">
     <TodoList Model="@(Model)"></TodoList>
 </div>
 
 <script>
-  //new
   (function(){
     const newModal = document.getElementById("new-todo-modal");
     const newDismiss = document.getElementById("new-todo-modal-close");
