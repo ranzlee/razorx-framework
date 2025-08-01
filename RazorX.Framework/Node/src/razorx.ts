@@ -490,8 +490,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             document.head.innerHTML = "<title>Error</title>";
             const contentType = response.headers.get("content-type");
             if (contentType && (contentType.includes("application/json") || contentType.includes("application/problem+json"))) {
-                const formattedJson = JSON.stringify(await response.json(), null, 2); 
-                document.body.innerHTML = `<pre><code>${formattedJson}</code></pre>`;				
+                try {
+                    const jsonData = await response.json();
+                    const formattedJson = JSON.stringify(jsonData, null, 2); 
+                    document.body.innerHTML = `<pre><code>${formattedJson}</code></pre>`;
+                } catch (jsonError) {
+                    console.error("Error parsing JSON response:", jsonError);
+                    document.body.innerHTML = `<pre><code>Error parsing JSON response: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}</code></pre>`;
+                }				
             } else {
                 document.body.innerText = await response.text();
             }
@@ -503,7 +509,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (!merge) {
             throw new Error(`Expected a "${mergeHeader}" header object.`);
         }
-        const mergeStrategyArray: MergeStrategy[] = JSON.parse(merge);
+        let mergeStrategyArray: MergeStrategy[];
+        try {
+            mergeStrategyArray = JSON.parse(merge);
+        } catch (parseError) {
+            const errorMsg = `Failed to parse "${mergeHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+            console.error(errorMsg, { header: merge });
+            throw new Error(errorMsg);
+        }
         if (response.status === 204) {
             const removals = mergeStrategyArray.filter(s => s.strategy === "remove");
             if (removals.length > 0) {
@@ -533,7 +546,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         const closeDialogHeader: RxResponseHeaders = "rx-trigger-close-dialog";
         const closeDialogTriggerString = response.headers.get(closeDialogHeader);
         if (closeDialogTriggerString) {
-            const closeDialogTrigger: RxCloseDialogTrigger = JSON.parse(closeDialogTriggerString);
+            let closeDialogTrigger: RxCloseDialogTrigger;
+            try {
+                closeDialogTrigger = JSON.parse(closeDialogTriggerString);
+            } catch (parseError) {
+                const errorMsg = `Failed to parse "${closeDialogHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+                console.error(errorMsg, { header: closeDialogTriggerString });
+                return; // Continue execution without breaking the flow
+            }
             const modal = document.getElementById(closeDialogTrigger.dialogId);
             if (modal instanceof HTMLDialogElement) {
                 modal.close(closeDialogTrigger.onCloseData);
@@ -551,7 +571,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         const focusElementTriggerHeader: RxResponseHeaders = "rx-trigger-focus-element";
         const focusElementTriggerString = response.headers.get(focusElementTriggerHeader);
         if (focusElementTriggerString) {
-            const focusElementTrigger: RxFocusElementTrigger = JSON.parse(focusElementTriggerString);
+            let focusElementTrigger: RxFocusElementTrigger;
+            try {
+                focusElementTrigger = JSON.parse(focusElementTriggerString);
+            } catch (parseError) {
+                const errorMsg = `Failed to parse "${focusElementTriggerHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+                console.error(errorMsg, { header: focusElementTriggerString });
+                return; // Continue execution without breaking the flow
+            }
             const focusElement = document.getElementById(focusElementTrigger.elementId);
             if (focusElement) {
                 //queue macro-task to focus
