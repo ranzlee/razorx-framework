@@ -497,21 +497,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return;
         }
-        const closeDialogHeader: RxResponseHeaders = "rx-trigger-close-dialog";
-        const closeDialogTriggerString = response.headers.get(closeDialogHeader);
-        if (closeDialogTriggerString) {
-            const closeDialogTrigger: RxCloseDialogTrigger = JSON.parse(closeDialogTriggerString);
-            const modal = document.getElementById(closeDialogTrigger.dialogId);
-            if (modal instanceof HTMLDialogElement) {
-                modal.close(closeDialogTrigger.onCloseData);
-                if (closeDialogTrigger.resetFormId) {
-                    const form = document.getElementById(closeDialogTrigger.resetFormId);
-                    if (form instanceof HTMLFormElement) {
-                        form.reset();
-                    }
-                }
-            }
-        }
+        processCloseDialogTrigger(response);
         const mergeHeader: RxResponseHeaders = "rx-merge";
         const merge = response?.headers.get(mergeHeader);
         if (!merge) {
@@ -540,6 +526,28 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (_callbacks.afterDocumentUpdate) {
             _callbacks.afterDocumentUpdate(ele);
         }
+        processFocusElementTrigger(response);
+    }
+
+    function processCloseDialogTrigger(response: Response) {
+        const closeDialogHeader: RxResponseHeaders = "rx-trigger-close-dialog";
+        const closeDialogTriggerString = response.headers.get(closeDialogHeader);
+        if (closeDialogTriggerString) {
+            const closeDialogTrigger: RxCloseDialogTrigger = JSON.parse(closeDialogTriggerString);
+            const modal = document.getElementById(closeDialogTrigger.dialogId);
+            if (modal instanceof HTMLDialogElement) {
+                modal.close(closeDialogTrigger.onCloseData);
+                if (closeDialogTrigger.resetFormId) {
+                    const form = document.getElementById(closeDialogTrigger.resetFormId);
+                    if (form instanceof HTMLFormElement) {
+                        form.reset();
+                    }
+                }
+            }
+        }
+    }
+
+    function processFocusElementTrigger(response: Response) {
         const focusElementTriggerHeader: RxResponseHeaders = "rx-trigger-focus-element";
         const focusElementTriggerString = response.headers.get(focusElementTriggerHeader);
         if (focusElementTriggerString) {

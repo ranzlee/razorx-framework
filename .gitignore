@@ -20,6 +20,8 @@ RazorX.Framework/bin/
 RazorX.Framework/obj/
 RazorX.Framework/Node/dist
 RazorX.Framework/Node/node_modules
+RazorX.Framework/CLAUDE.md
+RazorX.Framework/Node/src/razorx-analysis.md
 
 # RazorX.Integration Project artifacts
 RazorX.Integration/bin/
