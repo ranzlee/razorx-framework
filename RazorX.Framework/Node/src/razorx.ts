@@ -113,7 +113,7 @@ const _callbacks: DocumentCallbacks = {};
 
 const _isFirefox = navigator.userAgent.toLowerCase().includes("firefox");
 
-const _addCallbacks = (callbacks: DocumentCallbacks) => {
+const _addCallbacks = (callbacks: DocumentCallbacks): void => {
     _callbacks.afterDocumentProcessed = callbacks.afterDocumentProcessed;
     _callbacks.afterDocumentUpdate = callbacks.afterDocumentUpdate;
     _callbacks.afterFetch = callbacks.afterFetch;
@@ -139,12 +139,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     let _requestQueue = Promise.resolve();
 
-    document.rxMutationObserver = new MutationObserver(recs => {
-        recs.forEach(rec => {
+    document.rxMutationObserver = new MutationObserver((recs: MutationRecord[]): void => {
+        recs.forEach((rec: MutationRecord): void => {
             if (rec.type !== "childList") {
                 return;
             }
-            rec.removedNodes.forEach(node => { 
+            rec.removedNodes.forEach((node: Node): void => { 
                 if (!(node instanceof HTMLElement)) {
                     return;
                 }
@@ -153,7 +153,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     _callbacks.onElementRemoved(node);
                 }
             });
-            rec.addedNodes.forEach(node => { 
+            rec.addedNodes.forEach((node: Node): void => { 
                 if (!(node instanceof HTMLElement)) {
                     return;
                 }
@@ -285,7 +285,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             const err = `Element ${this.id} with "data-rx-hoist-to" ${this.dataset.rxHoistTo} does not reference a valid DOM element.`;
             throw new Error(err);
         }
-        Array.from(this.attributes).forEach(attr => {
+        Array.from(this.attributes).forEach((attr: Attr): void => {
             if (attr.name === "data-rx-action" || attr.name === "data-rx-method") {
                 hoistTarget.setAttribute(attr.name, attr.value);
             }
@@ -338,7 +338,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             elementTriggerProcessor(ele, evt);
             return;
         }
-        _requestQueue = _requestQueue.then(async () => {
+        _requestQueue = _requestQueue.then(async (): Promise<void> => {
             await elementTriggerProcessor(ele, evt);
         });
     }
@@ -350,18 +350,18 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             reject: (reason?: unknown) => void 
         }> = [];
         return (): Promise<void> => {
-            return new Promise((resolve, reject) => {
+            return new Promise((resolve, reject): void => {
                 if (timeoutId) {
                     clearTimeout(timeoutId);
                 }
                 pending.push({ resolve, reject });
-                timeoutId = setTimeout(() => {
+                timeoutId = setTimeout((): void => {
                     timeoutId = null;
                     Promise.resolve(queue(ele, evt))
-                        .then((result) => {
-                            pending.forEach(({ resolve: res }) => res(result)); 
+                        .then((result: void): void => {
+                            pending.forEach(({ resolve: res }): void => res(result)); 
                         })
-                        .finally(() => {
+                        .finally((): void => {
                             pending = []; 
                         });
                 }, delay);
@@ -401,7 +401,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             };
             if (options?.addCookieToRequestHeader) {
                 if (Array.isArray(options.addCookieToRequestHeader)) {
-                    options.addCookieToRequestHeader.forEach(cookie => {
+                    options.addCookieToRequestHeader.forEach((cookie: string): void => {
                         addCookieToRequest(request, cookie);
                     });
                 } else {
@@ -518,7 +518,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             throw new Error(errorMsg);
         }
         if (response.status === 204) {
-            const removals = mergeStrategyArray.filter(s => s.strategy === "remove");
+            const removals = mergeStrategyArray.filter((s: MergeStrategy): boolean => s.strategy === "remove");
             if (removals.length > 0) {
                 if (document.startViewTransition !== undefined) {
                     await document.startViewTransition(async () => removeElements(ele, removals)).finished;
@@ -542,7 +542,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         processFocusElementTrigger(response);
     }
 
-    function processCloseDialogTrigger(response: Response) {
+    function processCloseDialogTrigger(response: Response): void {
         const closeDialogHeader: RxResponseHeaders = "rx-trigger-close-dialog";
         const closeDialogTriggerString = response.headers.get(closeDialogHeader);
         if (closeDialogTriggerString) {
@@ -567,7 +567,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
-    function processFocusElementTrigger(response: Response) {
+    function processFocusElementTrigger(response: Response): void {
         const focusElementTriggerHeader: RxResponseHeaders = "rx-trigger-focus-element";
         const focusElementTriggerString = response.headers.get(focusElementTriggerHeader);
         if (focusElementTriggerString) {
@@ -671,7 +671,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
         const object: Record<string, string | string[]> = {};
         let hasProps = false;
-        detail.body?.forEach((value: FormDataEntryValue, key: string) => {
+        detail.body?.forEach((value: FormDataEntryValue, key: string): void => {
             if (value instanceof Blob) {
                 //skip any input [type=file] for XMLHttpRequest processing
                 return;
@@ -694,7 +694,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     // response rendering
 
     function removeElements(triggerElement: HTMLElement, removals: MergeStrategy[]): void {
-        removals.forEach(r => {
+        removals.forEach((r: MergeStrategy): void => {
             const target = document.getElementById(r.target);
             if (!target) {
                 return;
@@ -710,13 +710,13 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     async function mergeFragments(triggerElement: HTMLElement, response: Response, mergeStrategyArray: MergeStrategy[]): Promise<void> {
-        const removals = mergeStrategyArray.filter(s => s.strategy === "remove");
+        const removals = mergeStrategyArray.filter((s: MergeStrategy): boolean => s.strategy === "remove");
         removeElements(triggerElement, removals);
         const parser = new DOMParser();
         const doc = parser.parseFromString("<body><template>" + await response.text() + "</template></body>", "text/html");
         const template = doc.body.querySelector("template")?.content;
         const fragments = Array.from(template?.childNodes ?? []);
-        const swaps = mergeStrategyArray.filter(s => {
+        const swaps = mergeStrategyArray.filter((s: MergeStrategy): boolean => {
             if (s.strategy === "swap" 
                 || s.strategy === "afterbegin"
                 || s.strategy === "afterend"
@@ -726,7 +726,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return false;
         });
-        swaps.forEach(s => {
+        swaps.forEach((s: MergeStrategy): void => {
             const fragment = getFragment(fragments, s);
             if (!fragment) {
                 return;
@@ -752,8 +752,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 }
             }
         });
-        const morphs = mergeStrategyArray.filter(s => s.strategy === "morph");
-        morphs.forEach(s => {
+        const morphs = mergeStrategyArray.filter((s: MergeStrategy): boolean => s.strategy === "morph");
+        morphs.forEach((s: MergeStrategy): void => {
             const fragment = getFragment(fragments, s);
             if (!fragment) {
                 return;
@@ -767,7 +767,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             Idiomorph.morph(target, Array.from(fragment.content.children), { 
                 morphStyle: "outerHTML", 
                 ignoreActiveValue: ignoreActive,
-            })?.forEach(n => {
+            })?.forEach((n: Node): void => {
                 if (!(n instanceof HTMLElement)) {
                     return;
                 }
@@ -782,7 +782,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     function getFragment(fragments: ChildNode[], mergeStrategy: MergeStrategy): HTMLTemplateElement | undefined {
         const fragmentId = `${mergeStrategy.target}-fragment`;
-        const fragment = fragments.find(f => f instanceof HTMLTemplateElement && f.id === fragmentId) as HTMLTemplateElement | undefined;
+        const fragment = fragments.find((f: ChildNode): f is HTMLTemplateElement => f instanceof HTMLTemplateElement && f.id === fragmentId) as HTMLTemplateElement | undefined;
         if (!fragment) {
             throw new Error(`Expected a response body fragment with id="${fragmentId}"`);
         }
@@ -814,7 +814,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             processScript(fragment);
             return;
         }
-        Array.from(fragment.querySelectorAll("script")).forEach(script => {
+        Array.from(fragment.querySelectorAll("script")).forEach((script: HTMLScriptElement): void => {
             processScript(script);
         });
     }
@@ -825,7 +825,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             return;
         }
         const newScript = document.createElement("script");
-        Array.from(script.attributes).forEach(attr => {
+        Array.from(script.attributes).forEach((attr: Attr): void => {
             newScript.setAttribute(attr.name, attr.value);
         });
         newScript.setAttribute(_processedScriptTag, "");
