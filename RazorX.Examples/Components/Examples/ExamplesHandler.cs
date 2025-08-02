@@ -21,6 +21,7 @@ public class ExamplesHandler : IRequestHandler {
         router.MapGet("/edit-todo-reset", ResetEditTodo);
         router.MapGet("/todo/{id:int}", EditTodo);
         router.MapDelete("/todo/{id:int}", DeleteTodo);
+        router.MapGet("/search-todos", SearchTodos);
     }
 
     private static readonly List<TodoModel> Todos = [];
@@ -29,6 +30,15 @@ public class ExamplesHandler : IRequestHandler {
         return await rxDriver
             .With(context)
             .AddPage<App, ExamplesHead, ExamplesPage, ExampleModel>(new ExampleModel(Todos), "RazorX - Examples")
+            .Render();
+    }
+
+    public static async Task<IResult> SearchTodos(HttpContext context, IRxDriver rxDriver, string filter) {
+        var todos = Todos.Where(x => x.Text.Contains(filter, StringComparison.InvariantCultureIgnoreCase)).ToList();
+        return await rxDriver
+            .With(context)
+            .AddFragment<TodoList, IEnumerable<TodoModel>>(todos, "todo-list", FragmentMergeStrategyType.Swap)
+            .AddFragment<TodoCount, (int Completed, int Total)>(new(todos.Count(x => x.IsComplete), todos.Count), "todo-count", FragmentMergeStrategyType.Morph)
             .Render();
     }
 

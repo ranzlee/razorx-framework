@@ -408,10 +408,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     addCookieToRequest(request, options.addCookieToRequestHeader);
                 }
             }
-            if (options?.encodeRequestFormDataAsJson === undefined
-                || options.encodeRequestFormDataAsJson === true) {
-                encodeBodyAsJson(request);
-            }
             if (/GET|DELETE/.test(request.method!)) {
                 const params = request.body instanceof FormData 
                     ? new URLSearchParams(request.body! as unknown as Record<string, string>)
@@ -421,6 +417,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     request.action += (/\?/.test(request.action!) ? "&" : "?") + params;
                 }
                 delete request.body;
+            } else {
+                if (options?.encodeRequestFormDataAsJson === undefined || options.encodeRequestFormDataAsJson === true) {
+                    encodeBodyAsJson(request);
+                }
             }
             const config: RequestConfiguration = {
                 trigger: evt,

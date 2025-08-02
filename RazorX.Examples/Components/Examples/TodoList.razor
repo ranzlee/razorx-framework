@@ -1,8 +1,10 @@
 @implements IComponentModel<IEnumerable<TodoModel>>
 
-@foreach (var todo in Model) {
-    <TodoItem Model="@(todo!)"></TodoItem>
-}
+<div id="todo-list">
+    @foreach (var todo in Model) {
+        <TodoItem Model="@(todo!)"></TodoItem>
+    }
+</div>
 
 @code {
     [Parameter] public IEnumerable<TodoModel> Model { get; set; } = [];
