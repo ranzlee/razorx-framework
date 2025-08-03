@@ -1,6 +1,6 @@
 @implements IComponentModel<IEnumerable<TodoModel>>
 
-<div id="todo-list">
+<div id="todo-list" style="height: 500px; overflow-x: auto;">
     @foreach (var todo in Model) {
         <TodoItem Model="@(todo!)"></TodoItem>
     }
