@@ -174,14 +174,24 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     // configuration functions
 
-    function setTrigger(ele: HTMLElement): void {
-        //TODO: allow multiple triggers -e.g., "click keydown"
+    function setTriggers(ele: HTMLElement): void {
+        //TODO: add support for init, poll, and intersect triggers
         let rxTrigger = ele.dataset.rxTrigger;
         if (!rxTrigger) {
             rxTrigger = ele.matches("form")
                 ? "submit" 
                 : ele.matches("input:not([type=button]),select,textarea") ? "change" : "click";
             ele.setAttribute("data-rx-trigger", rxTrigger);
+        }
+        const triggers = ele.dataset.rxTrigger!.split(/\s+/);
+        if (ele.dataset.rxHoistTo) {
+            triggers.forEach((trigger): void => {
+                ele.addEventListener(trigger, elementHoistEventHandler);
+            });
+        } else {
+            triggers.forEach((trigger): void => {
+                ele.addEventListener(trigger, elementTriggerEventHandler);
+            });
         }
     }
 
@@ -198,12 +208,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
         if (ele.dataset.rxAction && (!_callbacks.beforeInitializeElement || _callbacks.beforeInitializeElement(ele))) {
             configureElement(ele);
-            setTrigger(ele);
-            if (ele.dataset.rxHoistTo) {
-                ele.addEventListener(ele.dataset.rxTrigger!, elementHoistEventHandler);
-            } else {
-                ele.addEventListener(ele.dataset.rxTrigger!, elementTriggerEventHandler);
-            }
+            setTriggers(ele);
             if (_callbacks.afterInitializeElement) {
                 _callbacks.afterInitializeElement(ele);
             }
@@ -222,8 +227,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     function removeTriggers(ele: HTMLElement): void {
         if (ele.dataset.rxTrigger) {	
-            ele.removeEventListener(ele.dataset.rxTrigger, elementTriggerEventHandler);
-            ele.removeEventListener(ele.dataset.rxTrigger, elementHoistEventHandler);
+            const triggers = ele.dataset.rxTrigger.split(/\s+/);
+            triggers.forEach((trigger): void => {
+                ele.removeEventListener(trigger, elementTriggerEventHandler);
+                ele.removeEventListener(trigger, elementHoistEventHandler);
+            });
         }
         const children = ele.children;
         if (children?.length <= 0) {
@@ -294,11 +302,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             configureElement(hoistTarget);
         }
         if (hoistTarget.dataset.rxTrigger) {	
-            hoistTarget.removeEventListener(hoistTarget.dataset.rxTrigger, elementTriggerEventHandler);
-        } else {
-            setTrigger(hoistTarget);
-        }
-        hoistTarget.addEventListener(hoistTarget.dataset.rxTrigger!, elementTriggerEventHandler);
+            const triggers = hoistTarget.dataset.rxTrigger.split(/\s+/);
+            triggers.forEach((trigger): void => {
+                hoistTarget.removeEventListener(trigger, elementTriggerEventHandler);
+            });
+        } 
+        setTriggers(hoistTarget);
         if (_callbacks.afterInitializeElement) {
             _callbacks.afterInitializeElement(hoistTarget);
         }
