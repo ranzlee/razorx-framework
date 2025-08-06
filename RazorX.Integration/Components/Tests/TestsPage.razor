@@ -50,11 +50,15 @@
     <li id="test-20-result">20 - Swapped in trigger invoke validated.</li>    
     <li id="test-21-result">21 - Morphed in trigger invoke validated.</li>   
     <li id="test-22-result">22 - Adjacent swap validated.</li>   
-    <li id="test-23-result">23 - Debounce and disable in-flight validated.</li>    
+    <li id="test-23-result">23 - Debounce and disable in-flight validated.</li>
+    <li id="test-24-result" data-rx-action="/test-init" data-rx-trigger="rx:initialized">24 - Initialize trigger validated.</li>
+    <li id="test-25-result" data-rx-action="/test-poll" data-rx-trigger="rx:poll" data-rx-poll-interval="2000">25 - Poll trigger validated.</li>    
 </ul>
 
 @* targets *@
 <div id="targets">
+    <div id="test-init-target"></div>
+    <div id="test-poll-target"></div>
     <div id="test-swap-target"></div>
     <div id="test-morph-target"></div>
     <div id="test-remove-target"></div>

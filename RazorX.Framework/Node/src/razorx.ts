@@ -15,6 +15,7 @@ declare global {
             rxAllowEventDefault?: string //data-rx-allow-default
             rxDisableInFlight?: string, //data-rx-disable-in-flight
             rxDebounce?: string //data-rx-debounce
+            rxPollInterval?: string //data-rx-poll-interval
             rxDisableQueueing?: string // data-rx-disable-queueing
             rxHoistTo?: string //transfer rx behaviors to another element
         },
@@ -87,6 +88,8 @@ export type FetchRedirect = "follow" | "error" | "manual";
 export type MergeStrategyType = "swap" | "afterbegin" | "afterend" | "beforebegin" | "beforeend" | "morph" | "remove";
 
 export type RxResponseHeaders = "rx-merge" | "rx-morph-ignore-active" | "rx-trigger-close-dialog" | "rx-trigger-focus-element";
+
+export type RxExtendedEvents = "rx:initialized" | "rx:poll" | "rx:revealed";
 
 export type RxCloseDialogTrigger = {
     dialogId: string,
@@ -189,8 +192,32 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 ele.addEventListener(trigger, elementHoistEventHandler);
             });
         } else {
+            //TODO: validate special triggers are not combined with hoist
+            const rxInitialized: RxExtendedEvents = "rx:initialized";
+            const rxPoll: RxExtendedEvents = "rx:poll";
             triggers.forEach((trigger): void => {
-                ele.addEventListener(trigger, elementTriggerEventHandler);
+                if (trigger.trim().toLowerCase() === rxInitialized) {
+                    const evt = new CustomEvent(rxInitialized)
+                    elementTriggerProcessor(ele, evt);
+                } else if (trigger.trim().toLowerCase() === rxPoll) {
+                    let interval = 1000;
+                    const intervalSetting = ele.dataset.rxPollInterval?.trim().toLowerCase();
+                    if (intervalSetting === undefined) {
+                        console.warn(`The data-rx-poll-interval attribute on element ${ele.id} was not found. Default value of 1000 ms used.`);
+                    } else {
+                        interval = parseInt(intervalSetting, 10);
+                        if (Number.isNaN(interval) || interval <= 0) {
+                            interval = 1000;
+                            console.warn(`The data-rx-poll-interval attribute on element ${ele.id} is invalid. Default value of 1000 ms used.`);
+                        }    
+                    }
+                    const evt = new CustomEvent(rxPoll)
+                    setInterval(() => {
+                        elementTriggerProcessor(ele, evt);
+                    }, interval);
+                } else {
+                    ele.addEventListener(trigger, elementTriggerEventHandler);
+                }
             });
         }
     }

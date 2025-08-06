@@ -7,6 +7,8 @@ public class TestsHandler : IRequestHandler {
     public void MapRoutes(IEndpointRouteBuilder router) {
         router.MapGet("/", Get);
         router.MapPost("/test-swap", TestSwap);
+        router.MapGet("/test-init", TestInit);
+        router.MapGet("/test-poll", TestPoll);
         router.MapPost("/test-morph", TestMorph);
         router.MapPost("/test-remove", TestRemove);
         router.MapPost("/test-all-merge", TestAllMerge);
@@ -29,6 +31,20 @@ public class TestsHandler : IRequestHandler {
         return await rxDriver
             .With(context)
             .AddFragment<TestsTarget, string>("swap", "test-swap-target", FragmentMergeStrategyType.Swap)
+            .Render();
+    }
+
+    public static async Task<IResult> TestInit(HttpContext context, IRxDriver rxDriver) {
+        return await rxDriver
+            .With(context)
+            .AddFragment<TestsTarget, string>("init", "test-init-target", FragmentMergeStrategyType.Swap)
+            .Render();
+    }
+
+    public static async Task<IResult> TestPoll(HttpContext context, IRxDriver rxDriver) {
+        return await rxDriver
+            .With(context)
+            .AddFragment<TestsTarget, string>("poll", "test-poll-target", FragmentMergeStrategyType.Swap)
             .Render();
     }
 

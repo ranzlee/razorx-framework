@@ -25,7 +25,10 @@ function setResult(ele, passed) {
 
 razorx.addCallbacks({
     afterInitializeElement: (ele) => {
-        if (ele.id !== "new-swap-target-with-trigger" && ele.id !== "new-morph-target-with-trigger") {
+        if (ele.id !== "new-swap-target-with-trigger" 
+            && ele.id !== "new-morph-target-with-trigger"
+            && ele.id !== "test-24-result"
+            && ele.id !== "test-25-result") {
             triggers.push(ele);
         }
         if (ele.id === "test-01") {
@@ -366,6 +369,38 @@ razorx.addCallbacks({
                     } else {
                         setResult(ele, true);
                     }
+                }
+            });
+        }
+        if (ele.id === "test-24-result") {
+            let resolved = false;
+            ele.addRxCallbacks({
+                onElementTriggerError: () => {
+                    document.getElementById(`${ele.id}`).className = "fail";
+                    resolved = true;
+                },
+                afterDocumentUpdate: () => {
+                    console.log("test-24 afterDocumentUpdate");
+                    if (resolved) {
+                        return;
+                    }
+                    document.getElementById(`${ele.id}`).className = "pass";
+                }
+            });
+        }
+        if (ele.id === "test-25-result") {
+            let resolved = false;
+            ele.addRxCallbacks({
+                onElementTriggerError: () => {
+                    document.getElementById(`${ele.id}`).className = "fail";
+                    resolved = true;
+                },
+                afterDocumentUpdate: () => {
+                    console.log("test-25 afterDocumentUpdate");
+                    if (resolved) {
+                        return;
+                    }
+                    document.getElementById(`${ele.id}`).className = "pass";
                 }
             });
         }
