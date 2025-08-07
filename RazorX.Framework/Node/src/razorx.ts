@@ -197,29 +197,37 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             const rxPoll: RxExtendedEvents = "rx:poll";
             triggers.forEach((trigger): void => {
                 if (trigger.trim().toLowerCase() === rxInitialized) {
-                    const evt = new CustomEvent(rxInitialized)
-                    elementTriggerProcessor(ele, evt);
+                    initializedTrigger(ele, rxInitialized);
                 } else if (trigger.trim().toLowerCase() === rxPoll) {
-                    let interval = 1000;
-                    const intervalSetting = ele.dataset.rxPollInterval?.trim().toLowerCase();
-                    if (intervalSetting === undefined) {
-                        console.warn(`The data-rx-poll-interval attribute on element ${ele.id} was not found. Default value of 1000 ms used.`);
-                    } else {
-                        interval = parseInt(intervalSetting, 10);
-                        if (Number.isNaN(interval) || interval <= 0) {
-                            interval = 1000;
-                            console.warn(`The data-rx-poll-interval attribute on element ${ele.id} is invalid. Default value of 1000 ms used.`);
-                        }    
-                    }
-                    const evt = new CustomEvent(rxPoll)
-                    setInterval(() => {
-                        elementTriggerProcessor(ele, evt);
-                    }, interval);
+                    pollTrigger(ele, rxPoll);
                 } else {
                     ele.addEventListener(trigger, elementTriggerEventHandler);
                 }
             });
         }
+    }
+
+    function initializedTrigger(ele: HTMLElement, rxInitialized: string): void {
+        const evt = new CustomEvent(rxInitialized)
+        elementTriggerProcessor(ele, evt);
+    }
+
+    function pollTrigger(ele: HTMLElement, rxPoll: string): void {
+        let interval = 1000;
+        const intervalSetting = ele.dataset.rxPollInterval?.trim().toLowerCase();
+        if (intervalSetting === undefined) {
+            console.warn(`The data-rx-poll-interval attribute on element ${ele.id} was not found. Default value of 1000 ms used.`);
+        } else {
+            interval = parseInt(intervalSetting, 10);
+            if (Number.isNaN(interval) || interval <= 0) {
+                interval = 1000;
+                console.warn(`The data-rx-poll-interval attribute on element ${ele.id} is invalid. Default value of 1000 ms used.`);
+            }    
+        }
+        const evt = new CustomEvent(rxPoll)
+        setInterval(() => {
+            elementTriggerProcessor(ele, evt);
+        }, interval);
     }
 
     function addTriggers(ele: HTMLElement): void {
