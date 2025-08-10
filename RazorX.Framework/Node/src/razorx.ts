@@ -17,7 +17,8 @@ declare global {
             rxDebounce?: string //data-rx-debounce
             rxPollInterval?: string //data-rx-poll-interval
             rxDisableQueueing?: string // data-rx-disable-queueing
-            rxHoistTo?: string //transfer rx behaviors to another element
+            rxHoistTo?: string //data-rx-hoist-to transfer rx behaviors to another element
+            rxIncludeState?: string //data-rx-include-state
         },
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
         _rxCallbacks?: ElementCallbacks,
@@ -85,9 +86,14 @@ export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 export type FetchRedirect = "follow" | "error" | "manual";
 
 //TODO: union with InsertPosition
-export type MergeStrategyType = "swap" | "afterbegin" | "afterend" | "beforebegin" | "beforeend" | "morph" | "remove";
+export type MergeStrategyType = "swap" | "swapInner" | "afterbegin" | "afterend" | "beforebegin" | "beforeend" | "morph" | "remove";
 
-export type RxResponseHeaders = "rx-merge" | "rx-morph-ignore-active" | "rx-trigger-close-dialog" | "rx-trigger-focus-element";
+export type RxResponseHeaders = 
+    "rx-merge" | 
+    "rx-morph-ignore-active" | 
+    "rx-trigger-close-dialog" | 
+    "rx-trigger-focus-element" | 
+    "rx-trigger-set-state";
 
 export type RxExtendedEvents = "rx:initialized" | "rx:poll" | "rx:revealed";
 
@@ -100,6 +106,12 @@ export type RxCloseDialogTrigger = {
 export type RxFocusElementTrigger = {
     elementId: string,
     positionCursorEnd: boolean,
+}
+
+export type RxSetStateTrigger = {
+    key: string,
+    value: string,
+    scope: "Session" | "Persistent"
 }
 
 export const RxRequestHeader = "rx-request";
@@ -195,11 +207,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             //TODO: validate special triggers are not combined with hoist
             const rxInitialized: RxExtendedEvents = "rx:initialized";
             const rxPoll: RxExtendedEvents = "rx:poll";
+            const rxRevealed: RxExtendedEvents = "rx:revealed";
             triggers.forEach((trigger): void => {
                 if (trigger.trim().toLowerCase() === rxInitialized) {
                     initializedTrigger(ele, rxInitialized);
                 } else if (trigger.trim().toLowerCase() === rxPoll) {
                     pollTrigger(ele, rxPoll);
+                } else if (trigger.trim().toLowerCase() === rxRevealed) {
+                    revealedTrigger(ele, rxRevealed);
                 } else {
                     ele.addEventListener(trigger, elementTriggerEventHandler);
                 }
@@ -228,6 +243,21 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         setInterval(() => {
             elementTriggerProcessor(ele, evt);
         }, interval);
+    }
+
+    function revealedTrigger(ele: HTMLElement, rxRevealed: string): void {
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting && entry.target === ele) {
+                        const evt = new CustomEvent(rxRevealed);
+                        elementTriggerProcessor(ele, evt);
+                        observer.disconnect();
+                    }
+                });
+            }
+        );
+        observer.observe(ele);
     }
 
     function addTriggers(ele: HTMLElement): void {
@@ -466,6 +496,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     encodeBodyAsJson(request);
                 }
             }
+            const state = collectState(ele);
+            if (Object.keys(state).length > 0) {
+                request.action += (/\?/.test(request.action!) ? "&" : "?") + new URLSearchParams(state);
+            }
             const config: RequestConfiguration = {
                 trigger: evt,
                 action: request.action,
@@ -515,17 +549,28 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         } 
     }
 
+    function collectState(ele: HTMLElement): Record<string, string> {
+        if (!ele.dataset.rxIncludeState) {
+            return {};
+        }
+        const stateKeys = ele.dataset.rxIncludeState!.split(/\s+/);
+        if (stateKeys.length === 0) {
+            return {};
+        }
+        const state: Record<string, string> = {};
+        stateKeys.forEach((k): void => {
+            let v = sessionStorage.getItem(k);
+            if (v === null) {
+                v = localStorage.getItem(k)
+            }
+            state[k] = v ?? "";
+        })
+        return state;
+    }
+
     async function responseProcessor(ele: HTMLElement, response: Response | null): Promise<void> {
         if (!response) {
             throw new Error(`Element ${ele.id} has no response after request.`);
-        }
-        if (response.status === 202) {
-            //used to issue a follow-up GET request for rendering
-            const location = response.headers.get("location");
-            if (location && location.trim() !== "") {
-                window.location.assign(location);
-            }
-            return; 
         }
         if (response.status >= 400) {
             //dev error response
@@ -546,6 +591,15 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 document.body.innerText = await response.text();
             }
             return;
+        }
+        processSetStateTrigger(response);
+        if (response.status === 202) {
+            //used to issue a follow-up GET request for rendering
+            const location = response.headers.get("location");
+            if (location && location.trim() !== "") {
+                window.location.assign(location);
+            }
+            return; 
         }
         processCloseDialogTrigger(response);
         const mergeHeader: RxResponseHeaders = "rx-merge";
@@ -586,26 +640,50 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         processFocusElementTrigger(response);
     }
 
+    function processSetStateTrigger(response: Response): void {
+        const setStateHeader: RxResponseHeaders = "rx-trigger-set-state";
+        const setStateTriggerString = response.headers.get(setStateHeader);
+        if (!setStateTriggerString) {
+            return;
+        }
+        let setStateTrigger: RxSetStateTrigger;
+        try {
+            setStateTrigger = JSON.parse(setStateTriggerString);
+        } catch(parseError) {
+            const errorMsg = `Failed to parse "${setStateHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+            console.error(errorMsg, { header: setStateTriggerString });
+            return; // Continue execution without breaking the flow
+        }
+        if (setStateTrigger.scope === "Session") {
+            sessionStorage.setItem(setStateTrigger.key, setStateTrigger.value);
+            return;
+        }
+        if (setStateTrigger.scope === "Persistent") {
+            localStorage.setItem(setStateTrigger.key, setStateTrigger.value);
+        }
+    }
+
     function processCloseDialogTrigger(response: Response): void {
         const closeDialogHeader: RxResponseHeaders = "rx-trigger-close-dialog";
         const closeDialogTriggerString = response.headers.get(closeDialogHeader);
-        if (closeDialogTriggerString) {
-            let closeDialogTrigger: RxCloseDialogTrigger;
-            try {
-                closeDialogTrigger = JSON.parse(closeDialogTriggerString);
-            } catch (parseError) {
-                const errorMsg = `Failed to parse "${closeDialogHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
-                console.error(errorMsg, { header: closeDialogTriggerString });
-                return; // Continue execution without breaking the flow
-            }
-            const modal = document.getElementById(closeDialogTrigger.dialogId);
-            if (modal instanceof HTMLDialogElement) {
-                modal.close(closeDialogTrigger.onCloseData);
-                if (closeDialogTrigger.resetFormId) {
-                    const form = document.getElementById(closeDialogTrigger.resetFormId);
-                    if (form instanceof HTMLFormElement) {
-                        form.reset();
-                    }
+        if (!closeDialogTriggerString) {
+            return;
+        }
+        let closeDialogTrigger: RxCloseDialogTrigger;
+        try {
+            closeDialogTrigger = JSON.parse(closeDialogTriggerString);
+        } catch (parseError) {
+            const errorMsg = `Failed to parse "${closeDialogHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+            console.error(errorMsg, { header: closeDialogTriggerString });
+            return; // Continue execution without breaking the flow
+        }
+        const modal = document.getElementById(closeDialogTrigger.dialogId);
+        if (modal instanceof HTMLDialogElement) {
+            modal.close(closeDialogTrigger.onCloseData);
+            if (closeDialogTrigger.resetFormId) {
+                const form = document.getElementById(closeDialogTrigger.resetFormId);
+                if (form instanceof HTMLFormElement) {
+                    form.reset();
                 }
             }
         }
@@ -614,29 +692,30 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     function processFocusElementTrigger(response: Response): void {
         const focusElementTriggerHeader: RxResponseHeaders = "rx-trigger-focus-element";
         const focusElementTriggerString = response.headers.get(focusElementTriggerHeader);
-        if (focusElementTriggerString) {
-            let focusElementTrigger: RxFocusElementTrigger;
-            try {
-                focusElementTrigger = JSON.parse(focusElementTriggerString);
-            } catch (parseError) {
-                const errorMsg = `Failed to parse "${focusElementTriggerHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
-                console.error(errorMsg, { header: focusElementTriggerString });
-                return; // Continue execution without breaking the flow
-            }
-            const focusElement = document.getElementById(focusElementTrigger.elementId);
-            if (focusElement) {
-                //queue macro-task to focus
-                setTimeout(() => {
-                    focusElement.focus();
-                    if (!focusElementTrigger.positionCursorEnd) {
-                        return;
-                    }
-                    if (focusElement instanceof HTMLInputElement || focusElement instanceof HTMLTextAreaElement) {
-                        const textLength = focusElement.value.length;
-                        focusElement.setSelectionRange(textLength, textLength);
-                    }   
-                }, 0);
-            }
+        if (!focusElementTriggerString) {
+            return;
+        }
+        let focusElementTrigger: RxFocusElementTrigger;
+        try {
+            focusElementTrigger = JSON.parse(focusElementTriggerString);
+        } catch (parseError) {
+            const errorMsg = `Failed to parse "${focusElementTriggerHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+            console.error(errorMsg, { header: focusElementTriggerString });
+            return; // Continue execution without breaking the flow
+        }
+        const focusElement = document.getElementById(focusElementTrigger.elementId);
+        if (focusElement) {
+            //queue macro-task to focus
+            setTimeout(() => {
+                focusElement.focus();
+                if (!focusElementTrigger.positionCursorEnd) {
+                    return;
+                }
+                if (focusElement instanceof HTMLInputElement || focusElement instanceof HTMLTextAreaElement) {
+                    const textLength = focusElement.value.length;
+                    focusElement.setSelectionRange(textLength, textLength);
+                }   
+            }, 0);
         }
     }
     
@@ -762,6 +841,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         const fragments = Array.from(template?.childNodes ?? []);
         const swaps = mergeStrategyArray.filter((s: MergeStrategy): boolean => {
             if (s.strategy === "swap" 
+                || s.strategy === "swapInner"
                 || s.strategy === "afterbegin"
                 || s.strategy === "afterend"
                 || s.strategy === "beforebegin"
@@ -781,6 +861,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             if (s.strategy === "swap") {
                 target.replaceWith(fragment.content);
+            } else if (s.strategy === "swapInner") {
+                target.replaceChildren(fragment.content);
             } else {
                 const newContent = Array.from(fragment.content.children);
                 if (newContent.length === 0) {

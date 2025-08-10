@@ -1,0 +1,17 @@
+@implements IComponentModel<string>
+
+<input id="search-todos" 
+      type="search" 
+      name="filter"
+      value="@(Model)"
+      data-rx-method="get"
+      data-rx-action="/search-todos" 
+      data-rx-debounce="400"
+      data-rx-trigger="input"
+      placeholder="Search" 
+      aria-label="Search"
+      autocomplete="off">
+
+@code {
+    [Parameter] public string Model { get; set; } = null!;
+}

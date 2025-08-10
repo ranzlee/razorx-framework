@@ -1,4 +1,4 @@
-@implements IComponentModel<IEnumerable<TodoModel>>
+@implements IComponentModel<ExampleModel>
 
 <dialog id="new-todo-modal">
   <article>
@@ -33,28 +33,27 @@
   </article>
 </dialog>
 
-<div class="grid">
+<div
+  id="content"
+  data-rx-method="get"
+  data-rx-action="/search-todos" 
+  data-rx-trigger="rx:initialized"
+  data-rx-include-state="filter"
+  class="grid">
   <div>
-    <input id="search-todos" 
-      type="search" 
-      name="filter"
-      data-rx-method="get"
-      data-rx-action="/search-todos" 
-      data-rx-debounce="400"
-      data-rx-trigger="input"
-      placeholder="Search" 
-      aria-label="Search"
-      autocomplete="off">
+    <TodoSearch Model="" />
   </div>
   <div class="flex justify-right">
     <button id="new-todo-modal-trigger">New</button>
   </div>
 </div>
 <div>
-  <TodoCount Model="(Model.Count(x => x.IsComplete), Model.Count())"/>
+  <TodoCount Model="(Model.Completed, Model.Total)"/>
 </div>
 <br>
-<TodoList Model="@(Model)"></TodoList>
+<div id="todo-list" style="height: 500px; overflow-x: auto;">
+    <TodoList Model="@(Model.Todos)" />
+</div>
 
 
 <script>
@@ -72,5 +71,5 @@
 </script>
 
 @code {
-    [Parameter] public IEnumerable<TodoModel> Model { get; set; } = [];
+    [Parameter] public ExampleModel Model { get; set; } = new([], 0, 0);
 }

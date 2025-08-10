@@ -1,6 +1,8 @@
 @implements IComponentModel<TodoModel>
 
-<article id="todo-item-@(Model.Id)">
+<article id="todo-item-@(Model.Id)"
+    data-rx-action="@(SetRevealedTrigger ? $"/todo/next/{Model.Id}" : false)"
+    data-rx-trigger="@(SetRevealedTrigger ? "rx:revealed" : false)">
     <button
         id="edit-todo-modal-trigger-@(Model.Id)"
         data-rx-action="/todo/@(Model.Id)"
@@ -38,4 +40,5 @@
 
 @code {
     [Parameter] public TodoModel Model { get; set; } = null!;
+    [Parameter] public bool SetRevealedTrigger { get; set; }
 }

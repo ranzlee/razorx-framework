@@ -10,16 +10,22 @@ namespace RazorX.Framework;
 
 public enum FragmentMergeStrategyType {
     Swap = 0,
-    AppendAfterBegin = 1,
-    AppendAfterEnd = 2,
-    AppendBeforeBegin = 3,
-    AppendBeforeEnd = 4,
-    Morph = 5
+    SwapInner = 1,
+    AppendAfterBegin = 2,
+    AppendAfterEnd = 3,
+    AppendBeforeBegin = 4,
+    AppendBeforeEnd = 5,
+    Morph = 6
+}
+
+public enum MetadataScope {
+    Session = 0,
+    Persistent = 1
 }
 
 public record CloseDialogTrigger(string DialogId, string? OnCloseData, string? ResetFormId);
-
 public record FocusElementTrigger(string ElementId, bool PositionCursorEnd);
+public record SetStateTrigger(string Key, string Value, string Scope);
 
 public static class RxDriverServices {
     public static void AddRxDriver(this IServiceCollection services) {
@@ -73,6 +79,7 @@ public interface IRxResponseBuilder {
 
     IRxResponseBuilder AddTriggerCloseDialog(string dialogId, string? onCloseData = null, string? resetFormId = null);
     IRxResponseBuilder AddTriggerFocusElement(string elementId, bool positionCursorEnd = false);
+    IRxResponseBuilder AddTriggerSetState(string key, string value, MetadataScope scope = MetadataScope.Session);
 
     Task<IResult> Render(
         bool ignoreActiveElementValueOnMorph = false
@@ -106,6 +113,7 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
     private readonly List<MergeStrategy> mergeStrategies = [];
     private CloseDialogTrigger? closeDialogTrigger = null;
     private FocusElementTrigger? focusElementTrigger = null;
+    private readonly List<SetStateTrigger> setStateTriggers = [];
     private static readonly JsonSerializerOptions serializerSettings = new(JsonSerializerDefaults.Web);
 
     public IRxResponseBuilder AddPage<TRoot, TComponent, TModel>(TModel model, string? title = null)
@@ -223,6 +231,12 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
         return this;
     }
 
+    public IRxResponseBuilder AddTriggerSetState(string key, string value, MetadataScope scope = MetadataScope.Session) {
+        CheckRenderingStatus();
+        setStateTriggers.Add(new SetStateTrigger(key, value, scope.ToString()));
+        return this;
+    }
+
     public async Task<IResult> Render(
         bool ignoreActiveElementValueOnMorph = false
     ) {
@@ -240,7 +254,12 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
             context.Response.Headers.Append("rx-trigger-close-dialog", JsonSerializer.Serialize(closeDialogTrigger, serializerSettings));
         }
         if (focusElementTrigger != null) {
-            context.Response.Headers.Append("rx-trigger-focus-element", JsonSerializer.Serialize(focusElementTrigger,  serializerSettings));
+            context.Response.Headers.Append("rx-trigger-focus-element", JsonSerializer.Serialize(focusElementTrigger, serializerSettings));
+        }
+        if (setStateTriggers.Count > 0) {
+            foreach (var t in setStateTriggers) {
+                context.Response.Headers.Append("rx-trigger-set-state", JsonSerializer.Serialize(t, serializerSettings));
+            }
         }
         //fragments
         if (ignoreActiveElementValueOnMorph) {
@@ -260,6 +279,7 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
     private void AddMergeStrategy(string targetId, FragmentMergeStrategyType fragmentMergeStrategy) {
         var mergeStrategy = fragmentMergeStrategy switch {
             FragmentMergeStrategyType.Swap => "swap",
+            FragmentMergeStrategyType.SwapInner => "swapInner",
             FragmentMergeStrategyType.AppendAfterBegin => "afterbegin",
             FragmentMergeStrategyType.AppendAfterEnd => "afterend",
             FragmentMergeStrategyType.AppendBeforeBegin => "beforebegin",

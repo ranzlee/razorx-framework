@@ -1,6 +1,6 @@
 @implements IComponentModel<ExampleModel>
 
-<TodoExample Model="@(Model.Todos)"></TodoExample>
+<TodoExample Model="@(Model)"></TodoExample>
 
 @code {
     [Parameter] public ExampleModel Model { get; set; } = null!;

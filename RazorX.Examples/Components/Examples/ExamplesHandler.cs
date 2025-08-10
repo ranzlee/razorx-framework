@@ -9,7 +9,7 @@ public class TodoModel(int id, string text, bool isComplete) {
     public bool IsComplete { get; set; } = isComplete;
 };
 
-public record ExampleModel(IEnumerable<TodoModel> Todos);
+public record ExampleModel(IEnumerable<TodoModel> Todos, int Total, int Completed);
 public record TodoFormModel(int Id, string Text, bool IsComplete, bool HasError, bool IsEdit);
 
 public class ExamplesHandler : IRequestHandler {
@@ -20,6 +20,7 @@ public class ExamplesHandler : IRequestHandler {
         router.MapGet("/new-todo-reset", ResetNewTodo);
         router.MapGet("/edit-todo-reset", ResetEditTodo);
         router.MapGet("/todo/{id:int}", EditTodo);
+        router.MapGet("/todo/next/{id:int}", NextTodos);
         router.MapDelete("/todo/{id:int}", DeleteTodo);
         router.MapGet("/search-todos", SearchTodos);
     }
@@ -27,18 +28,39 @@ public class ExamplesHandler : IRequestHandler {
     private static readonly List<TodoModel> Todos = [];
 
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver) {
+        // var page = Todos
+        //     .OrderBy(x => x.Id)
+        //     .Take(5);
         return await rxDriver
             .With(context)
-            .AddPage<App, ExamplesHead, ExamplesPage, ExampleModel>(new ExampleModel(Todos), "RazorX - Examples")
+            .AddPage<App, ExamplesHead, ExamplesPage, ExampleModel>(new ExampleModel([], 0, 0), "RazorX - Examples")
+            //.AddPage<App, ExamplesHead, ExamplesPage, ExampleModel>(new ExampleModel(page, Todos.Count, Todos.Count(x => x.IsComplete)), "RazorX - Examples")
             .Render();
     }
 
-    public static async Task<IResult> SearchTodos(HttpContext context, IRxDriver rxDriver, string filter) {
-        var todos = Todos.Where(x => x.Text.Contains(filter, StringComparison.InvariantCultureIgnoreCase)).ToList();
+    public static async Task<IResult> NextTodos(HttpContext context, IRxDriver rxDriver, int id, string filter = "") {
+        var page = Todos
+            .Where(x => x.Id > id && x.Text.Contains(filter, StringComparison.InvariantCultureIgnoreCase))
+            .OrderBy(x => x.Id)
+            .Take(5);
         return await rxDriver
             .With(context)
-            .AddFragment<TodoList, IEnumerable<TodoModel>>(todos, "todo-list", FragmentMergeStrategyType.Swap)
-            .AddFragment<TodoCount, (int Completed, int Total)>(new(todos.Count(x => x.IsComplete), todos.Count), "todo-count", FragmentMergeStrategyType.Morph)
+            .AddFragment<TodoList, IEnumerable<TodoModel>>(page, "todo-list", FragmentMergeStrategyType.AppendBeforeEnd)
+            .Render();
+    }
+
+    public static async Task<IResult> SearchTodos(HttpContext context, IRxDriver rxDriver, string filter = "") {
+        var page = Todos
+            .Where(x => x.Text.Contains(filter, StringComparison.InvariantCultureIgnoreCase))
+            .OrderBy(x => x.Id)
+            .Take(5);
+        return await rxDriver
+            .With(context)
+            .AddTriggerSetState("filter", filter)
+            .AddTriggerFocusElement("search-todos", true)
+            .AddFragment<TodoSearch, string>(filter, "search-todos", FragmentMergeStrategyType.Swap)
+            .AddFragment<TodoList, IEnumerable<TodoModel>>(page, "todo-list", FragmentMergeStrategyType.SwapInner)
+            .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Morph)
             .Render();
     }
 

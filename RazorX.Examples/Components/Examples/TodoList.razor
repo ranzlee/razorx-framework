@@ -1,11 +1,11 @@
 @implements IComponentModel<IEnumerable<TodoModel>>
 
-<div id="todo-list" style="height: 500px; overflow-x: auto;">
-    @foreach (var todo in Model) {
-        <TodoItem Model="@(todo!)"></TodoItem>
-    }
-</div>
+@foreach (var todo in Model) {
+    iteration += 1;
+    <TodoItem Model="@(todo!)" SetRevealedTrigger="@(iteration == 5)"></TodoItem>
+}
 
 @code {
+    private int iteration;
     [Parameter] public IEnumerable<TodoModel> Model { get; set; } = [];
 }
