@@ -582,10 +582,20 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 try {
                     const jsonData = await response.json();
                     const formattedJson = JSON.stringify(jsonData, null, 2); 
-                    document.body.innerHTML = `<pre><code>${formattedJson}</code></pre>`;
+                    const pre = document.createElement('pre');
+                    const code = document.createElement('code');
+                    code.textContent = formattedJson;
+                    pre.appendChild(code);
+                    document.body.innerHTML = '';
+                    document.body.appendChild(pre);
                 } catch (jsonError) {
                     console.error("Error parsing JSON response:", jsonError);
-                    document.body.innerHTML = `<pre><code>Error parsing JSON response: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}</code></pre>`;
+                    const errorPre = document.createElement('pre');
+                    const errorCode = document.createElement('code');
+                    errorCode.textContent = `Error parsing JSON response: ${jsonError instanceof Error ? jsonError.message : String(jsonError)}`;
+                    errorPre.appendChild(errorCode);
+                    document.body.innerHTML = '';
+                    document.body.appendChild(errorPre);
                 }				
             } else {
                 document.body.innerText = await response.text();
