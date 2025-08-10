@@ -109,9 +109,9 @@ export type RxFocusElementTrigger = {
 }
 
 export type RxSetStateTrigger = {
-    key: string,
-    value: string,
     scope: "Session" | "Persistent"
+    key: string,
+    value?: string | null,
 }
 
 export const RxRequestHeader = "rx-request";
@@ -627,7 +627,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return;
         }
-        processSetStateTrigger(response);
+        processSetStateTrigger(ele, response);
         if (response.status === 202) {
             //used to issue a follow-up GET request for rendering
             const location = response.headers.get("location");
@@ -636,7 +636,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return; 
         }
-        processCloseDialogTrigger(response);
+        processCloseDialogTrigger(ele, response);
         const mergeHeader: RxResponseHeaders = "rx-merge";
         const merge = response?.headers.get(mergeHeader);
         if (!merge) {
@@ -672,10 +672,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (_callbacks.afterDocumentUpdate) {
             _callbacks.afterDocumentUpdate(ele);
         }
-        processFocusElementTrigger(response);
+        processFocusElementTrigger(ele, response);
     }
 
-    function processSetStateTrigger(response: Response): void {
+    function processSetStateTrigger(ele: HTMLElement, response: Response): void {
         const setStateHeader: RxResponseHeaders = "rx-trigger-set-state";
         const setStateTriggerString = response.headers.get(setStateHeader);
         if (!setStateTriggerString) {
@@ -687,18 +687,37 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         } catch(parseError) {
             const errorMsg = `Failed to parse "${setStateHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
             console.error(errorMsg, { header: setStateTriggerString });
-            return; // Continue execution without breaking the flow
+            const error = new Error(errorMsg);
+            if (ele._rxCallbacks?.onElementTriggerError) {
+                ele._rxCallbacks.onElementTriggerError(error);
+            }
+            if (_callbacks.onElementTriggerError) {
+                _callbacks.onElementTriggerError(ele, error);
+            }
+            return;
+        }
+        if (!setStateTrigger.key || !setStateTrigger.scope) {
+            const errorMsg = `Invalid "${setStateHeader}" structure - missing required fields: key, scope`;
+            console.error(errorMsg, { parsed: setStateTrigger });
+            const error = new Error(errorMsg);
+            if (ele._rxCallbacks?.onElementTriggerError) {
+                ele._rxCallbacks.onElementTriggerError(error);
+            }
+            if (_callbacks.onElementTriggerError) {
+                _callbacks.onElementTriggerError(ele, error);
+            }
+            return;
         }
         if (setStateTrigger.scope === "Session") {
-            sessionStorage.setItem(setStateTrigger.key, setStateTrigger.value);
+            sessionStorage.setItem(setStateTrigger.key, setStateTrigger.value ?? "");
             return;
         }
         if (setStateTrigger.scope === "Persistent") {
-            localStorage.setItem(setStateTrigger.key, setStateTrigger.value);
+            localStorage.setItem(setStateTrigger.key, setStateTrigger.value ?? "");
         }
     }
 
-    function processCloseDialogTrigger(response: Response): void {
+    function processCloseDialogTrigger(ele: HTMLElement, response: Response): void {
         const closeDialogHeader: RxResponseHeaders = "rx-trigger-close-dialog";
         const closeDialogTriggerString = response.headers.get(closeDialogHeader);
         if (!closeDialogTriggerString) {
@@ -710,7 +729,26 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         } catch (parseError) {
             const errorMsg = `Failed to parse "${closeDialogHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
             console.error(errorMsg, { header: closeDialogTriggerString });
-            return; // Continue execution without breaking the flow
+            const error = new Error(errorMsg);
+            if (ele._rxCallbacks?.onElementTriggerError) {
+                ele._rxCallbacks.onElementTriggerError(error);
+            }
+            if (_callbacks.onElementTriggerError) {
+                _callbacks.onElementTriggerError(ele, error);
+            }
+            return;
+        }
+        if (!closeDialogTrigger.dialogId) {
+            const errorMsg = `Invalid "${closeDialogHeader}" structure - missing required field: dialogId`;
+            console.error(errorMsg, { parsed: closeDialogTrigger });
+            const error = new Error(errorMsg);
+            if (ele._rxCallbacks?.onElementTriggerError) {
+                ele._rxCallbacks.onElementTriggerError(error);
+            }
+            if (_callbacks.onElementTriggerError) {
+                _callbacks.onElementTriggerError(ele, error);
+            }
+            return;
         }
         const modal = document.getElementById(closeDialogTrigger.dialogId);
         if (modal instanceof HTMLDialogElement) {
@@ -724,7 +762,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
-    function processFocusElementTrigger(response: Response): void {
+    function processFocusElementTrigger(ele: HTMLElement, response: Response): void {
         const focusElementTriggerHeader: RxResponseHeaders = "rx-trigger-focus-element";
         const focusElementTriggerString = response.headers.get(focusElementTriggerHeader);
         if (!focusElementTriggerString) {
@@ -736,7 +774,27 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         } catch (parseError) {
             const errorMsg = `Failed to parse "${focusElementTriggerHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
             console.error(errorMsg, { header: focusElementTriggerString });
-            return; // Continue execution without breaking the flow
+            const error = new Error(errorMsg);
+            if (ele._rxCallbacks?.onElementTriggerError) {
+                ele._rxCallbacks.onElementTriggerError(error);
+            }
+            if (_callbacks.onElementTriggerError) {
+                _callbacks.onElementTriggerError(ele, error);
+            }
+            return;
+        }
+        if (!focusElementTrigger.elementId) {
+            const errorMsg = `Invalid "${focusElementTriggerHeader}" structure - missing required field: elementId`;
+            console.error(errorMsg, { parsed: focusElementTrigger });
+            
+            const error = new Error(errorMsg);
+            if (ele._rxCallbacks?.onElementTriggerError) {
+                ele._rxCallbacks.onElementTriggerError(error);
+            }
+            if (_callbacks.onElementTriggerError) {
+                _callbacks.onElementTriggerError(ele, error);
+            }
+            return;
         }
         const focusElement = document.getElementById(focusElementTrigger.elementId);
         if (focusElement) {
