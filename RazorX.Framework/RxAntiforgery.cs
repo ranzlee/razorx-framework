@@ -18,7 +18,7 @@ public static class RxAntiforgeryExtensions {
 
 public sealed class RxAntiforgeryCookieMiddleware(RequestDelegate next) {
     public async Task InvokeAsync(HttpContext context, IAntiforgery antiforgery, ILogger<RxAntiforgeryCookieMiddleware> logger) {
-        if (context.Request.Method.Trim().Equals("GET", StringComparison.CurrentCultureIgnoreCase)) {
+        if (context.Request.Method.Trim().Equals("GET", StringComparison.OrdinalIgnoreCase)) {
             // Return an antiforgery token in the response for GET requests
             var tokenSet = antiforgery.GetAndStoreTokens(context);
             logger.LogTrace("Adding Antiforgery token cookie for {method}:{request}.",
