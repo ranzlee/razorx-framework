@@ -120,7 +120,7 @@ const _processedScriptTag = "data-rx-script-processed";
 
 const _requestRefTracker: Set<string> = new Set();
 
-const _debouncedRequests: Map<string, () => Promise<void>> = new Map();
+const _debouncedRequests: Map<string, (() => Promise<void>) & { _cleanup?: () => void }> = new Map();
 
 const _fetchRedirect: FetchRedirect = "follow";
 
@@ -298,6 +298,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 ele.removeEventListener(trigger, elementHoistEventHandler);
             });
         }
+        // Clean up debounced requests
+        const debouncedRequest = _debouncedRequests.get(ele.id);
+        if (debouncedRequest) {
+            debouncedRequest._cleanup?.();
+            _debouncedRequests.delete(ele.id);
+        }
         const children = ele.children;
         if (children?.length <= 0) {
             return;
@@ -421,13 +427,23 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         });
     }
 
-    function debounce(ele: HTMLElement, evt: Event, delay: number): () => Promise<void> {
+    function debounce(ele: HTMLElement, evt: Event, delay: number): (() => Promise<void>) & { _cleanup?: () => void } {
         let timeoutId: number | null = null;
         let pending: Array<{ 
             resolve: (value: void) => void; 
             reject: (reason?: unknown) => void 
         }> = [];
-        return (): Promise<void> => {
+        const cleanup = (): void => {
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+                timeoutId = null;
+            }
+            pending.forEach(({ reject }): void => {
+                reject(new Error(`Element ${ele.id} was removed from DOM`));
+            });
+            pending = [];
+        };
+        const debouncedFn = (): Promise<void> => {
             return new Promise((resolve, reject): void => {
                 if (timeoutId) {
                     clearTimeout(timeoutId);
@@ -439,12 +455,17 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         .then((result: void): void => {
                             pending.forEach(({ resolve: res }): void => res(result)); 
                         })
+                        .catch((error: unknown): void => {
+                            pending.forEach(({ reject: rej }): void => rej(error));
+                        })
                         .finally((): void => {
                             pending = []; 
                         });
                 }, delay);
             });
         };
+        debouncedFn._cleanup = cleanup;
+        return debouncedFn;
     }
     
     // process request
