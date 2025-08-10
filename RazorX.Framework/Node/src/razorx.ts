@@ -1000,7 +1000,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function getFragment(fragments: ChildNode[], mergeStrategy: MergeStrategy): HTMLTemplateElement | undefined {
-        const fragmentId = `${mergeStrategy.target}-fragment`;
+        const fragmentId = `${mergeStrategy.target}-rx-fragment`;
         const fragment = fragments.find((f: ChildNode): f is HTMLTemplateElement => f instanceof HTMLTemplateElement && f.id === fragmentId) as HTMLTemplateElement | undefined;
         if (!fragment) {
             throw new Error(`Expected a response body fragment with id="${fragmentId}"`);

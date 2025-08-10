@@ -192,7 +192,7 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
         });
         renderTasks.Add(htmlRenderer.Dispatcher.InvokeAsync(async () => {
             var output = await htmlRenderer.RenderComponentAsync<TComponent>(parameters);
-            content.Append($"<template id=\"{targetId}-fragment\">{output.ToHtmlString()}</template>");
+            content.Append($"<template id=\"{targetId}-rx-fragment\">{output.ToHtmlString()}</template>");
         }));
         AddMergeStrategy(targetId, fragmentMergeStrategy);
         return this;
@@ -206,7 +206,7 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
         CheckPageRenderStatus();
         renderTasks.Add(htmlRenderer.Dispatcher.InvokeAsync(async () => {
             var output = await htmlRenderer.RenderComponentAsync<TComponent>();
-            content.Append($"<template id=\"{targetId}-fragment\">{output.ToHtmlString()}</template>");
+            content.Append($"<template id=\"{targetId}-rx-fragment\">{output.ToHtmlString()}</template>");
         }));
         AddMergeStrategy(targetId, fragmentMergeStrategy);
         return this;

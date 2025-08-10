@@ -137,7 +137,7 @@ razorx.addCallbacks({
                     console.log("test-10 beforeFetch");
                 },
                 beforeDocumentUpdate: (mergeElement) => {
-                    setResult(ele, mergeElement instanceof HTMLTemplateElement && mergeElement.id === "test-swap-target-fragment");
+                    setResult(ele, mergeElement instanceof HTMLTemplateElement && mergeElement.id === "test-swap-target-rx-fragment");
                 },
                 afterDocumentUpdate: () => {
                     console.log("test-10 afterDocumentUpdate");
@@ -186,7 +186,7 @@ razorx.addCallbacks({
                     console.log("test-14 beforeFetch");
                 },
                 beforeDocumentUpdate: (mergeElement) => {
-                    setResult(ele, mergeElement instanceof HTMLTemplateElement && mergeElement.id === "test-morph-target-fragment");
+                    setResult(ele, mergeElement instanceof HTMLTemplateElement && mergeElement.id === "test-morph-target-rx-fragment");
                 },
                 afterDocumentUpdate: () => {
                     console.log("test-14 afterDocumentUpdate");
