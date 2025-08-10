@@ -786,7 +786,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (!focusElementTrigger.elementId) {
             const errorMsg = `Invalid "${focusElementTriggerHeader}" structure - missing required field: elementId`;
             console.error(errorMsg, { parsed: focusElementTrigger });
-            
             const error = new Error(errorMsg);
             if (ele._rxCallbacks?.onElementTriggerError) {
                 ele._rxCallbacks.onElementTriggerError(error);
@@ -962,12 +961,36 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     return;
                 }
                 //insert the first element based on the strategy
-                target.insertAdjacentElement(s.strategy as InsertPosition, newContent[0]!);
-                let thisEle = newContent[0]!;
+                const firstInserted = target.insertAdjacentElement(s.strategy as InsertPosition, newContent[0]!);
+                if (!firstInserted) {
+                    const errorMsg = `Failed to insert element using strategy "${s.strategy}" for target "${target.id}"`;
+                    console.error(errorMsg);
+                    const error = new Error(errorMsg);
+                    if (triggerElement._rxCallbacks?.onElementTriggerError) {
+                        triggerElement._rxCallbacks.onElementTriggerError(error);
+                    }
+                    if (_callbacks.onElementTriggerError) {
+                        _callbacks.onElementTriggerError(triggerElement, error);
+                    }
+                    return; // Skip remaining elements if first insertion fails
+                }
+                let thisEle = firstInserted;
                 //insert the remainder afterend of the previous element
                 for (let i = 1; i < newContent.length; i++) {
-                    thisEle.insertAdjacentElement("afterend", newContent[i]!);
-                    thisEle = newContent[i]!;
+                    const inserted = thisEle.insertAdjacentElement("afterend", newContent[i]!);
+                    if (!inserted) {
+                        const errorMsg = `Failed to insert element ${i} after element "${thisEle.id || thisEle.tagName}"`;
+                        console.error(errorMsg);        
+                        const error = new Error(errorMsg);
+                        if (triggerElement._rxCallbacks?.onElementTriggerError) {
+                            triggerElement._rxCallbacks.onElementTriggerError(error);
+                        }
+                        if (_callbacks.onElementTriggerError) {
+                            _callbacks.onElementTriggerError(triggerElement, error);
+                        }
+                        continue; // Skip this element but try the next ones
+                    }
+                    thisEle = inserted;
                 }
             }
         });
