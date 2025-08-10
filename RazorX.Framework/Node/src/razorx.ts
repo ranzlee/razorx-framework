@@ -412,8 +412,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             elementTriggerProcessor(ele, evt);
             return;
         }
-        _requestQueue = _requestQueue.then(async (): Promise<void> => {
-            await elementTriggerProcessor(ele, evt);
+        _requestQueue = _requestQueue.finally(async (): Promise<void> => {
+            try {
+                await elementTriggerProcessor(ele, evt);
+            } catch (error: unknown) {
+                console.error('Request queue error:', error);
+            }
         });
     }
 
