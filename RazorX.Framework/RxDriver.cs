@@ -87,18 +87,50 @@ public interface IRxResponseBuilder {
 }
 
 file sealed class RxDriver(HtmlRenderer htmlRenderer, ILogger<RxDriver> logger) : IRxDriver {
+    private bool disposed = false;
+    
     public IRxResponseBuilder With(HttpContext context) {
-        return new RxResponseBuilder(context, htmlRenderer, logger);
+        return disposed
+            ? throw new ObjectDisposedException(nameof(RxDriver)) 
+            : (IRxResponseBuilder)new RxResponseBuilder(context, htmlRenderer, logger);
     }
 
-    public ValueTask DisposeAsync() {
-        logger.LogDebug("Async Disposed");
-        return htmlRenderer.DisposeAsync();
+    public async ValueTask DisposeAsync() {
+        if (disposed) {
+            return;
+        }
+        try {
+            logger.LogDebug("Async Disposing RxDriver");
+            await htmlRenderer.DisposeAsync();
+            disposed = true;
+            logger.LogDebug("RxDriver Async Disposed successfully");
+        }
+        catch (Exception ex) {
+            logger.LogError(ex, "Error during async disposal of RxDriver");
+            throw;
+        }
+        finally {
+            GC.SuppressFinalize(this);
+        }
     }
 
     public void Dispose() {
-        logger.LogDebug("Disposed");
-        htmlRenderer.Dispose();
+        if (disposed) {
+            return;
+        }
+        try {
+            logger.LogDebug("Disposing RxDriver");
+            htmlRenderer.Dispose();
+            disposed = true;
+            logger.LogDebug("RxDriver Disposed successfully");
+        }
+        catch (Exception ex) {
+            logger.LogError(ex, "Error during disposal of RxDriver");
+            throw;
+        }
+        finally {
+            GC.SuppressFinalize(this);
+        }
     }
 }
 
