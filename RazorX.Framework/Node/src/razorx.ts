@@ -554,7 +554,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     : new URLSearchParams(request.body);
                 //const params = new URLSearchParams(request.body.toString());
                 if (params.size) {
-                    request.action += (/\?/.test(request.action!) ? "&" : "?") + params;
+                    const url = new URL(request.action!, window.location.href);
+                    params.forEach((value, key) => url.searchParams.append(key, value));
+                    request.action = url.pathname + url.search;
                 }
                 delete request.body;
             } else {
@@ -564,7 +566,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             const state = collectState(ele);
             if (Object.keys(state).length > 0) {
-                request.action += (/\?/.test(request.action!) ? "&" : "?") + new URLSearchParams(state);
+                const url = new URL(request.action!, window.location.href);
+                const stateParams = new URLSearchParams(state);
+                stateParams.forEach((value, key) => url.searchParams.append(key, value));
+                request.action = url.pathname + url.search;
             }
             const config: RequestConfiguration = {
                 trigger: evt,
@@ -968,7 +973,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         const removals = mergeStrategyArray.filter((s: MergeStrategy): boolean => s.strategy === "remove");
         removeElements(triggerElement, removals);
         const parser = new DOMParser();
-        const doc = parser.parseFromString("<body><template>" + await response.text() + "</template></body>", "text/html");
+        const responseText = await response.text();
+        const doc = parser.parseFromString(`<body><template>${responseText}</template></body>`, "text/html");
         const template = doc.body.querySelector("template")?.content;
         const fragments = Array.from(template?.childNodes ?? []);
         const swaps = mergeStrategyArray.filter((s: MergeStrategy): boolean => {
