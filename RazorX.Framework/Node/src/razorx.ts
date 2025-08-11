@@ -122,6 +122,8 @@ const _requestRefTracker: Set<string> = new Set();
 
 const _debouncedRequests: Map<string, (() => Promise<void>) & { _cleanup?: () => void }> = new Map();
 
+const _elementCache: Map<string, HTMLElement | null> = new Map();
+
 const _fetchRedirect: FetchRedirect = "follow";
 
 const _callbacks: DocumentCallbacks = {};
@@ -143,6 +145,24 @@ const _addCallbacks = (callbacks: DocumentCallbacks): void => {
     _callbacks.onElementTriggerError = callbacks.onElementTriggerError;
 }
 
+// Element cache helper functions
+const _getCachedElement = (id: string): HTMLElement | null => {
+    if (_elementCache.has(id)) {
+        return _elementCache.get(id) || null;
+    }
+    const element = document.getElementById(id);
+    _elementCache.set(id, element);
+    return element;
+}
+
+const _clearElementCache = (): void => {
+    _elementCache.clear();
+}
+
+const _invalidateCachedElement = (id: string): void => {
+    _elementCache.delete(id);
+}
+
 const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     // initialization
@@ -157,9 +177,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     window.addEventListener('beforeunload', () => {
         if (document.rxMutationObserver) {
             document.rxMutationObserver.disconnect();
-            // Clean up any pending requests
             _debouncedRequests.forEach(req => req._cleanup?.());
             _debouncedRequests.clear();
+            _clearElementCache();
         }
     });
 
@@ -175,6 +195,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     return;
                 }
                 removeTriggers(node);
+                if (node.id) {
+                    _invalidateCachedElement(node.id);
+                }
+                node.querySelectorAll('[id]').forEach((child: Element) => {
+                    if (child.id) {
+                        _invalidateCachedElement(child.id);
+                    }
+                });
                 if (_callbacks.onElementRemoved) {
                     _callbacks.onElementRemoved(node);
                 }
@@ -370,7 +398,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     function elementHoistEventHandler(this: HTMLElement): void {
         const hoistTargetId = this.dataset.rxHoistTo ?? "";
-        const hoistTarget = document.getElementById(hoistTargetId);
+        const hoistTarget = _getCachedElement(hoistTargetId);
         if (!hoistTarget) {
             const err = `Element ${this.id} with "data-rx-hoist-to" ${this.dataset.rxHoistTo} does not reference a valid DOM element.`;
             throw new Error(err);
@@ -762,11 +790,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return;
         }
-        const modal = document.getElementById(closeDialogTrigger.dialogId);
+        const modal = _getCachedElement(closeDialogTrigger.dialogId);
         if (modal instanceof HTMLDialogElement) {
             modal.close(closeDialogTrigger.onCloseData);
             if (closeDialogTrigger.resetFormId) {
-                const form = document.getElementById(closeDialogTrigger.resetFormId);
+                const form = _getCachedElement(closeDialogTrigger.resetFormId);
                 if (form instanceof HTMLFormElement) {
                     form.reset();
                 }
@@ -807,7 +835,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return;
         }
-        const focusElement = document.getElementById(focusElementTrigger.elementId);
+        const focusElement = _getCachedElement(focusElementTrigger.elementId);
         if (focusElement) {
             //queue macro-task to focus
             setTimeout(() => {
@@ -922,7 +950,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     function removeElements(triggerElement: HTMLElement, removals: MergeStrategy[]): void {
         removals.forEach((r: MergeStrategy): void => {
-            const target = document.getElementById(r.target);
+            const target = _getCachedElement(r.target);
             if (!target) {
                 return;
             }
@@ -1047,7 +1075,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function getTarget(triggerElement: HTMLElement, fragment: HTMLTemplateElement, mergeStrategy: MergeStrategy): HTMLElement | undefined {
-        const target = document.getElementById(mergeStrategy.target);
+        const target = _getCachedElement(mergeStrategy.target);
         if (!target) {
             throw new Error(`Expected an HTML element with id="${mergeStrategy.target}"`);
         }
