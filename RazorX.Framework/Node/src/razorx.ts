@@ -148,9 +148,20 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     // initialization
 
     if (document.rxMutationObserver) {
-        //already initialized
+        // Document already processed - this is intentional
+        console.debug("Document already has active MutationObserver");
         return;
     }
+
+    // Add cleanup for page unload scenarios
+    window.addEventListener('beforeunload', () => {
+        if (document.rxMutationObserver) {
+            document.rxMutationObserver.disconnect();
+            // Clean up any pending requests
+            _debouncedRequests.forEach(req => req._cleanup?.());
+            _debouncedRequests.clear();
+        }
+    });
 
     let _requestQueue = Promise.resolve();
 
@@ -473,9 +484,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     async function elementTriggerProcessor(ele: HTMLElement, evt: Event): Promise<void> {
         try {   
             _debouncedRequests.delete(ele.id);
+            // Atomic check-and-add to prevent race conditions
             if (_requestRefTracker.has(ele.id)) {
                 throw new Error(`Element ${ele.id} is already executing a request.`);
             }
+            _requestRefTracker.add(ele.id);
             let form: HTMLFormElement | null = null;
             if ("form" in ele && ele.form instanceof HTMLFormElement) {
                 form = ele.form; 
@@ -533,7 +546,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 headers: request.headers,
                 abort: ac.abort.bind(ac),
             }
-            _requestRefTracker.add(ele.id);
             const disableElement = ele.dataset.rxDisableInFlight?.trim().toLowerCase();
             if (disableElement !== undefined && disableElement !== "" && disableElement !== "true" && disableElement !== "false") {
                 console.warn(`The data-rx-disable-in-flight attribute on element ${ele.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
@@ -601,7 +613,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             //dev error response
             document.rxMutationObserver?.disconnect();
             removeTriggers(document.body);
-            document.head.innerHTML = "<title>Error</title>";
+            document.title = "Error";
             const contentType = response.headers.get("content-type");
             if (contentType && (contentType.includes("application/json") || contentType.includes("application/problem+json"))) {
                 try {
