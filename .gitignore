@@ -15,13 +15,16 @@
 #macos
 .DS_Store
 
+# Claude
+.claude
+CLAUDE.md
+TODO.md
+
 # RazorX.Framework Project artifacts
 RazorX.Framework/bin/
 RazorX.Framework/obj/
 RazorX.Framework/Node/dist
 RazorX.Framework/Node/node_modules
-RazorX.Framework/CLAUDE.md
-RazorX.Framework/TODO_COMPREHENSIVE.md
 
 # Claude
 RazorX.Framework/.claude

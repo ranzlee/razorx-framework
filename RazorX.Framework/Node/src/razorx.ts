@@ -145,24 +145,6 @@ const _addCallbacks = (callbacks: DocumentCallbacks): void => {
     _callbacks.onElementTriggerError = callbacks.onElementTriggerError;
 }
 
-// Element cache helper functions
-const _getCachedElement = (id: string): HTMLElement | null => {
-    if (_elementCache.has(id)) {
-        return _elementCache.get(id) || null;
-    }
-    const element = document.getElementById(id);
-    _elementCache.set(id, element);
-    return element;
-}
-
-const _clearElementCache = (): void => {
-    _elementCache.clear();
-}
-
-const _invalidateCachedElement = (id: string): void => {
-    _elementCache.delete(id);
-}
-
 const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     // initialization
@@ -179,7 +161,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             document.rxMutationObserver.disconnect();
             _debouncedRequests.forEach(req => req._cleanup?.());
             _debouncedRequests.clear();
-            _clearElementCache();
+            clearElementCache();
         }
     });
 
@@ -196,11 +178,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 }
                 removeTriggers(node);
                 if (node.id) {
-                    _invalidateCachedElement(node.id);
+                    invalidateCachedElement(node.id);
                 }
                 node.querySelectorAll('[id]').forEach((child: Element) => {
                     if (child.id) {
-                        _invalidateCachedElement(child.id);
+                        invalidateCachedElement(child.id);
                     }
                 });
                 if (_callbacks.onElementRemoved) {
@@ -227,6 +209,24 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     document.addEventListener("DOMContentLoaded", DOMContentLoaded);
 
     // configuration functions
+
+    // Element cache helper functions
+    function getCachedElement(id: string): HTMLElement | null {
+        if (_elementCache.has(id)) {
+            return _elementCache.get(id) || null;
+        }
+        const element = document.getElementById(id);
+        _elementCache.set(id, element);
+        return element;
+    }
+
+    function clearElementCache(): void {
+        _elementCache.clear();
+    }
+
+    function invalidateCachedElement(id: string): void {
+        _elementCache.delete(id);
+    }
 
     function setTriggers(ele: HTMLElement): void {
         //TODO: add support for init, poll, and intersect triggers
@@ -398,7 +398,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     function elementHoistEventHandler(this: HTMLElement): void {
         const hoistTargetId = this.dataset.rxHoistTo ?? "";
-        const hoistTarget = _getCachedElement(hoistTargetId);
+        const hoistTarget = getCachedElement(hoistTargetId);
         if (!hoistTarget) {
             const err = `Element ${this.id} with "data-rx-hoist-to" ${this.dataset.rxHoistTo} does not reference a valid DOM element.`;
             throw new Error(err);
@@ -795,11 +795,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return;
         }
-        const modal = _getCachedElement(closeDialogTrigger.dialogId);
+        const modal = getCachedElement(closeDialogTrigger.dialogId);
         if (modal instanceof HTMLDialogElement) {
             modal.close(closeDialogTrigger.onCloseData);
             if (closeDialogTrigger.resetFormId) {
-                const form = _getCachedElement(closeDialogTrigger.resetFormId);
+                const form = getCachedElement(closeDialogTrigger.resetFormId);
                 if (form instanceof HTMLFormElement) {
                     form.reset();
                 }
@@ -840,7 +840,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return;
         }
-        const focusElement = _getCachedElement(focusElementTrigger.elementId);
+        const focusElement = getCachedElement(focusElementTrigger.elementId);
         if (focusElement) {
             //queue macro-task to focus
             setTimeout(() => {
@@ -955,7 +955,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     function removeElements(triggerElement: HTMLElement, removals: MergeStrategy[]): void {
         removals.forEach((r: MergeStrategy): void => {
-            const target = _getCachedElement(r.target);
+            const target = getCachedElement(r.target);
             if (!target) {
                 return;
             }
@@ -1081,7 +1081,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function getTarget(triggerElement: HTMLElement, fragment: HTMLTemplateElement, mergeStrategy: MergeStrategy): HTMLElement | undefined {
-        const target = _getCachedElement(mergeStrategy.target);
+        const target = getCachedElement(mergeStrategy.target);
         if (!target) {
             throw new Error(`Expected an HTML element with id="${mergeStrategy.target}"`);
         }
