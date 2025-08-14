@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Integration.Tests", 
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Examples", "RazorX.Examples\RazorX.Examples.csproj", "{40578D6D-E86E-4081-AE90-92778E310965}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Framework.UnitTests", "RazorX.Framework.UnitTests\RazorX.Framework.UnitTests.csproj", "{F047C035-B3A0-4869-A9A6-179AF8F41360}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +71,18 @@ Global
 		{40578D6D-E86E-4081-AE90-92778E310965}.Release|x64.Build.0 = Release|Any CPU
 		{40578D6D-E86E-4081-AE90-92778E310965}.Release|x86.ActiveCfg = Release|Any CPU
 		{40578D6D-E86E-4081-AE90-92778E310965}.Release|x86.Build.0 = Release|Any CPU
+		{F047C035-B3A0-4869-A9A6-179AF8F41360}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F047C035-B3A0-4869-A9A6-179AF8F41360}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F047C035-B3A0-4869-A9A6-179AF8F41360}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F047C035-B3A0-4869-A9A6-179AF8F41360}.Debug|x64.Build.0 = Debug|Any CPU
+		{F047C035-B3A0-4869-A9A6-179AF8F41360}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{F047C035-B3A0-4869-A9A6-179AF8F41360}.Debug|x86.Build.0 = Debug|Any CPU
+		{F047C035-B3A0-4869-A9A6-179AF8F41360}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F047C035-B3A0-4869-A9A6-179AF8F41360}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F047C035-B3A0-4869-A9A6-179AF8F41360}.Release|x64.ActiveCfg = Release|Any CPU
+		{F047C035-B3A0-4869-A9A6-179AF8F41360}.Release|x64.Build.0 = Release|Any CPU
+		{F047C035-B3A0-4869-A9A6-179AF8F41360}.Release|x86.ActiveCfg = Release|Any CPU
+		{F047C035-B3A0-4869-A9A6-179AF8F41360}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

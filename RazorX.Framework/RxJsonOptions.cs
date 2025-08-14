@@ -8,6 +8,13 @@ using System.Text.Json.Serialization;
 namespace RazorX.Framework;
 
 /// <summary>
+/// Cached JsonSerializerOptions instances to avoid repeated allocations
+/// </summary>
+file static class JsonOptionsCache {
+    public static readonly JsonSerializerOptions CleanOptions = new();
+}
+
+/// <summary>
 /// Adds the JSON converters necessary for converting the request JSON payload created from FORM data.
 /// ASP.NET Minimal APIs have much better support for JSON binding compared to FORM data. Form data values are always
 /// strings. The custom converters coerce the string values into the correct data types for model binding.
@@ -45,43 +52,146 @@ public class RxJsonOptions(IHttpContextAccessor httpContextAccessor, ILogger<RxJ
     }
 }
 
-file sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<IEnumerable<T>> {
+// Generic base converter that handles all common form value conversion logic
+public abstract class FormValueJsonConverter<T>(
+    IHttpContextAccessor httpContextAccessor,
+    ILogger logger) : JsonConverter<T?> where T : struct {
+    protected abstract string ConverterName { get; }
+    protected abstract bool TryParseValue(string input, out T result);
+    protected abstract void WriteValue(Utf8JsonWriter writer, T value);
+    // Virtual method to allow subclasses to customize input preparation
+    protected virtual string? PrepareInput(string? originalString) => originalString?.Trim();
+    // Virtual method to allow subclasses to customize early null detection
+    protected virtual bool ShouldReturnNullForInput(string? originalString, string? preparedString) {
+        return string.IsNullOrEmpty(preparedString);
+    }
+    // Handle null values so our Write method gets called
+    public override bool HandleNull => true;
+
+    public override T? Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options) {
+        var originalString = reader.GetString();
+        var s = PrepareInput(originalString);
+        if (ShouldReturnNullForInput(originalString, s)) {
+            logger.LogTrace("{converter}.{method} returned null.",
+                ConverterName,
+                nameof(Read));
+            return null;
+        }
+        if (httpContextAccessor.HttpContext is null ||
+            !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
+            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for {val}.",
+                ConverterName,
+                nameof(Read),
+                typeof(T),
+                s);
+            // For non-RxRequest, still parse the string value but without special form processing
+            if (s != null && TryParseValue(s, out var fallbackResult)) {
+                return fallbackResult;
+            }
+            return null;
+        }
+        if (s == null) {
+            logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
+                ConverterName,
+                nameof(Read),
+                "null",
+                "null - TryParse() failed");
+            return null;
+        }
+        var isValid = TryParseValue(s, out var result);
+        logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
+            ConverterName,
+            nameof(Read),
+            s,
+            isValid ? result : "null - TryParse() failed");
+        return isValid ? result : null;
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        T? value,
+        JsonSerializerOptions options) {
+        if (value.HasValue) {
+            logger.LogTrace("{converter}.{method} writing {result}.",
+                ConverterName,
+                nameof(Write),
+                value.Value);
+            WriteValue(writer, value.Value);
+            return;
+        }
+        logger.LogTrace("{converter}.{method} writing null.",
+            ConverterName,
+            nameof(Write));
+        writer.WriteNullValue();
+    }
+}
+
+public sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<IEnumerable<T>> {
+    // Handle null values so our Write method gets called
+    public override bool HandleNull => true;
+
     public override IEnumerable<T>? Read(
         ref Utf8JsonReader reader,
         Type typeToConvert,
         JsonSerializerOptions options) {
+        // Handle null tokens first
+        if (reader.TokenType == JsonTokenType.Null) {
+            logger.LogTrace("{converter}.{method} returned null.",
+                nameof(SingleOrArrayConverter<T>),
+                nameof(Read));
+            return null;
+        }
+        // For non-RxRequest, use simpler fallback behavior
         if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            var s = reader.GetString();
-            if (string.IsNullOrWhiteSpace(s)) {
-                logger.LogTrace("{converter}.{method} returned null.",
-                    nameof(SingleOrArrayConverter<T>),
-                    nameof(Read));
-                return null;
-            }
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for \"{val}\".",
+            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for input.",
                 nameof(SingleOrArrayConverter<T>),
                 nameof(Read),
-                typeof(T),
-                s);
-            return JsonSerializer.Deserialize<IEnumerable<T>>(s);
+                typeof(IEnumerable<T>));
+            return DeserializeWithFallback(ref reader);
         }
-        List<T> list = null!;
-        switch (reader.TokenType) {
-            case JsonTokenType.Null:
-                return null;
-            case JsonTokenType.StartArray:
-                list = [];
-                while (reader.Read()) {
-                    if (reader.TokenType == JsonTokenType.EndArray) {
-                        break;
-                    }
-                    list.Add(JsonSerializer.Deserialize<T>(ref reader, options)!);
-                }
-                return list;
-            default:
-                list = [JsonSerializer.Deserialize<T>(ref reader, options)!];
-                return list;
+        // Handle RxRequest scenarios
+        return reader.TokenType switch {
+            JsonTokenType.StartArray => DeserializeArray(ref reader),
+            JsonTokenType.String => DeserializeSingleString(reader.GetString()),
+            _ => DeserializeSingleValue(ref reader)
+        };
+    }
+
+    private static IEnumerable<T>? DeserializeWithFallback(ref Utf8JsonReader reader) {
+        if (reader.TokenType == JsonTokenType.String) {
+            var s = reader.GetString();
+            if (string.IsNullOrWhiteSpace(s)) return null;
+            return JsonSerializer.Deserialize<IEnumerable<T>>(s, JsonOptionsCache.CleanOptions);
         }
+        return JsonSerializer.Deserialize<IEnumerable<T>>(ref reader, JsonOptionsCache.CleanOptions);
+    }
+
+    private static List<T> DeserializeArray(ref Utf8JsonReader reader) {
+        var list = new List<T>();
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray) {
+            list.Add(JsonSerializer.Deserialize<T>(ref reader, JsonOptionsCache.CleanOptions)!);
+        }
+        return list;
+    }
+
+    private IEnumerable<T>? DeserializeSingleString(string? stringValue) {
+        if (string.IsNullOrWhiteSpace(stringValue)) {
+            logger.LogTrace("{converter}.{method} returned null.",
+                nameof(SingleOrArrayConverter<T>),
+                nameof(Read));
+            return null;
+        }
+        // Convert the string to T and return it as a single-item array
+        var item = JsonSerializer.Deserialize<T>($"\"{stringValue}\"", JsonOptionsCache.CleanOptions)!;
+        return [item];
+    }
+
+    private static List<T> DeserializeSingleValue(ref Utf8JsonReader reader) {
+        var item = JsonSerializer.Deserialize<T>(ref reader, JsonOptionsCache.CleanOptions)!;
+        return [item];
     }
 
     public override void Write(
@@ -104,112 +214,36 @@ file sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAcce
 
 }
 
-file sealed class DateOnlyJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<DateOnly?> {
-    public override DateOnly? Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options) {
-        var s = reader.GetString();
-        if (string.IsNullOrWhiteSpace(s)) {
-            logger.LogTrace("{converter}.{method} returned null.",
-                nameof(DateOnlyJsonConverter),
-                nameof(Read));
-            return null;
-        }
-        if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for \"{val}\".",
-                nameof(DateOnlyJsonConverter),
-                nameof(Read),
-                typeof(DateOnly),
-                s);
-            return JsonSerializer.Deserialize<DateOnly>(s);
-        }
-        var isValid = DateOnly.TryParse(s, out var dt);
-        logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
-            nameof(DateOnlyJsonConverter),
-            nameof(Read),
-            s,
-            isValid ? dt : "null - TryParse() failed");
-        return isValid ? dt : null;
-    }
-
-    public override void Write(
-        Utf8JsonWriter writer,
-        DateOnly? dateOnlyValue,
-        JsonSerializerOptions options) {
-        if (dateOnlyValue.HasValue) {
-            var val = dateOnlyValue.Value.ToDateTime(TimeOnly.MinValue);
-            logger.LogTrace("{converter}.{method} writing \"{result}\".",
-                nameof(DateOnlyJsonConverter),
-                nameof(Write),
-                val);
-            writer.WriteStringValue(val);
-            return;
-        }
-        logger.LogTrace("{converter}.{method} writing null.",
-            nameof(DateOnlyJsonConverter),
-            nameof(Write));
-        writer.WriteNullValue();
-    }
+public sealed class DateOnlyJsonConverter(IHttpContextAccessor hca, ILogger logger)
+    : FormValueJsonConverter<DateOnly>(hca, logger) {
+    protected override string ConverterName => nameof(DateOnlyJsonConverter);
+    protected override bool TryParseValue(string input, out DateOnly result)
+        => DateOnly.TryParse(input, out result);
+    protected override void WriteValue(Utf8JsonWriter writer, DateOnly value)
+        => writer.WriteStringValue(value.ToDateTime(TimeOnly.MinValue));
 }
 
-file sealed class DateTimeJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<DateTime?> {
-    public override DateTime? Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options) {
-        var s = reader.GetString();
-        if (string.IsNullOrWhiteSpace(s)) {
-            logger.LogTrace("{converter}.{method} returned null.",
-                nameof(DateTimeJsonConverter),
-                nameof(Read));
-            return null;
-        }
-        if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for \"{val}\".",
-                nameof(DateTimeJsonConverter),
-                nameof(Read),
-                typeof(DateTime),
-                s);
-            return JsonSerializer.Deserialize<DateTime>(s);
-        }
-        var isValid = DateTime.TryParse(s, out var dt);
-        logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
-            nameof(DateTimeJsonConverter),
-            nameof(Read),
-            s,
-            isValid ? dt : "null - TryParse() failed");
-        return isValid ? dt : null;
-    }
-
-    public override void Write(
-        Utf8JsonWriter writer,
-        DateTime? dateTimeValue,
-        JsonSerializerOptions options) {
-        if (dateTimeValue.HasValue) {
-            var val = dateTimeValue.Value;
-            logger.LogTrace("{converter}.{method} writing \"{result}\".",
-                nameof(DateTimeJsonConverter),
-                nameof(Write),
-                val);
-            writer.WriteStringValue(val);
-            return;
-        }
-        logger.LogTrace("{converter}.{method} writing null.",
-            nameof(DateTimeJsonConverter),
-            nameof(Write));
-        writer.WriteNullValue();
-    }
+public sealed class DateTimeJsonConverter(IHttpContextAccessor hca, ILogger logger)
+    : FormValueJsonConverter<DateTime>(hca, logger) {
+    protected override string ConverterName => nameof(DateTimeJsonConverter);
+    protected override bool TryParseValue(string input, out DateTime result)
+        => DateTime.TryParse(input, out result);
+    protected override void WriteValue(Utf8JsonWriter writer, DateTime value)
+        => writer.WriteStringValue(value);
 }
 
-file sealed class BooleanJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<bool> {
+public sealed class BooleanJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<bool> {
+    // Handle null values so our Write method gets called
+    public override bool HandleNull => true;
+
     public override bool Read(
         ref Utf8JsonReader reader,
         Type typeToConvert,
         JsonSerializerOptions options) {
         var s = reader.GetString()?.Trim().ToLower();
-        if (string.IsNullOrWhiteSpace(s)) {
-            logger.LogTrace("{converter}.{method} returned null.",
+        // Return false for null/empty strings (consistent with default bool behavior)
+        if (string.IsNullOrEmpty(s)) {
+            logger.LogTrace("{converter}.{method} returned false for null/empty input.",
                 nameof(BooleanJsonConverter),
                 nameof(Read));
             return false;
@@ -220,9 +254,12 @@ file sealed class BooleanJsonConverter(IHttpContextAccessor httpContextAccessor,
                 nameof(Read),
                 typeof(bool),
                 s);
-            return JsonSerializer.Deserialize<bool>(s);
+            // For boolean fallback, parse directly
+            return bool.TryParse(s, out var fallbackResult) && fallbackResult;
         }
+        // Try standard boolean parsing first
         var isValid = bool.TryParse(s, out var b);
+        // Handle HTML checkbox "on" value
         if (!isValid && s == "on") {
             isValid = true;
             b = true;
@@ -231,7 +268,7 @@ file sealed class BooleanJsonConverter(IHttpContextAccessor httpContextAccessor,
             nameof(BooleanJsonConverter),
             nameof(Read),
             s,
-            isValid ? b : "null - TryParse() failed");
+            isValid ? b : "false - TryParse() failed");
         return isValid && b;
     }
 
@@ -247,345 +284,74 @@ file sealed class BooleanJsonConverter(IHttpContextAccessor httpContextAccessor,
     }
 }
 
-file sealed class IntJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<int?> {
-    public override int? Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options) {
-        var s = reader.GetString()?.Trim();
-        if (string.IsNullOrWhiteSpace(s)) {
-            logger.LogTrace("{converter}.{method} returned null.",
-                nameof(IntJsonConverter),
-                nameof(Read));
-            return null;
-        }
-        if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for {val}.",
-                nameof(IntJsonConverter),
-                nameof(Read),
-                typeof(int),
-                s);
-            return JsonSerializer.Deserialize<int>(s);
-        }
-        var isValid = int.TryParse(s, out var i);
-        logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
-            nameof(IntJsonConverter),
-            nameof(Read),
-            s,
-            isValid ? i : "null - TryParse() failed");
-        return isValid ? i : null;
-    }
-
-    public override void Write(
-        Utf8JsonWriter writer,
-        int? intValue,
-        JsonSerializerOptions options) {
-        if (intValue.HasValue) {
-            var val = intValue.Value;
-            logger.LogTrace("{converter}.{method} writing {result}.",
-                nameof(IntJsonConverter),
-                nameof(Write),
-                val);
-            writer.WriteNumberValue(val);
-            return;
-        }
-        logger.LogTrace("{converter}.{method} writing null.",
-            nameof(IntJsonConverter),
-            nameof(Write));
-        writer.WriteNullValue();
-    }
+public sealed class IntJsonConverter(IHttpContextAccessor hca, ILogger logger)
+    : FormValueJsonConverter<int>(hca, logger) {
+    protected override string ConverterName => nameof(IntJsonConverter);
+    protected override bool TryParseValue(string input, out int result)
+        => int.TryParse(input, out result);
+    protected override void WriteValue(Utf8JsonWriter writer, int value)
+        => writer.WriteNumberValue(value);
 }
 
-file sealed class LongJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<long?> {
-    public override long? Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options) {
-        var s = reader.GetString()?.Trim();
-        if (string.IsNullOrWhiteSpace(s)) {
-            logger.LogTrace("{converter}.{method} returned null.",
-                nameof(LongJsonConverter),
-                nameof(Read));
-            return null;
-        }
-        if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for {val}.",
-                nameof(LongJsonConverter),
-                nameof(Read),
-                typeof(long),
-                s);
-            return JsonSerializer.Deserialize<long>(s);
-        }
-        var isValid = long.TryParse(s, out var l);
-        logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
-            nameof(LongJsonConverter),
-            nameof(Read),
-            s,
-            isValid ? l : "null - TryParse() failed");
-        return isValid ? l : null;
-    }
-
-    public override void Write(
-        Utf8JsonWriter writer,
-        long? longValue,
-        JsonSerializerOptions options) {
-        if (longValue.HasValue) {
-            var val = longValue.Value;
-            logger.LogTrace("{converter}.{method} writing {result}.",
-                nameof(LongJsonConverter),
-                nameof(Write),
-                val);
-            writer.WriteNumberValue(val);
-            return;
-        }
-        logger.LogTrace("{converter}.{method} writing null.",
-            nameof(LongJsonConverter),
-            nameof(Write));
-        writer.WriteNullValue();
-    }
+public sealed class LongJsonConverter(IHttpContextAccessor hca, ILogger logger)
+    : FormValueJsonConverter<long>(hca, logger) {
+    protected override string ConverterName => nameof(LongJsonConverter);
+    protected override bool TryParseValue(string input, out long result)
+        => long.TryParse(input, out result);
+    protected override void WriteValue(Utf8JsonWriter writer, long value)
+        => writer.WriteNumberValue(value);
 }
 
-file sealed class ShortJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<short?> {
-    public override short? Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options) {
-        var s = reader.GetString()?.Trim();
-        if (string.IsNullOrWhiteSpace(s)) {
-            logger.LogTrace("{converter}.{method} returned null.",
-                nameof(ShortJsonConverter),
-                nameof(Read));
-            return null;
-        }
-        if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for {val}.",
-                nameof(ShortJsonConverter),
-                nameof(Read),
-                typeof(short),
-                s);
-            return JsonSerializer.Deserialize<short>(s);
-        }
-        var isValid = short.TryParse(s, out var i);
-        logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
-            nameof(ShortJsonConverter),
-            nameof(Read),
-            s,
-            isValid ? i : "null - TryParse() failed");
-        return isValid ? i : null;
-    }
-
-    public override void Write(
-        Utf8JsonWriter writer,
-        short? shortValue,
-        JsonSerializerOptions options) {
-        if (shortValue.HasValue) {
-            var val = shortValue.Value;
-            logger.LogTrace("{converter}.{method} writing {result}.",
-                nameof(ShortJsonConverter),
-                nameof(Write),
-                val);
-            writer.WriteNumberValue(val);
-            return;
-        }
-        logger.LogTrace("{converter}.{method} writing null.",
-            nameof(ShortJsonConverter),
-            nameof(Write));
-        writer.WriteNullValue();
-    }
+public sealed class ShortJsonConverter(IHttpContextAccessor hca, ILogger logger)
+    : FormValueJsonConverter<short>(hca, logger) {
+    protected override string ConverterName => nameof(ShortJsonConverter);
+    protected override bool TryParseValue(string input, out short result)
+        => short.TryParse(input, out result);
+    protected override void WriteValue(Utf8JsonWriter writer, short value)
+        => writer.WriteNumberValue(value);
 }
 
-file sealed class DecimalJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<decimal?> {
-    public override decimal? Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options) {
-        var s = reader.GetString()?.Trim();
-        if (string.IsNullOrWhiteSpace(s)) {
-            logger.LogTrace("{converter}.{method} returned null.",
-                nameof(DecimalJsonConverter),
-                nameof(Read));
-            return null;
-        }
-        if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for {val}.",
-                nameof(DecimalJsonConverter),
-                nameof(Read),
-                typeof(decimal),
-                s);
-            return JsonSerializer.Deserialize<decimal>(s);
-        }
-        var isValid = decimal.TryParse(s, out var d);
-        logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
-            nameof(DecimalJsonConverter),
-            nameof(Read),
-            s,
-            isValid ? d : "null - TryParse() failed");
-        return isValid ? d : null;
-    }
-
-    public override void Write(
-        Utf8JsonWriter writer,
-        decimal? decimalValue,
-        JsonSerializerOptions options) {
-        if (decimalValue.HasValue) {
-            var val = decimalValue.Value;
-            logger.LogTrace("{converter}.{method} writing {result}.",
-                nameof(DecimalJsonConverter),
-                nameof(Write),
-                val);
-            writer.WriteNumberValue(decimalValue.Value);
-            return;
-        }
-        logger.LogTrace("{converter}.{method} writing null.",
-            nameof(DecimalJsonConverter),
-            nameof(Write));
-        writer.WriteNullValue();
-    }
+public sealed class DecimalJsonConverter(IHttpContextAccessor hca, ILogger logger)
+    : FormValueJsonConverter<decimal>(hca, logger) {
+    protected override string ConverterName => nameof(DecimalJsonConverter);
+    protected override bool TryParseValue(string input, out decimal result)
+        => decimal.TryParse(input, out result);
+    protected override void WriteValue(Utf8JsonWriter writer, decimal value)
+        => writer.WriteNumberValue(value);
 }
 
-file sealed class DoubleJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<double?> {
-    public override double? Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options) {
-        var s = reader.GetString()?.Trim();
-        if (string.IsNullOrWhiteSpace(s)) {
-            logger.LogTrace("{converter}.{method} returned null.",
-                nameof(DoubleJsonConverter),
-                nameof(Read));
-            return null;
-        }
-        if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for {val}.",
-                nameof(DoubleJsonConverter),
-                nameof(Read),
-                typeof(double),
-                s);
-            return JsonSerializer.Deserialize<double>(s);
-        }
-        var isValid = double.TryParse(s, out var d);
-        logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
-            nameof(DoubleJsonConverter),
-            nameof(Read),
-            s,
-            isValid ? d : "null - TryParse() failed");
-        return isValid ? d : null;
-    }
-
-    public override void Write(
-        Utf8JsonWriter writer,
-        double? doubleValue,
-        JsonSerializerOptions options) {
-        if (doubleValue.HasValue) {
-            var val = doubleValue.Value;
-            logger.LogTrace("{converter}.{method} writing {result}.",
-                nameof(DoubleJsonConverter),
-                nameof(Write),
-                val);
-            writer.WriteNumberValue(doubleValue.Value);
-            return;
-        }
-        logger.LogTrace("{converter}.{method} writing null.",
-            nameof(DoubleJsonConverter),
-            nameof(Write));
-        writer.WriteNullValue();
-    }
+public sealed class DoubleJsonConverter(IHttpContextAccessor hca, ILogger logger)
+    : FormValueJsonConverter<double>(hca, logger) {
+    protected override string ConverterName => nameof(DoubleJsonConverter);
+    protected override bool TryParseValue(string input, out double result)
+        => double.TryParse(input, out result);
+    protected override void WriteValue(Utf8JsonWriter writer, double value)
+        => writer.WriteNumberValue(value);
 }
 
-file sealed class FloatJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<float?> {
-    public override float? Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options) {
-        var s = reader.GetString()?.Trim();
-        if (string.IsNullOrWhiteSpace(s)) {
-            logger.LogTrace("{converter}.{method} returned null.",
-                nameof(FloatJsonConverter),
-                nameof(Read));
-            return null;
-        }
-        if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for {val}.",
-                nameof(FloatJsonConverter),
-                nameof(Read),
-                typeof(float),
-                s);
-            return JsonSerializer.Deserialize<float>(s);
-        }
-        var isValid = float.TryParse(s, out var f);
-        logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
-            nameof(FloatJsonConverter),
-            nameof(Read),
-            s,
-            isValid ? f : "null - TryParse() failed");
-        return isValid ? f : null;
-    }
-
-    public override void Write(
-        Utf8JsonWriter writer,
-        float? floatValue,
-        JsonSerializerOptions options) {
-        if (floatValue.HasValue) {
-            var val = floatValue.Value;
-            logger.LogTrace("{converter}.{method} writing {result}.",
-                nameof(FloatJsonConverter),
-                nameof(Write),
-                val);
-            writer.WriteNumberValue(floatValue.Value);
-            return;
-        }
-        logger.LogTrace("{converter}.{method} writing null.",
-            nameof(FloatJsonConverter),
-            nameof(Write));
-        writer.WriteNullValue();
-    }
+public sealed class FloatJsonConverter(IHttpContextAccessor hca, ILogger logger)
+    : FormValueJsonConverter<float>(hca, logger) {
+    protected override string ConverterName => nameof(FloatJsonConverter);
+    protected override bool TryParseValue(string input, out float result)
+        => float.TryParse(input, out result);
+    protected override void WriteValue(Utf8JsonWriter writer, float value)
+        => writer.WriteNumberValue(value);
 }
 
-file sealed class CharJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<char?> {
-    public override char? Read(
-        ref Utf8JsonReader reader,
-        Type typeToConvert,
-        JsonSerializerOptions options) {
-        var s = reader.GetString()?.Trim();
-        if (string.IsNullOrWhiteSpace(s)) {
-            logger.LogTrace("{converter}.{method} returned null.",
-                nameof(CharJsonConverter),
-                nameof(Read));
-            return null;
-        }
-        if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for {val}.",
-                nameof(CharJsonConverter),
-                nameof(Read),
-                typeof(char),
-                s);
-            return JsonSerializer.Deserialize<char>(s);
-        }
-        var isValid = char.TryParse(s, out var c);
-        logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
-            nameof(CharJsonConverter),
-            nameof(Read),
-            s,
-            isValid ? c : "null - TryParse() failed");
-        return isValid ? c : null;
-    }
+public sealed class CharJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger)
+    : FormValueJsonConverter<char>(httpContextAccessor, logger) {
+    protected override string ConverterName => nameof(CharJsonConverter);
+    protected override bool TryParseValue(string input, out char result)
+        => char.TryParse(input, out result);
+    protected override void WriteValue(Utf8JsonWriter writer, char value)
+        => writer.WriteStringValue(value.ToString());
 
-    public override void Write(
-        Utf8JsonWriter writer,
-        char? charValue,
-        JsonSerializerOptions options) {
-        if (charValue.HasValue) {
-            var val = charValue.Value;
-            logger.LogTrace("{converter}.{method} writing {result}.",
-                nameof(CharJsonConverter),
-                nameof(Write),
-                val);
-            writer.WriteNumberValue(charValue.Value);
-            return;
-        }
-        logger.LogTrace("{converter}.{method} writing null.",
-            nameof(CharJsonConverter),
-            nameof(Write));
-        writer.WriteNullValue();
+    // Don't trim spaces for char conversion - spaces are valid characters
+    protected override string? PrepareInput(string? originalString) => originalString;
+
+    // For char conversion, only return null for empty strings or multi-character whitespace-only strings
+    protected override bool ShouldReturnNullForInput(string? originalString, string? preparedString) {
+        return string.IsNullOrEmpty(originalString) ||
+               (originalString?.Length > 1 && string.IsNullOrWhiteSpace(originalString));
     }
 }

@@ -25,11 +25,11 @@ RazorX.Framework/bin/
 RazorX.Framework/obj/
 RazorX.Framework/Node/dist
 RazorX.Framework/Node/node_modules
-
-# Claude
-RazorX.Framework/.claude
 RazorX.Framework/Node/src/razorx-analysis.md
-RazorX.Framework/Node/src/razorx-analysis-updated.md
+
+# RazorX.Framework.UnitTests Project artifacts
+RazorX.Framework.UnitTests/bin/
+RazorX.Framework.UnitTests/obj/
 
 # RazorX.Integration Project artifacts
 RazorX.Integration/bin/
