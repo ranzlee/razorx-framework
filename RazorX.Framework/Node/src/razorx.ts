@@ -86,8 +86,7 @@ export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export type FetchRedirect = "follow" | "error" | "manual";
 
-//TODO: union with InsertPosition
-export type MergeStrategyType = "swap" | "swapInner" | "afterbegin" | "afterend" | "beforebegin" | "beforeend" | "morph" | "remove";
+export type MergeStrategyType = InsertPosition | "swap" | "swapInner" | "morph" | "remove";
 
 export type RxResponseHeaders = 
     "rx-merge" | 
@@ -239,12 +238,23 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             ele.setAttribute("data-rx-trigger", rxTrigger);
         }
         const triggers = ele.dataset.rxTrigger!.split(/\s+/);
+        // Validate that special triggers are not combined with hoist
         if (ele.dataset.rxHoistTo) {
+            const specialTriggers = ["rx:initialized", "rx:poll", "rx:revealed"];
+            const hasSpecialTrigger = triggers.some((trigger) => 
+                specialTriggers.includes(trigger.trim().toLowerCase())
+            );
+            
+            if (hasSpecialTrigger) {
+                throw new Error(
+                    `Element ${ele.id} cannot use special triggers (rx:initialized, rx:poll, rx:revealed) ` +
+                    `with data-rx-hoist-to. Special triggers have their own lifecycle and cannot be hoisted to another element.`
+                );
+            }
             triggers.forEach((trigger): void => {
                 ele.addEventListener(trigger, elementHoistEventHandler);
             });
         } else {
-            //TODO: validate special triggers are not combined with hoist
             const rxInitialized: RxExtendedEvents = "rx:initialized";
             const rxPoll: RxExtendedEvents = "rx:poll";
             const rxRevealed: RxExtendedEvents = "rx:revealed";
