@@ -78,8 +78,12 @@ public interface IRxResponseBuilder {
     IRxResponseBuilder RemoveElement(string targetId);
 
     IRxResponseBuilder AddTriggerCloseDialog(string dialogId, string? onCloseData = null, string? resetFormId = null);
+
     IRxResponseBuilder AddTriggerFocusElement(string elementId, bool positionCursorEnd = false);
+
     IRxResponseBuilder AddTriggerSetState(string key, string value, MetadataScope scope = MetadataScope.Session);
+
+    IRxResponseBuilder AddTriggerSetStateBatch(Dictionary<string, string> state, MetadataScope scope);
 
     Task<IResult> Render(
         bool ignoreActiveElementValueOnMorph = false
@@ -146,6 +150,7 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
     private CloseDialogTrigger? closeDialogTrigger = null;
     private FocusElementTrigger? focusElementTrigger = null;
     private readonly List<SetStateTrigger> setStateTriggers = [];
+    private readonly HashSet<string> stateKeysInResponse = [];
     private static readonly JsonSerializerOptions serializerSettings = new(JsonSerializerDefaults.Web);
 
     public IRxResponseBuilder AddPage<TRoot, TComponent, TModel>(TModel model, string? title = null)
@@ -265,7 +270,23 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
 
     public IRxResponseBuilder AddTriggerSetState(string key, string value, MetadataScope scope = MetadataScope.Session) {
         CheckRenderingStatus();
+        ValidateStateKey(key);
+        if (!stateKeysInResponse.Add(key)) {
+            throw new InvalidOperationException($"State key '{key}' has already been set in this response. Multiple state triggers with the same key are not allowed.");
+        }
         setStateTriggers.Add(new SetStateTrigger(key, value, scope.ToString()));
+        return this;
+    }
+
+    public IRxResponseBuilder AddTriggerSetStateBatch(Dictionary<string, string> state, MetadataScope scope) {
+        CheckRenderingStatus();
+        foreach (var (key, value) in state) {
+            ValidateStateKey(key);
+            if (!stateKeysInResponse.Add(key)) {
+                throw new InvalidOperationException($"State key '{key}' has already been set in this response. Multiple state triggers with the same key are not allowed.");
+            }
+            setStateTriggers.Add(new SetStateTrigger(key, value, scope.ToString()));
+        }
         return this;
     }
 
@@ -340,5 +361,21 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
         if (rootComponent is not null) {
             throw new InvalidOperationException("RxDriver is set to render a page. No other operations are allowed and Render must be called.");
         }
+    }
+
+    private static void ValidateStateKey(string key) {
+        if (string.IsNullOrWhiteSpace(key)) {
+            throw new ArgumentException("State key cannot be null or empty", nameof(key));
+        }
+        if (!IsValidStateKey(key)) {
+            throw new ArgumentException($"State key '{key}' contains invalid characters. Only alphanumeric characters, hyphens, and underscores are allowed.", nameof(key));
+        }
+    }
+
+    private static bool IsValidStateKey(string key) {
+        if (string.IsNullOrWhiteSpace(key)) {
+            return false;
+        }
+        return key.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_');
     }
 }

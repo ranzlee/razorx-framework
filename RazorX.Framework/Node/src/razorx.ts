@@ -630,10 +630,13 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         const state: Record<string, string> = {};
         stateKeys.forEach((k): void => {
             let v = sessionStorage.getItem(k);
-            if (v === null) {
+            if (!v) {
                 v = localStorage.getItem(k)
             }
-            state[k] = v ?? "";
+            if (!v) {
+                return;
+            }
+            state[k] = v;
         })
         return state;
     }
@@ -754,11 +757,19 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             return;
         }
         if (setStateTrigger.scope === "Session") {
-            sessionStorage.setItem(setStateTrigger.key, setStateTrigger.value ?? "");
+            if (!setStateTrigger.value) {
+                sessionStorage.removeItem(setStateTrigger.key);
+            } else {
+                sessionStorage.setItem(setStateTrigger.key, setStateTrigger.value);
+            }
             return;
         }
         if (setStateTrigger.scope === "Persistent") {
-            localStorage.setItem(setStateTrigger.key, setStateTrigger.value ?? "");
+            if (!setStateTrigger.value) {
+                localStorage.removeItem(setStateTrigger.key);
+            } else {
+                localStorage.setItem(setStateTrigger.key, setStateTrigger.value);
+            }
         }
     }
 

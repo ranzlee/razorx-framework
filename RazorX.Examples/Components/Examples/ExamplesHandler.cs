@@ -28,13 +28,9 @@ public class ExamplesHandler : IRequestHandler {
     private static readonly List<TodoModel> Todos = [];
 
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver) {
-        // var page = Todos
-        //     .OrderBy(x => x.Id)
-        //     .Take(5);
         return await rxDriver
             .With(context)
             .AddPage<App, ExamplesHead, ExamplesPage, ExampleModel>(new ExampleModel([], 0, 0), "RazorX - Examples")
-            //.AddPage<App, ExamplesHead, ExamplesPage, ExampleModel>(new ExampleModel(page, Todos.Count, Todos.Count(x => x.IsComplete)), "RazorX - Examples")
             .Render();
     }
 
@@ -57,10 +53,9 @@ public class ExamplesHandler : IRequestHandler {
         return await rxDriver
             .With(context)
             .AddTriggerSetState("filter", filter)
-            .AddTriggerFocusElement("search-todos", true)
-            .AddFragment<TodoSearch, string>(filter, "search-todos", FragmentMergeStrategyType.Swap)
+            .AddFragment<TodoSearch, string>(filter, "search-todos", FragmentMergeStrategyType.Morph)
             .AddFragment<TodoList, IEnumerable<TodoModel>>(page, "todo-list", FragmentMergeStrategyType.SwapInner)
-            .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Morph)
+            .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)
             .Render();
     }
 
@@ -77,7 +72,7 @@ public class ExamplesHandler : IRequestHandler {
             .AddTriggerFocusElement("new-todo-modal-trigger")
             .AddFragment<TodoForm, TodoFormModel>(new TodoFormModel(0, "", false, false, false), "new-todo-form", FragmentMergeStrategyType.Swap)
             .AddFragment<TodoItem, TodoModel>(todo, "todo-list", FragmentMergeStrategyType.AppendBeforeEnd)
-            .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Morph)
+            .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)
             .Render();
     }
 
@@ -126,7 +121,7 @@ public class ExamplesHandler : IRequestHandler {
         var driver = rxDriver
             .With(context)
             .AddTriggerCloseDialog("delete-todo-modal")
-            .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Morph)
+            .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)
             .RemoveElement($"todo-item-{id}");
         if (Todos.Count == 0) {
             driver.AddTriggerFocusElement("new-todo-modal-trigger", true);
