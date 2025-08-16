@@ -1093,14 +1093,32 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             Idiomorph.morph(target, Array.from(fragment.content.children), { 
                 morphStyle: "outerHTML", 
                 ignoreActiveValue: ignoreActive,
-            })?.forEach((n: Node): void => {
-                if (!(n instanceof HTMLElement)) {
-                    return;
-                }
-                //TODO: EDGE CASE - what if the data-rx-trigger attribute is morphed?
-                //addTriggers(node);
-                if (_callbacks.onElementMorphed) {
-                    _callbacks.onElementMorphed(n);
+                callbacks: {
+                    beforeNodeMorphed: (oldNode: Element, newNode: Element): void => {
+                        if (!(oldNode instanceof HTMLElement) || !(newNode instanceof HTMLElement)) {
+                            return;
+                        }
+                        // Check if triggers are changing
+                        const oldTrigger = oldNode.dataset.rxTrigger;
+                        const newTrigger = newNode.dataset.rxTrigger;
+                        // Only clean up if triggers exist and are changing
+                        if (oldTrigger && oldTrigger !== newTrigger) {
+                            removeTriggers(oldNode);
+                        }
+                    },
+                    afterNodeMorphed: (oldNode: Element, _newNode: Element): void => { // eslint-disable-line @typescript-eslint/no-unused-vars
+                        if (!(oldNode instanceof HTMLElement)) {
+                            return;
+                        }
+                        // Re-initialize triggers if element has action
+                        // setTriggers checks internally if already configured
+                        if (oldNode.dataset.rxAction) {
+                            setTriggers(oldNode);
+                        }
+                        if (_callbacks.onElementMorphed) {
+                            _callbacks.onElementMorphed(oldNode);
+                        }
+                    }
                 }
             });
         });
