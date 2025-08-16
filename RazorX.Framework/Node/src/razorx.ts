@@ -551,6 +551,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 await elementTriggerProcessor(ele, evt);
             } catch (error: unknown) {
                 console.error('Request queue error:', error);
+                sendError(ele, error);
             }
         });
     }
@@ -1073,10 +1074,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             hasProps = true;
             if (Object.hasOwn(object, key)) {
-                if (!Array.isArray(object[key]!)) {
-                    object[key] = [object[key]!];
+                const existingValue = object[key];
+                if (!Array.isArray(existingValue)) {
+                    object[key] = [existingValue as string];
                 }
-                object[key].push(value);
+                (object[key] as string[]).push(value);
             } else {
                 object[key] = value;
             }
