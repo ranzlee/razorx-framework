@@ -858,7 +858,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
         } else {
             if (document.startViewTransition !== undefined) {
-                await document.startViewTransition(async () => await mergeFragments(ele, response, parsedHeaders.merge!, parsedHeaders.morphIgnoreActive)).finished;
+                await document.startViewTransition(() => mergeFragments(ele, response, parsedHeaders.merge!, parsedHeaders.morphIgnoreActive)).finished;
             } else {
                 await mergeFragments(ele, response, parsedHeaders.merge, parsedHeaders.morphIgnoreActive);
             }

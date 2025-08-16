@@ -19,13 +19,13 @@
 .claude
 CLAUDE.md
 TODO.md
+Notes.txt
 
 # RazorX.Framework Project artifacts
 RazorX.Framework/bin/
 RazorX.Framework/obj/
 RazorX.Framework/Node/dist
 RazorX.Framework/Node/node_modules
-RazorX.Framework/Node/src/razorx-analysis.md
 
 # RazorX.Framework.UnitTests Project artifacts
 RazorX.Framework.UnitTests/bin/
