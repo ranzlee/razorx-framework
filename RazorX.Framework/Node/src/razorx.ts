@@ -19,6 +19,7 @@ declare global {
             rxDisableQueueing?: string // data-rx-disable-queueing
             rxHoistTo?: string //data-rx-hoist-to transfer rx behaviors to another element
             rxIncludeState?: string //data-rx-include-state
+            rxRevealMargin?: string //data-rx-reveal-margin
         },
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
         _rxCallbacks?: ElementCallbacks,
@@ -285,6 +286,21 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function revealedTrigger(ele: HTMLElement, rxRevealed: string): void {
+        let rootMargin = "0px";
+        const revealMarginSetting = ele.dataset.rxRevealMargin?.trim();
+        if (revealMarginSetting !== undefined) {
+            if (revealMarginSetting === "") {
+                console.warn(`The data-rx-reveal-margin attribute on element ${ele.id} is empty. Default value of "0px" used.`);
+            } else {
+                // Basic validation for CSS margin format
+                const marginPattern = /^-?\d+px(\s+-?\d+px)*$/;
+                if (marginPattern.test(revealMarginSetting)) {
+                    rootMargin = revealMarginSetting;
+                } else {
+                    console.warn(`The data-rx-reveal-margin attribute on element ${ele.id} has invalid format "${revealMarginSetting}". Must be CSS margin format (e.g., "200px", "100px 0px"). Default value of "0px" used.`);
+                }
+            }
+        }
         const observer = new IntersectionObserver(
             (entries) => {
                 entries.forEach((entry) => {
@@ -294,7 +310,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         observer.disconnect();
                     }
                 });
-            }
+            },
+            { rootMargin }
         );
         observer.observe(ele);
     }
