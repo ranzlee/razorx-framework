@@ -116,6 +116,12 @@ export type RxSetStateTrigger = {
 
 export const RxRequestHeader = "rx-request";
 
+type ElementTriggerState = {
+    triggers: Set<string>;
+    intervalId?: number;
+    observer?: IntersectionObserver;
+}
+
 const _processedScriptTag = "data-rx-script-processed";
 
 const _requestRefTracker: Set<string> = new Set();
@@ -123,6 +129,8 @@ const _requestRefTracker: Set<string> = new Set();
 const _debouncedRequests: Map<string, (() => Promise<void>) & { _cleanup?: () => void }> = new Map();
 
 const _elementCache: Map<string, HTMLElement | null> = new Map();
+
+const _elementTriggerState: WeakMap<HTMLElement, ElementTriggerState> = new WeakMap();
 
 const _fetchRedirect: FetchRedirect = "follow";
 
@@ -229,7 +237,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function setTriggers(ele: HTMLElement): void {
-        //TODO: add support for init, poll, and intersect triggers
+        if (ele.dataset.rxAction && (!ele.id || ele.id.trim() === "")) {
+            throw new Error(`Element with "data-rx-action" must have a unique ID.`);
+        }
+        if (!ele.dataset.rxAction && ele.dataset.rxTrigger) {
+            console.warn(`Element has data-rx-trigger but no data-rx-action. Triggers will not function.`, ele);
+        }
         let rxTrigger = ele.dataset.rxTrigger;
         if (!rxTrigger) {
             rxTrigger = ele.matches("form")
@@ -251,24 +264,40 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     `with data-rx-hoist-to. Special triggers have their own lifecycle and cannot be hoisted to another element.`
                 );
             }
+            const triggerState = _elementTriggerState.get(ele) || { triggers: new Set() };
             triggers.forEach((trigger): void => {
-                ele.addEventListener(trigger, elementHoistEventHandler);
+                // Check if already added to prevent duplicates
+                if (!triggerState.triggers.has(trigger)) {
+                    ele.addEventListener(trigger, elementHoistEventHandler);
+                    triggerState.triggers.add(trigger);
+                }
             });
+            _elementTriggerState.set(ele, triggerState);
         } else {
             const rxInitialized: RxExtendedEvents = "rx:initialized";
             const rxPoll: RxExtendedEvents = "rx:poll";
             const rxRevealed: RxExtendedEvents = "rx:revealed";
+            // Get or create trigger state for tracking
+            const triggerState = _elementTriggerState.get(ele) || { triggers: new Set() };
             triggers.forEach((trigger): void => {
-                if (trigger.trim().toLowerCase() === rxInitialized) {
+                const trimmedTrigger = trigger.trim().toLowerCase();
+                if (trimmedTrigger === rxInitialized) {
                     initializedTrigger(ele, rxInitialized);
-                } else if (trigger.trim().toLowerCase() === rxPoll) {
+                } else if (trimmedTrigger === rxPoll) {
                     pollTrigger(ele, rxPoll);
-                } else if (trigger.trim().toLowerCase() === rxRevealed) {
+                    triggerState.triggers.add(rxPoll);
+                } else if (trimmedTrigger === rxRevealed) {
                     revealedTrigger(ele, rxRevealed);
+                    triggerState.triggers.add(rxRevealed);
                 } else {
+                    if (triggerState.triggers.has(trigger)) {
+                        return;
+                    }
                     ele.addEventListener(trigger, elementTriggerEventHandler);
+                    triggerState.triggers.add(trigger);
                 }
             });
+            _elementTriggerState.set(ele, triggerState);
         }
     }
 
@@ -278,6 +307,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function pollTrigger(ele: HTMLElement, rxPoll: string): void {
+        const existingState = _elementTriggerState.get(ele);
+        if (existingState?.intervalId) {
+            console.warn(`Polling already active for element ${ele.id}`);
+            return;
+        }
         let interval = 1000;
         const intervalSetting = ele.dataset.rxPollInterval?.trim().toLowerCase();
         if (intervalSetting === undefined) {
@@ -290,12 +324,20 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }    
         }
         const evt = new CustomEvent(rxPoll)
-        setInterval(() => {
+        const intervalId = setInterval(() => {
             elementTriggerProcessor(ele, evt);
         }, interval);
+        const state = _elementTriggerState.get(ele) || { triggers: new Set() };
+        state.intervalId = intervalId;
+        _elementTriggerState.set(ele, state);
     }
 
     function revealedTrigger(ele: HTMLElement, rxRevealed: string): void {
+        const existingState = _elementTriggerState.get(ele);
+        if (existingState?.observer) {
+            console.warn(`Observer already active for element ${ele.id}`);
+            return;
+        }
         let rootMargin = "0px";
         const revealMarginSetting = ele.dataset.rxRevealMargin?.trim();
         if (revealMarginSetting !== undefined) {
@@ -318,12 +360,19 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         const evt = new CustomEvent(rxRevealed);
                         elementTriggerProcessor(ele, evt);
                         observer.disconnect();
+                        const state = _elementTriggerState.get(ele);
+                        if (state?.observer === observer) {
+                            delete state.observer;
+                        }
                     }
                 });
             },
             { rootMargin }
         );
         observer.observe(ele);
+        const triggerState = _elementTriggerState.get(ele) || { triggers: new Set() };
+        triggerState.observer = observer;
+        _elementTriggerState.set(ele, triggerState);
     }
 
     function addTriggers(ele: HTMLElement): void {
@@ -357,6 +406,17 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function removeTriggers(ele: HTMLElement): void {
+        const triggerState = _elementTriggerState.get(ele);
+        if (triggerState) {
+            if (triggerState.intervalId) {
+                clearInterval(triggerState.intervalId);
+            }
+            if (triggerState.observer) {
+                triggerState.observer.unobserve(ele);
+                triggerState.observer.disconnect();
+            }
+            _elementTriggerState.delete(ele);
+        }
         if (ele.dataset.rxTrigger) {	
             const triggers = ele.dataset.rxTrigger.split(/\s+/);
             triggers.forEach((trigger): void => {
@@ -437,14 +497,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         });
         if (!hoistTarget.addRxCallbacks) {
             configureElement(hoistTarget);
-        }
-        if (hoistTarget.dataset.rxTrigger) {	
-            const triggers = hoistTarget.dataset.rxTrigger.split(/\s+/);
-            triggers.forEach((trigger): void => {
-                hoistTarget.removeEventListener(trigger, elementTriggerEventHandler);
-            });
+            setTriggers(hoistTarget);
         } 
-        setTriggers(hoistTarget);
         if (_callbacks.afterInitializeElement) {
             _callbacks.afterInitializeElement(hoistTarget);
         }
@@ -1098,21 +1152,21 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         if (!(oldNode instanceof HTMLElement) || !(newNode instanceof HTMLElement)) {
                             return;
                         }
-                        // Check if triggers are changing
                         const oldTrigger = oldNode.dataset.rxTrigger;
                         const newTrigger = newNode.dataset.rxTrigger;
-                        // Only clean up if triggers exist and are changing
                         if (oldTrigger && oldTrigger !== newTrigger) {
                             removeTriggers(oldNode);
+                            _elementTriggerState.delete(oldNode);
                         }
                     },
                     afterNodeMorphed: (oldNode: Element, _newNode: Element): void => { // eslint-disable-line @typescript-eslint/no-unused-vars
                         if (!(oldNode instanceof HTMLElement)) {
                             return;
                         }
-                        // Re-initialize triggers if element has action
-                        // setTriggers checks internally if already configured
                         if (oldNode.dataset.rxAction) {
+                            if (!oldNode.id || oldNode.id.trim() === "") {
+                                throw new Error(`Element with "data-rx-action" must have a unique ID after morphing.`);
+                            }
                             setTriggers(oldNode);
                         }
                         if (_callbacks.onElementMorphed) {
