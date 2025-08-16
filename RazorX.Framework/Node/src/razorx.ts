@@ -708,17 +708,39 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (stateKeys.length === 0) {
             return {};
         }
+        const sessionValues = new Map<string, string | null>();
+        const localValues = new Map<string, string | null>();
+        try {
+            stateKeys.forEach((k): void => {
+                try {
+                    sessionValues.set(k, sessionStorage.getItem(k));
+                } catch (storageError) {
+                    console.warn(`Failed to read sessionStorage key '${k}':`, storageError instanceof Error ? storageError.message : String(storageError));
+                    sessionValues.set(k, null);
+                }
+            });
+            stateKeys.forEach((k): void => {
+                try {
+                    localValues.set(k, localStorage.getItem(k));
+                } catch (storageError) {
+                    console.warn(`Failed to read localStorage key '${k}':`, storageError instanceof Error ? storageError.message : String(storageError));
+                    localValues.set(k, null);
+                }
+            });
+        } catch (globalError) {
+            console.warn('Failed to access browser storage:', globalError instanceof Error ? globalError.message : String(globalError));
+            return {};
+        }
         const state: Record<string, string> = {};
         stateKeys.forEach((k): void => {
-            let v = sessionStorage.getItem(k);
+            let v = sessionValues.get(k);
             if (!v) {
-                v = localStorage.getItem(k)
+                v = localValues.get(k);
             }
-            if (!v) {
-                return;
+            if (v) {
+                state[k] = v;
             }
-            state[k] = v;
-        })
+        });
         return state;
     }
 
@@ -810,9 +832,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (!setStateTriggerString) {
             return;
         }
-        let setStateTrigger: RxSetStateTrigger;
+        let setStateTriggers: RxSetStateTrigger[];
         try {
-            setStateTrigger = JSON.parse(setStateTriggerString);
+            setStateTriggers  = JSON.parse(`[${setStateTriggerString}]`);
         } catch(parseError) {
             const errorMsg = `Failed to parse "${setStateHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
             console.error(errorMsg, { header: setStateTriggerString });
@@ -825,31 +847,58 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return;
         }
-        if (!setStateTrigger.key || !setStateTrigger.scope) {
-            const errorMsg = `Invalid "${setStateHeader}" structure - missing required fields: key, scope`;
-            console.error(errorMsg, { parsed: setStateTrigger });
-            const error = new Error(errorMsg);
-            if (ele._rxCallbacks?.onElementTriggerError) {
-                ele._rxCallbacks.onElementTriggerError(error);
+        for (let i = 0; i < setStateTriggers.length; i++) {
+            const setStateTrigger = setStateTriggers[i]!;
+            if (!setStateTrigger.key || !setStateTrigger.scope) {
+                const errorMsg = `Invalid "${setStateHeader}" structure - missing required fields: key, scope`;
+                console.error(errorMsg, { parsed: setStateTrigger });
+                const error = new Error(errorMsg);
+                if (ele._rxCallbacks?.onElementTriggerError) {
+                    ele._rxCallbacks.onElementTriggerError(error);
+                }
+                if (_callbacks.onElementTriggerError) {
+                    _callbacks.onElementTriggerError(ele, error);
+                }
+                continue;
             }
-            if (_callbacks.onElementTriggerError) {
-                _callbacks.onElementTriggerError(ele, error);
+            if (setStateTrigger.scope === "Session") {
+                try {
+                    if (!setStateTrigger.value) {
+                        sessionStorage.removeItem(setStateTrigger.key);
+                    } else {
+                        sessionStorage.setItem(setStateTrigger.key, setStateTrigger.value);
+                    }
+                } catch (storageError) {
+                    const errorMsg = `Failed to ${!setStateTrigger.value ? 'remove' : 'set'} sessionStorage key '${setStateTrigger.key}': ${storageError instanceof Error ? storageError.message : String(storageError)}`;
+                    console.warn(errorMsg, { key: setStateTrigger.key, value: setStateTrigger.value, error: storageError });
+                    const error = new Error(errorMsg);
+                    if (ele._rxCallbacks?.onElementTriggerError) {
+                        ele._rxCallbacks.onElementTriggerError(error);
+                    }
+                    if (_callbacks.onElementTriggerError) {
+                        _callbacks.onElementTriggerError(ele, error);
+                    }
+                }
+                continue;
             }
-            return;
-        }
-        if (setStateTrigger.scope === "Session") {
-            if (!setStateTrigger.value) {
-                sessionStorage.removeItem(setStateTrigger.key);
-            } else {
-                sessionStorage.setItem(setStateTrigger.key, setStateTrigger.value);
-            }
-            return;
-        }
-        if (setStateTrigger.scope === "Persistent") {
-            if (!setStateTrigger.value) {
-                localStorage.removeItem(setStateTrigger.key);
-            } else {
-                localStorage.setItem(setStateTrigger.key, setStateTrigger.value);
+            if (setStateTrigger.scope === "Persistent") {
+                try {
+                    if (!setStateTrigger.value) {
+                        localStorage.removeItem(setStateTrigger.key);
+                    } else {
+                        localStorage.setItem(setStateTrigger.key, setStateTrigger.value);
+                    }
+                } catch (storageError) {
+                    const errorMsg = `Failed to ${!setStateTrigger.value ? 'remove' : 'set'} localStorage key '${setStateTrigger.key}': ${storageError instanceof Error ? storageError.message : String(storageError)}`;
+                    console.warn(errorMsg, { key: setStateTrigger.key, value: setStateTrigger.value, error: storageError });
+                    const error = new Error(errorMsg);
+                    if (ele._rxCallbacks?.onElementTriggerError) {
+                        ele._rxCallbacks.onElementTriggerError(error);
+                    }
+                    if (_callbacks.onElementTriggerError) {
+                        _callbacks.onElementTriggerError(ele, error);
+                    }
+                }
             }
         }
     }
