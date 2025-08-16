@@ -122,6 +122,14 @@ type ElementTriggerState = {
     observer?: IntersectionObserver;
 }
 
+type ParsedRxHeaders = {
+    merge?: MergeStrategy[];
+    setState?: RxSetStateTrigger[];
+    closeDialog?: RxCloseDialogTrigger;
+    focusElement?: RxFocusElementTrigger;
+    morphIgnoreActive?: boolean;
+};
+
 const _processedScriptTag = "data-rx-script-processed";
 
 const _requestRefTracker: Set<string> = new Set();
@@ -744,6 +752,52 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         return state;
     }
 
+    function parseRxHeaders(response: Response): ParsedRxHeaders | null {
+        const parsed: ParsedRxHeaders = {};
+        const mergeHeader = response.headers.get("rx-merge");
+        if (mergeHeader) {
+            try {
+                parsed.merge = JSON.parse(mergeHeader);
+            } catch (parseError) {
+                const errorMsg = `Failed to parse "rx-merge" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+                console.error(errorMsg, { header: mergeHeader });
+                throw new Error(errorMsg);
+            }
+        }
+        const setStateHeader = response.headers.get("rx-trigger-set-state");
+        if (setStateHeader) {
+            try {
+                parsed.setState = JSON.parse(`[${setStateHeader}]`);
+            } catch (parseError) {
+                const errorMsg = `Failed to parse "rx-trigger-set-state" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+                console.error(errorMsg, { header: setStateHeader });
+                throw new Error(errorMsg);
+            }
+        }
+        const closeDialogHeader = response.headers.get("rx-trigger-close-dialog");
+        if (closeDialogHeader) {
+            try {
+                parsed.closeDialog = JSON.parse(closeDialogHeader);
+            } catch (parseError) {
+                const errorMsg = `Failed to parse "rx-trigger-close-dialog" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+                console.error(errorMsg, { header: closeDialogHeader });
+                throw new Error(errorMsg);
+            }
+        }
+        const focusElementHeader = response.headers.get("rx-trigger-focus-element");
+        if (focusElementHeader) {
+            try {
+                parsed.focusElement = JSON.parse(focusElementHeader);
+            } catch (parseError) {
+                const errorMsg = `Failed to parse "rx-trigger-focus-element" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+                console.error(errorMsg, { header: focusElementHeader });
+                throw new Error(errorMsg);
+            }
+        }
+        parsed.morphIgnoreActive = response.headers.has("rx-morph-ignore-active");
+        return parsed;
+    }
+
     async function responseProcessor(ele: HTMLElement, response: Response | null): Promise<void> {
         if (!response) {
             throw new Error(`Element ${ele.id} has no response after request.`);
@@ -778,7 +832,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return;
         }
-        processSetStateTrigger(ele, response);
+        const parsedHeaders = parseRxHeaders(response);
+        processSetStateTrigger(ele, parsedHeaders?.setState);
         if (response.status === 202) {
             //used to issue a follow-up GET request for rendering
             const location = response.headers.get("location");
@@ -787,22 +842,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return; 
         }
-        processCloseDialogTrigger(ele, response);
-        const mergeHeader: RxResponseHeaders = "rx-merge";
-        const merge = response?.headers.get(mergeHeader);
-        if (!merge) {
-            throw new Error(`Expected a "${mergeHeader}" header object.`);
-        }
-        let mergeStrategyArray: MergeStrategy[];
-        try {
-            mergeStrategyArray = JSON.parse(merge);
-        } catch (parseError) {
-            const errorMsg = `Failed to parse "${mergeHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
-            console.error(errorMsg, { header: merge });
-            throw new Error(errorMsg);
+        processCloseDialogTrigger(ele, parsedHeaders?.closeDialog);
+        if (!parsedHeaders?.merge) {
+            throw new Error(`Expected a "rx-merge" header object.`);
         }
         if (response.status === 204) {
-            const removals = mergeStrategyArray.filter((s: MergeStrategy): boolean => s.strategy === "remove");
+            const removals = parsedHeaders.merge.filter((s: MergeStrategy): boolean => s.strategy === "remove");
             if (removals.length > 0) {
                 if (document.startViewTransition !== undefined) {
                     await document.startViewTransition(async () => removeElements(ele, removals)).finished;
@@ -812,9 +857,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
         } else {
             if (document.startViewTransition !== undefined) {
-                await document.startViewTransition(async () => await mergeFragments(ele, response, mergeStrategyArray)).finished;
+                await document.startViewTransition(async () => await mergeFragments(ele, response, parsedHeaders.merge!, parsedHeaders.morphIgnoreActive)).finished;
             } else {
-                await mergeFragments(ele, response, mergeStrategyArray);
+                await mergeFragments(ele, response, parsedHeaders.merge, parsedHeaders.morphIgnoreActive);
             }
         }
         if (ele._rxCallbacks!.afterDocumentUpdate) {
@@ -823,34 +868,17 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (_callbacks.afterDocumentUpdate) {
             _callbacks.afterDocumentUpdate(ele);
         }
-        processFocusElementTrigger(ele, response);
+        processFocusElementTrigger(ele, parsedHeaders?.focusElement);
     }
 
-    function processSetStateTrigger(ele: HTMLElement, response: Response): void {
-        const setStateHeader: RxResponseHeaders = "rx-trigger-set-state";
-        const setStateTriggerString = response.headers.get(setStateHeader);
-        if (!setStateTriggerString) {
-            return;
-        }
-        let setStateTriggers: RxSetStateTrigger[];
-        try {
-            setStateTriggers  = JSON.parse(`[${setStateTriggerString}]`);
-        } catch(parseError) {
-            const errorMsg = `Failed to parse "${setStateHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
-            console.error(errorMsg, { header: setStateTriggerString });
-            const error = new Error(errorMsg);
-            if (ele._rxCallbacks?.onElementTriggerError) {
-                ele._rxCallbacks.onElementTriggerError(error);
-            }
-            if (_callbacks.onElementTriggerError) {
-                _callbacks.onElementTriggerError(ele, error);
-            }
+    function processSetStateTrigger(ele: HTMLElement, setStateTriggers?: RxSetStateTrigger[]): void {
+        if (!setStateTriggers) {
             return;
         }
         for (let i = 0; i < setStateTriggers.length; i++) {
             const setStateTrigger = setStateTriggers[i]!;
             if (!setStateTrigger.key || !setStateTrigger.scope) {
-                const errorMsg = `Invalid "${setStateHeader}" structure - missing required fields: key, scope`;
+                const errorMsg = `Invalid "rx-trigger-set-state" structure - missing required fields: key, scope`;
                 console.error(errorMsg, { parsed: setStateTrigger });
                 const error = new Error(errorMsg);
                 if (ele._rxCallbacks?.onElementTriggerError) {
@@ -903,29 +931,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
-    function processCloseDialogTrigger(ele: HTMLElement, response: Response): void {
-        const closeDialogHeader: RxResponseHeaders = "rx-trigger-close-dialog";
-        const closeDialogTriggerString = response.headers.get(closeDialogHeader);
-        if (!closeDialogTriggerString) {
-            return;
-        }
-        let closeDialogTrigger: RxCloseDialogTrigger;
-        try {
-            closeDialogTrigger = JSON.parse(closeDialogTriggerString);
-        } catch (parseError) {
-            const errorMsg = `Failed to parse "${closeDialogHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
-            console.error(errorMsg, { header: closeDialogTriggerString });
-            const error = new Error(errorMsg);
-            if (ele._rxCallbacks?.onElementTriggerError) {
-                ele._rxCallbacks.onElementTriggerError(error);
-            }
-            if (_callbacks.onElementTriggerError) {
-                _callbacks.onElementTriggerError(ele, error);
-            }
+    function processCloseDialogTrigger(ele: HTMLElement, closeDialogTrigger?: RxCloseDialogTrigger): void {
+        if (!closeDialogTrigger) {
             return;
         }
         if (!closeDialogTrigger.dialogId) {
-            const errorMsg = `Invalid "${closeDialogHeader}" structure - missing required field: dialogId`;
+            const errorMsg = `Invalid "rx-trigger-close-dialog" structure - missing required field: dialogId`;
             console.error(errorMsg, { parsed: closeDialogTrigger });
             const error = new Error(errorMsg);
             if (ele._rxCallbacks?.onElementTriggerError) {
@@ -948,29 +959,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
-    function processFocusElementTrigger(ele: HTMLElement, response: Response): void {
-        const focusElementTriggerHeader: RxResponseHeaders = "rx-trigger-focus-element";
-        const focusElementTriggerString = response.headers.get(focusElementTriggerHeader);
-        if (!focusElementTriggerString) {
-            return;
-        }
-        let focusElementTrigger: RxFocusElementTrigger;
-        try {
-            focusElementTrigger = JSON.parse(focusElementTriggerString);
-        } catch (parseError) {
-            const errorMsg = `Failed to parse "${focusElementTriggerHeader}" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
-            console.error(errorMsg, { header: focusElementTriggerString });
-            const error = new Error(errorMsg);
-            if (ele._rxCallbacks?.onElementTriggerError) {
-                ele._rxCallbacks.onElementTriggerError(error);
-            }
-            if (_callbacks.onElementTriggerError) {
-                _callbacks.onElementTriggerError(ele, error);
-            }
+    function processFocusElementTrigger(ele: HTMLElement, focusElementTrigger?: RxFocusElementTrigger): void {
+        if (!focusElementTrigger) {
             return;
         }
         if (!focusElementTrigger.elementId) {
-            const errorMsg = `Invalid "${focusElementTriggerHeader}" structure - missing required field: elementId`;
+            const errorMsg = `Invalid "rx-trigger-focus-element" structure - missing required field: elementId`;
             console.error(errorMsg, { parsed: focusElementTrigger });
             const error = new Error(errorMsg);
             if (ele._rxCallbacks?.onElementTriggerError) {
@@ -1110,7 +1104,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         });
     }
 
-    async function mergeFragments(triggerElement: HTMLElement, response: Response, mergeStrategyArray: MergeStrategy[]): Promise<void> {
+    async function mergeFragments(triggerElement: HTMLElement, response: Response, mergeStrategyArray: MergeStrategy[], morphIgnoreActive?: boolean): Promise<void> {
         const removals = mergeStrategyArray.filter((s: MergeStrategy): boolean => s.strategy === "remove");
         removeElements(triggerElement, removals);
         const parser = new DOMParser();
@@ -1191,11 +1185,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (!target) {
                 return;
             }
-            const ignoreActiveHeader: RxResponseHeaders = "rx-morph-ignore-active"
-            const ignoreActive = response?.headers.has(ignoreActiveHeader);
             Idiomorph.morph(target, Array.from(fragment.content.children), { 
                 morphStyle: "outerHTML", 
-                ignoreActiveValue: ignoreActive,
+                ignoreActiveValue: morphIgnoreActive,
                 callbacks: {
                     beforeNodeMorphed: (oldNode: Element, newNode: Element): void => {
                         if (!(oldNode instanceof HTMLElement) || !(newNode instanceof HTMLElement)) {
