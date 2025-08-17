@@ -23,7 +23,7 @@ echo "========================================"
 
 # Run JavaScript tests
 cd RazorX.Framework.Tests/Node
-npm test
+npm run test:coverage
 
 echo ""
 echo "========================================"

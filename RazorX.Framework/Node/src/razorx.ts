@@ -144,8 +144,6 @@ const _fetchRedirect: FetchRedirect = "follow";
 
 const _callbacks: DocumentCallbacks = {};
 
-const _isFirefox = navigator.userAgent.toLowerCase().includes("firefox");
-
 const _addCallbacks = (callbacks: DocumentCallbacks): void => {
     _callbacks.afterDocumentProcessed = callbacks.afterDocumentProcessed;
     _callbacks.afterDocumentUpdate = callbacks.afterDocumentUpdate;
@@ -160,6 +158,8 @@ const _addCallbacks = (callbacks: DocumentCallbacks): void => {
     _callbacks.onElementRemoved = callbacks.onElementRemoved;
     _callbacks.onElementTriggerError = callbacks.onElementTriggerError;
 }
+
+const _isFirefox = navigator.userAgent.toLowerCase().includes("firefox");
 
 const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 

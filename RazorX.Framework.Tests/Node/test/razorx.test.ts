@@ -281,6 +281,7 @@ describe('RazorX Framework API Surface Tests', () => {
         razorx.addCallbacks(callbacks)
       }).not.toThrow()
     })
+
   })
 
   describe('Request Generation - HTTP Methods and Headers', () => {
@@ -940,6 +941,11 @@ describe('RazorX Framework API Surface Tests', () => {
       triggerDOMContentLoaded()
     })
 
+    afterEach(() => {
+      // Clear any callbacks that were set during tests
+      razorx.addCallbacks({})
+    })
+
     test('swap strategy replaces entire element', async () => {
       // Arrange
       const targetId = getUniqueId('swap-target')
@@ -977,6 +983,106 @@ describe('RazorX Framework API Surface Tests', () => {
       const target = document.getElementById(targetId)
       expect(target?.textContent?.trim()).toBe('New content')
       expect(target?.className).toBe('updated')
+    })
+
+    test('swap strategy with beforeDocumentUpdate callback', async () => {
+      // Arrange
+      const beforeDocumentUpdate = vi.fn().mockReturnValue(true)
+      const afterDocumentUpdate = vi.fn()
+      
+      razorx.addCallbacks({
+        beforeDocumentUpdate,
+        afterDocumentUpdate
+      })
+
+      const targetId = getUniqueId('swap-callback-target')
+      const btnId = getUniqueId('swap-callback-btn')
+      
+      const target = createElementWithId('div', targetId, { class: 'original' })
+      target.innerHTML = '<p>Original content</p>'
+      document.body.appendChild(target)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/swap'
+      })
+      document.body.appendChild(button)
+      
+      processNewElements()
+
+      const mergeStrategies: MergeStrategy[] = [
+        { target: targetId, strategy: 'swap' }
+      ]
+
+      mockFetch.mockImplementation(async () => new Response(
+        `<template id="${targetId}-rx-fragment"><div id="${targetId}" class="updated"><p>New content</p></div></template>`,
+        {
+          headers: {
+            'rx-merge': JSON.stringify(mergeStrategies),
+            'content-type': 'text/html'
+          }
+        }
+      ))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(beforeDocumentUpdate).toHaveBeenCalled()
+      expect(afterDocumentUpdate).toHaveBeenCalledWith(button)
+      
+      const updatedTarget = document.getElementById(targetId)
+      expect(updatedTarget?.textContent?.trim()).toBe('New content')
+      expect(updatedTarget?.className).toBe('updated')
+    })
+
+    test('beforeDocumentUpdate returning false cancels swap operation', async () => {
+      // Arrange
+      const beforeDocumentUpdate = vi.fn().mockReturnValue(false) // Cancel operation
+      
+      razorx.addCallbacks({
+        beforeDocumentUpdate
+      })
+
+      const targetId = getUniqueId('swap-cancel-target')
+      const btnId = getUniqueId('swap-cancel-btn')
+      
+      const target = createElementWithId('div', targetId, { class: 'original' })
+      target.innerHTML = '<p>Original content</p>'
+      document.body.appendChild(target)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/swap'
+      })
+      document.body.appendChild(button)
+      
+      processNewElements()
+
+      const mergeStrategies: MergeStrategy[] = [
+        { target: targetId, strategy: 'swap' }
+      ]
+
+      mockFetch.mockImplementation(async () => new Response(
+        `<template id="${targetId}-rx-fragment"><div id="${targetId}" class="updated"><p>New content</p></div></template>`,
+        {
+          headers: {
+            'rx-merge': JSON.stringify(mergeStrategies),
+            'content-type': 'text/html'
+          }
+        }
+      ))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(beforeDocumentUpdate).toHaveBeenCalled()
+      
+      // Content should remain unchanged
+      const unchangedTarget = document.getElementById(targetId)
+      expect(unchangedTarget?.textContent?.trim()).toBe('Original content')
+      expect(unchangedTarget?.className).toBe('original')
     })
 
     test('swapInner strategy replaces element children', async () => {
@@ -1256,6 +1362,92 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert
       const target = document.getElementById(targetId)
       expect(target).toBeNull()
+    })
+
+    test('remove strategy with beforeDocumentUpdate callback', async () => {
+      // Arrange
+      const beforeDocumentUpdate = vi.fn().mockReturnValue(true)
+      const afterDocumentUpdate = vi.fn()
+      
+      razorx.addCallbacks({
+        beforeDocumentUpdate,
+        afterDocumentUpdate
+      })
+
+      const targetId = getUniqueId('remove-target')
+      const btnId = getUniqueId('remove-btn')
+      
+      const target = createElementWithId('div', targetId)
+      target.textContent = 'Element to remove'
+      document.body.appendChild(target)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/remove'
+      })
+      document.body.appendChild(button)
+      
+      processNewElements()
+
+      const mergeStrategies: MergeStrategy[] = [
+        { target: targetId, strategy: 'remove' }
+      ]
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-merge': JSON.stringify(mergeStrategies)
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(beforeDocumentUpdate).toHaveBeenCalledWith(
+        button, // trigger element
+        target, // target element to remove
+        'remove' // strategy
+      )
+      expect(afterDocumentUpdate).toHaveBeenCalledWith(button)
+      expect(document.getElementById(targetId)).toBeNull()
+    })
+
+    test('beforeDocumentUpdate returning false cancels element removal', async () => {
+      // Arrange
+      const beforeDocumentUpdate = vi.fn().mockReturnValue(false) // Cancel removal
+      
+      razorx.addCallbacks({
+        beforeDocumentUpdate
+      })
+
+      const targetId = getUniqueId('remove-target')
+      const btnId = getUniqueId('remove-btn')
+      
+      const target = createElementWithId('div', targetId)
+      target.textContent = 'Element to keep'
+      document.body.appendChild(target)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/remove'
+      })
+      document.body.appendChild(button)
+      
+      processNewElements()
+
+      const mergeStrategies: MergeStrategy[] = [
+        { target: targetId, strategy: 'remove' }
+      ]
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-merge': JSON.stringify(mergeStrategies)
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(beforeDocumentUpdate).toHaveBeenCalled()
+      expect(document.getElementById(targetId)).toBeTruthy() // Element should still exist
+      expect(target.textContent).toBe('Element to keep')
     })
   })
 
@@ -1842,18 +2034,23 @@ describe('RazorX Framework API Surface Tests', () => {
 
     test.skip('form validation workflow with error display', async () => {
       // Arrange
+      const formId = getUniqueId('validation-form')
+      const btnId = getUniqueId('submit-btn')
+      const errorId = getUniqueId('error-display')
+      const successId = getUniqueId('success-display')
+
       let validationAttempts = 0
       mockFetch.mockImplementation(async () => {
         validationAttempts++
         
         if (validationAttempts === 1) {
-          // First attempt - validation error (use 200 status to avoid error mode)
+          // First attempt - validation error
           return new Response(
-            `<template id="error-display-rx-fragment"><div class="error">Email is required</div></template>`,
+            `<template id="${errorId}-rx-fragment"><div id="${errorId}" class="error">Email is required</div></template>`,
             {
               status: 200,
               headers: {
-                'rx-merge': JSON.stringify([{ target: 'error-display', strategy: 'swap' }]),
+                'rx-merge': JSON.stringify([{ target: errorId, strategy: 'swap' }]),
                 'content-type': 'text/html'
               }
             }
@@ -1861,12 +2058,12 @@ describe('RazorX Framework API Surface Tests', () => {
         } else {
           // Second attempt - success
           return new Response(
-            `<template id="success-display-rx-fragment"><div class="success">Form submitted successfully</div></template>`,
+            `<template id="${successId}-rx-fragment"><div id="${successId}" class="success">Form submitted successfully</div></template>`,
             {
               headers: {
                 'rx-merge': JSON.stringify([
-                  { target: 'error-display', strategy: 'swap' },
-                  { target: 'success-display', strategy: 'swap' }
+                  { target: errorId, strategy: 'swap' },
+                  { target: successId, strategy: 'swap' }
                 ]),
                 'content-type': 'text/html'
               }
@@ -1874,39 +2071,41 @@ describe('RazorX Framework API Surface Tests', () => {
           )
         }
       })
-
-      document.body.innerHTML = `
-        <form id="validation-form">
-          <input name="name" value="John Doe" />
-          <input name="email" value="" />
-          <button id="submit-btn" data-rx-action="/validate" data-rx-method="POST" type="submit">
-            Submit
-          </button>
-        </form>
-        <div id="error-display"></div>
-        <div id="success-display"></div>
+      
+      const form = createElementWithId('form', formId)
+      form.innerHTML = `
+        <input name="name" value="John Doe" />
+        <input name="email" value="" />
+        <button id="${btnId}" data-rx-action="/validate" data-rx-method="POST" type="submit">
+          Submit
+        </button>
       `
+      document.body.appendChild(form)
+      
+      const errorDisplay = createElementWithId('div', errorId)
+      const successDisplay = createElementWithId('div', successId)
+      document.body.appendChild(errorDisplay)
+      document.body.appendChild(successDisplay)
+      
       processNewElements()
 
-      const submitButton = document.getElementById('submit-btn')!
-      const emailInput = document.querySelector('input[name="email"]') as HTMLInputElement
+      const submitButton = document.getElementById(btnId)!
+      const emailInput = form.querySelector('input[name="email"]') as HTMLInputElement
 
       // Act - First submission (invalid)
-      submitButton.click()
+      submitButton.dispatchEvent(new Event('click', { bubbles: true }))
       await waitForDOMUpdates()
 
-      // Assert - Error displayed (trim whitespace)
-      const errorDisplay = document.getElementById('error-display')
-      expect(errorDisplay?.textContent?.trim()).toBe('Email is required')
+      // Assert - Error displayed
+      expect(errorDisplay.textContent?.trim()).toBe('Email is required')
 
       // Act - Fix email and resubmit
       emailInput.value = 'john@example.com'
-      submitButton.click()
+      submitButton.dispatchEvent(new Event('click', { bubbles: true }))
       await waitForDOMUpdates()
 
       // Assert - Success displayed
-      const successDisplay = document.getElementById('success-display')
-      expect(successDisplay?.textContent).toBe('Form submitted successfully')
+      expect(successDisplay.textContent?.trim()).toBe('Form submitted successfully')
       expect(validationAttempts).toBe(2)
     })
 
@@ -1990,7 +2189,7 @@ describe('RazorX Framework API Surface Tests', () => {
       vi.useRealTimers()
     })
 
-    test.skip('modal dialog workflow with focus management', async () => {
+    test('modal dialog workflow with focus management', async () => {
       // Arrange
       // Track modal state for test verification
       let modalState: 'open' | 'closed' = 'closed'
@@ -2056,6 +2255,169 @@ describe('RazorX Framework API Surface Tests', () => {
       // Verify modal state
       expect(modalState).toBe('open')
     }, 10000)
+  })
+
+
+  describe('Script Processing', () => {
+    beforeEach(() => {
+      mockFetch.mockImplementation(mockSuccessResponse())
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+
+    test('script elements are handled correctly in DOM updates', async () => {
+      // This test verifies that script elements are processed correctly in fragments
+      // regardless of browser type - the actual Firefox-specific behavior is internal
+      
+      // Arrange
+      const targetId = getUniqueId('script-target')
+      const btnId = getUniqueId('script-btn')
+      
+      mockFetch.mockImplementation(async () => new Response(
+        `<template id="${targetId}-rx-fragment">
+          <div id="${targetId}">
+            <script src="test.js" type="text/javascript">console.log('test script');</script>
+            <p>Updated Content</p>
+          </div>
+        </template>`,
+        {
+          headers: {
+            'rx-merge': JSON.stringify([{ target: targetId, strategy: 'swap' }]),
+            'content-type': 'text/html'
+          }
+        }
+      ))
+
+      const target = createElementWithId('div', targetId)
+      document.body.appendChild(target)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/test',
+        'data-rx-method': 'GET'
+      })
+      document.body.appendChild(button)
+      
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - Content should be updated and script should be present
+      const updatedTarget = document.getElementById(targetId)
+      expect(updatedTarget).toBeTruthy()
+      expect(updatedTarget?.textContent?.trim()).toContain('Updated Content')
+      
+      // Script should be present (behavior may vary by browser)
+      const script = updatedTarget?.querySelector('script')
+      expect(script).toBeTruthy()
+      expect(script?.getAttribute('src')).toBe('test.js')
+      expect(script?.getAttribute('type')).toBe('text/javascript')
+      expect(script?.textContent).toBe('console.log(\'test script\');')
+    })
+
+    test('multiple script elements in fragments are preserved', async () => {
+      // Arrange
+      const targetId = getUniqueId('multi-script-target')
+      const btnId = getUniqueId('multi-script-btn')
+      
+      mockFetch.mockImplementation(async () => new Response(
+        `<template id="${targetId}-rx-fragment">
+          <div id="${targetId}">
+            <script id="script1">console.log('script 1');</script>
+            <p>Some content</p>
+            <script id="script2" defer>console.log('script 2');</script>
+            <p>More content</p>
+          </div>
+        </template>`,
+        {
+          headers: {
+            'rx-merge': JSON.stringify([{ target: targetId, strategy: 'swap' }]),
+            'content-type': 'text/html'
+          }
+        }
+      ))
+
+      const target = createElementWithId('div', targetId)
+      document.body.appendChild(target)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/test'
+      })
+      document.body.appendChild(button)
+      
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - All scripts should be present
+      const updatedTarget = document.getElementById(targetId)
+      expect(updatedTarget).toBeTruthy()
+      
+      const scripts = updatedTarget?.querySelectorAll('script')
+      expect(scripts?.length).toBe(2)
+      
+      // Verify script content is preserved
+      const script1 = Array.from(scripts || []).find(s => s.textContent?.includes('script 1'))
+      const script2 = Array.from(scripts || []).find(s => s.textContent?.includes('script 2'))
+      
+      expect(script1).toBeTruthy()
+      expect(script2).toBeTruthy()
+      expect(script2?.hasAttribute('defer')).toBe(true)
+    })
+
+    test('nested script elements in complex DOM structures', async () => {
+      // Arrange
+      const targetId = getUniqueId('nested-script-target')
+      const btnId = getUniqueId('nested-script-btn')
+      
+      mockFetch.mockImplementation(async () => new Response(
+        `<template id="${targetId}-rx-fragment">
+          <div id="${targetId}">
+            <div class="container">
+              <script>console.log('nested script');</script>
+              <div class="inner">
+                <script async>console.log('deeply nested');</script>
+              </div>
+            </div>
+          </div>
+        </template>`,
+        {
+          headers: {
+            'rx-merge': JSON.stringify([{ target: targetId, strategy: 'swap' }]),
+            'content-type': 'text/html'
+          }
+        }
+      ))
+
+      const target = createElementWithId('div', targetId)
+      document.body.appendChild(target)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/test'
+      })
+      document.body.appendChild(button)
+      
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - All nested scripts should be preserved
+      const updatedTarget = document.getElementById(targetId)
+      expect(updatedTarget).toBeTruthy()
+      
+      const allScripts = updatedTarget?.querySelectorAll('script')
+      expect(allScripts?.length).toBe(2)
+      
+      // Verify script attributes and content
+      const asyncScript = Array.from(allScripts || []).find(s => s.hasAttribute('async'))
+      expect(asyncScript).toBeTruthy()
+      expect(asyncScript?.textContent).toBe('console.log(\'deeply nested\');')
+    })
   })
 
   describe('Memory Management and Cleanup', () => {

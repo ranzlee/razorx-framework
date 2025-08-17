@@ -36,6 +36,7 @@ RazorX.Framework.Tests/obj/
 RazorX.Framework.Tests/Node/dist
 RazorX.Framework.Tests/Node/src
 RazorX.Framework.Tests/Node/node_modules
+RazorX.Framework.Tests/Node/coverage
 
 # RazorX.Examples Project artifacts
 RazorX.Examples/bin/

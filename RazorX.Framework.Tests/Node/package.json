@@ -6,7 +6,7 @@
   "scripts": {
     "prebuild": "tsc",
     "build": "node esbuild.mjs",
-    "test": "vitest run --reporter=verbose --no-color",
+    "test": "vitest run --reporter=verbose",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:ci": "vitest run --reporter=verbose",
