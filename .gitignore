@@ -4,6 +4,7 @@
 *.user
 *.userosscache
 *.sln.docstates
+*.log
 
 # Visual Studio / VS Code
 .vs/
@@ -19,6 +20,7 @@
 .claude
 CLAUDE.md
 TODO.md
+TESTING.md
 Notes.txt
 
 # RazorX.Framework Project artifacts
@@ -27,19 +29,12 @@ RazorX.Framework/obj/
 RazorX.Framework/Node/dist
 RazorX.Framework/Node/node_modules
 
-# RazorX.Framework.UnitTests Project artifacts
-RazorX.Framework.UnitTests/bin/
-RazorX.Framework.UnitTests/obj/
-
-# RazorX.Integration Project artifacts
-RazorX.Integration/bin/
-RazorX.Integration/obj/
-RazorX.Integration/wwwroot/razorx.*
-RazorX.Integration/appsettings.Development.json
-
-# RazorX.Integration.Tests Project artifacts
-RazorX.Integration.Tests/bin/
-RazorX.Integration.Tests/obj/
+# RazorX.Framework.Tests Project artifacts
+RazorX.Framework.Tests/bin/
+RazorX.Framework.Tests/obj/
+RazorX.Framework.Tests/Node/dist
+RazorX.Framework.Tests/Node/src
+RazorX.Framework.Tests/Node/node_modules
 
 # RazorX.Examples Project artifacts
 RazorX.Examples/bin/

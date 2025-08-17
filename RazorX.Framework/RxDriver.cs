@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Linq.Expressions;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Components;
@@ -30,7 +32,12 @@ public record SetStateTrigger(string Key, string Value, string Scope);
 public static class RxDriverServices {
     public static void AddRxDriver(this IServiceCollection services) {
         if (!services.Any(x => x.ServiceType == typeof(HtmlRenderer))) {
-            services.AddScoped<HtmlRenderer>();
+            services.AddScoped<HtmlRenderer>();            
+        }
+        if (!services.Any(x => x.ServiceType == typeof(IHtmlRendererWrapper))) {
+            services.AddScoped<IHtmlRendererWrapper>(factory => {
+                return new HtmlRendererWrapper(factory.GetRequiredService<HtmlRenderer>());
+            });         
         }
         services.AddScoped<IRxDriver, RxDriver>();
         services.ConfigureOptions<RxJsonOptions>();
@@ -86,11 +93,12 @@ public interface IRxResponseBuilder {
     IRxResponseBuilder AddTriggerSetStateBatch(Dictionary<string, string> state, MetadataScope scope);
 
     Task<IResult> Render(
-        bool ignoreActiveElementValueOnMorph = false
+        bool ignoreActiveElementValueOnMorph = false,
+        CancellationToken cancellationToken = default
     );
 }
 
-file sealed class RxDriver(HtmlRenderer htmlRenderer, ILogger<RxDriver> logger) : IRxDriver {
+internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriver> logger) : IRxDriver {
     private bool disposed = false;
     
     public IRxResponseBuilder With(HttpContext context) {
@@ -105,7 +113,7 @@ file sealed class RxDriver(HtmlRenderer htmlRenderer, ILogger<RxDriver> logger) 
         }
         try {
             logger.LogDebug("Async Disposing RxDriver");
-            await htmlRenderer.DisposeAsync();
+            await htmlRenderer.DisposeAsync().ConfigureAwait(false);
             disposed = true;
             logger.LogDebug("RxDriver Async Disposed successfully");
         }
@@ -138,13 +146,15 @@ file sealed class RxDriver(HtmlRenderer htmlRenderer, ILogger<RxDriver> logger) 
     }
 }
 
-file record MergeStrategy(string Target, string Strategy);
+internal record MergeStrategy(string Target, string Strategy);
 
-file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRenderer, ILogger logger) : IRxResponseBuilder  {
+internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrapper htmlRenderer, ILogger logger) : IRxResponseBuilder, IDisposable {
     private bool isRendering = false;
+    private bool disposed = false;
     private Type? rootComponent = null;
     private ParameterView rootParameters;
     private readonly StringBuilder content = new();
+    private readonly Lock contentLock = new();
     private readonly List<Task> renderTasks = [];
     private readonly List<MergeStrategy> mergeStrategies = [];
     private CloseDialogTrigger? closeDialogTrigger = null;
@@ -152,10 +162,26 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
     private readonly List<SetStateTrigger> setStateTriggers = [];
     private readonly HashSet<string> stateKeysInResponse = [];
     private static readonly JsonSerializerOptions serializerSettings = new(JsonSerializerDefaults.Web);
+    
+    // Cache template format to avoid repeated string operations
+    private static string CreateTemplate(string targetId, string htmlContent) => 
+        $"<template id=\"{targetId}-rx-fragment\">{htmlContent}</template>";
+    
+    // Validate targetId parameter
+    private static void ValidateTargetId(string targetId) {
+        if (string.IsNullOrWhiteSpace(targetId)) {
+            throw new ArgumentException("Target ID cannot be null or empty", nameof(targetId));
+        }
+        // Basic validation - no special characters that could break HTML
+        if (targetId.IndexOfAny(['<', '>', '"', '\'', '&']) >= 0) {
+            throw new ArgumentException("Target ID contains invalid HTML characters", nameof(targetId));
+        }
+    }
 
     public IRxResponseBuilder AddPage<TRoot, TComponent, TModel>(TModel model, string? title = null)
     where TRoot : IRootComponent
     where TComponent : IComponent, IComponentModel<TModel> {
+        ThrowIfDisposed();
         CheckRenderingStatus();
         CheckPageRenderStatus();
         var pageComponentParameters = new Dictionary<string, object?> {
@@ -173,6 +199,7 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
     public IRxResponseBuilder AddPage<TRoot, TComponent>(string? title = null)
     where TRoot : IRootComponent
     where TComponent : IComponent {
+        ThrowIfDisposed();
         CheckRenderingStatus();
         CheckPageRenderStatus();
         rootComponent = typeof(TRoot);
@@ -187,9 +214,10 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
     where TRoot : IRootComponent
     where THead : IComponent
     where TComponent : IComponent, IComponentModel<TModel> {
+        ThrowIfDisposed();
         CheckRenderingStatus();
         CheckPageRenderStatus();
-         var pageComponentParameters = new Dictionary<string, object?> {
+        var pageComponentParameters = new Dictionary<string, object?> {
             { nameof(IComponentModel<TModel>.Model), model }
         };
         rootComponent = typeof(TRoot);
@@ -206,6 +234,7 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
     where TRoot : IRootComponent
     where THead : IComponent
     where TComponent : IComponent {
+        ThrowIfDisposed();
         CheckRenderingStatus();
         CheckPageRenderStatus();
         rootComponent = typeof(TRoot);
@@ -222,14 +251,19 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
         string targetId,
         FragmentMergeStrategyType fragmentMergeStrategy = FragmentMergeStrategyType.Swap
     ) where TComponent : IComponent, IComponentModel<TModel> {
+        ThrowIfDisposed();
         CheckRenderingStatus();
         CheckPageRenderStatus();
+        ValidateTargetId(targetId);
         var parameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
             { nameof(IComponentModel<TModel>.Model), model }
         });
-        renderTasks.Add(htmlRenderer.Dispatcher.InvokeAsync(async () => {
-            var output = await htmlRenderer.RenderComponentAsync<TComponent>(parameters);
-            content.Append($"<template id=\"{targetId}-rx-fragment\">{output.ToHtmlString()}</template>");
+        renderTasks.Add(InvokeOnDispatcher(htmlRenderer.Dispatcher, async () => {
+            var output = await htmlRenderer.RenderComponentAsync<TComponent>(parameters).ConfigureAwait(false);
+            var template = CreateTemplate(targetId, output.ToHtmlString());
+            lock (contentLock) {
+                content.Append(template);
+            }
         }));
         AddMergeStrategy(targetId, fragmentMergeStrategy);
         return this;
@@ -239,36 +273,46 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
         string targetId,
         FragmentMergeStrategyType fragmentMergeStrategy = FragmentMergeStrategyType.Swap
     ) where TComponent : IComponent {
+        ThrowIfDisposed();
         CheckRenderingStatus();
         CheckPageRenderStatus();
-        renderTasks.Add(htmlRenderer.Dispatcher.InvokeAsync(async () => {
-            var output = await htmlRenderer.RenderComponentAsync<TComponent>();
-            content.Append($"<template id=\"{targetId}-rx-fragment\">{output.ToHtmlString()}</template>");
+        ValidateTargetId(targetId);
+        renderTasks.Add(InvokeOnDispatcher(htmlRenderer.Dispatcher, async () => {
+            var output = await htmlRenderer.RenderComponentAsync<TComponent>(ParameterView.Empty).ConfigureAwait(false);
+            var template = CreateTemplate(targetId, output.ToHtmlString());
+            lock (contentLock) {
+                content.Append(template);
+            }
         }));
         AddMergeStrategy(targetId, fragmentMergeStrategy);
         return this;
     }
 
     public IRxResponseBuilder RemoveElement(string targetId) {
+        ThrowIfDisposed();
         CheckRenderingStatus();
         CheckPageRenderStatus();
+        ValidateTargetId(targetId);
         mergeStrategies.Add(new(targetId, "remove"));
         return this;
     }
 
     public IRxResponseBuilder AddTriggerCloseDialog(string dialogId, string? onCloseData = null, string? resetFormId = null) {
+        ThrowIfDisposed();
         CheckRenderingStatus();
         closeDialogTrigger = new(dialogId, onCloseData, resetFormId);
         return this;
     }
 
     public IRxResponseBuilder AddTriggerFocusElement(string elementId, bool positionCursorEnd = false) {
+        ThrowIfDisposed();
         CheckRenderingStatus();
         focusElementTrigger = new(elementId, positionCursorEnd); 
         return this;
     }
 
     public IRxResponseBuilder AddTriggerSetState(string key, string value, MetadataScope scope = MetadataScope.Session) {
+        ThrowIfDisposed();
         CheckRenderingStatus();
         ValidateStateKey(key);
         if (!stateKeysInResponse.Add(key)) {
@@ -279,6 +323,7 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
     }
 
     public IRxResponseBuilder AddTriggerSetStateBatch(Dictionary<string, string> state, MetadataScope scope) {
+        ThrowIfDisposed();
         CheckRenderingStatus();
         foreach (var (key, value) in state) {
             ValidateStateKey(key);
@@ -291,17 +336,23 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
     }
 
     public async Task<IResult> Render(
-        bool ignoreActiveElementValueOnMorph = false
+        bool ignoreActiveElementValueOnMorph = false,
+        CancellationToken cancellationToken = default
     ) {
+        ThrowIfDisposed();
+        cancellationToken.ThrowIfCancellationRequested();
         CheckRenderingStatus();
+        
+        // Set rendering flag early to prevent duplicate renders
+        isRendering = true;
+        
         if (rootComponent is not null) {
             logger.LogDebug("Rendering Page");
-            return await HandlePageRequest();
+            return await HandlePageRequest(cancellationToken).ConfigureAwait(false);
         }
         if (!context.Request.IsRxRequest()) {
             throw new InvalidOperationException("Partial rendering is not supported for synchronous requests.");
         }
-        isRendering = true;
         //triggers
         if (closeDialogTrigger != null) {
             context.Response.Headers.Append("rx-trigger-close-dialog", JsonSerializer.Serialize(closeDialogTrigger, serializerSettings));
@@ -316,17 +367,21 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
         }
         //fragments
         if (ignoreActiveElementValueOnMorph) {
-            context.Response.Headers.Append("rx-morph-ignore-active", string.Empty);
+            context.Response.Headers.Append("rx-morph-ignore-active", true.ToString());
         }
         context.Response.Headers.Append("rx-merge", JsonSerializer.Serialize(mergeStrategies, serializerSettings));
         if (renderTasks.Count != 0) {
             logger.LogDebug("Rendering Fragments");
-            await Task.WhenAll(renderTasks);
+            await Task.WhenAll(renderTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
         }
-        if (content.Length == 0) {
-            return TypedResults.NoContent();
+        string htmlContent;
+        lock (contentLock) {
+            if (content.Length == 0) {
+                return TypedResults.NoContent();
+            }
+            htmlContent = content.ToString();
         }
-        return Results.Content(content.ToString(), contentType: "text/html");
+        return Results.Content(htmlContent, contentType: "text/html");
     }
 
     private void AddMergeStrategy(string targetId, FragmentMergeStrategyType fragmentMergeStrategy) {
@@ -342,10 +397,16 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
         mergeStrategies.Add(new(targetId, mergeStrategy));
     }
 
-    private async Task<IResult> HandlePageRequest() {
-        string output = default!;
-        await htmlRenderer.Dispatcher.InvokeAsync(async () => {
-            var root = await htmlRenderer.RenderComponentAsync(rootComponent!, rootParameters);
+    private async Task<IResult> HandlePageRequest(CancellationToken cancellationToken = default) {
+        if (rootComponent == null) {
+            throw new InvalidOperationException("Root component is not set");
+        }
+        
+        cancellationToken.ThrowIfCancellationRequested();
+        string output = string.Empty;
+        await InvokeOnDispatcher(htmlRenderer.Dispatcher, async () => {
+            cancellationToken.ThrowIfCancellationRequested();
+            var root = await htmlRenderer.RenderComponentAsync(rootComponent, rootParameters).ConfigureAwait(false);
             output = root.ToHtmlString();
         });
         return Results.Content(output, "text/html");
@@ -377,5 +438,104 @@ file sealed class RxResponseBuilder(HttpContext context, HtmlRenderer htmlRender
             return false;
         }
         return key.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_');
+    }
+    
+    private static readonly ConcurrentDictionary<Type, Func<object, Func<Task>, Task>?> _invokeAsyncFuncCache = new();
+    
+    private static readonly Lazy<ILoggerFactory> _loggerFactory = new(() => 
+        LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Warning)));
+    
+    private static readonly Lazy<ILogger> _staticLogger = new(() => 
+        _loggerFactory.Value.CreateLogger<RxDriver>());
+    
+    private static Task InvokeOnDispatcher(object dispatcher, Func<Task> workItem, bool throwOnError = true) {
+        try {
+            // Use cached compiled expression for better performance
+            var dispatcherType = dispatcher.GetType();
+            var func = _invokeAsyncFuncCache.GetOrAdd(dispatcherType, CreateInvokeAsyncFunc);
+            
+            return func?.Invoke(dispatcher, workItem) ?? Task.CompletedTask;
+        }
+        catch (Exception ex) {
+            // Log reflection failure
+            _staticLogger.Value.LogWarning(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
+            
+            if (throwOnError) {
+                throw;
+            }
+            return Task.CompletedTask;
+        }
+    }
+    
+    private static Func<object, Func<Task>, Task>? CreateInvokeAsyncFunc(Type dispatcherType) {
+        try {
+            var method = dispatcherType.GetMethod("InvokeAsync", [typeof(Func<Task>)]);
+            if (method == null) {
+                _staticLogger.Value.LogWarning("InvokeAsync method not found on dispatcher {DispatcherType}", dispatcherType.Name);
+                return null;
+            }
+            
+            // Create compiled expression based on whether method is static or instance
+            var dispatcherParam = Expression.Parameter(typeof(object), "dispatcher");
+            var workItemParam = Expression.Parameter(typeof(Func<Task>), "workItem");
+            
+            Expression call;
+            if (method.IsStatic) {
+                // Static method: DispatcherType.InvokeAsync(workItem)
+                call = Expression.Call(method, workItemParam);
+            } else {
+                // Instance method: ((DispatcherType)dispatcher).InvokeAsync(workItem)
+                var cast = Expression.Convert(dispatcherParam, dispatcherType);
+                call = Expression.Call(cast, method, workItemParam);
+            }
+            
+            var lambda = Expression.Lambda<Func<object, Func<Task>, Task>>(call, dispatcherParam, workItemParam);
+            return lambda.Compile();
+        }
+        catch (Exception ex) {
+            _staticLogger.Value.LogWarning(ex, "Failed to create compiled expression for dispatcher {DispatcherType}", dispatcherType.Name);
+            return null;
+        }
+    }
+    
+    public void Dispose() {
+        if (disposed) {
+            return;
+        }
+        
+        try {
+            // Wait for any pending render tasks to complete or cancel them
+            if (renderTasks.Count > 0) {
+                // Use a short timeout to avoid blocking indefinitely
+                try {
+                    Task.WaitAll([.. renderTasks], TimeSpan.FromSeconds(5));
+                }
+                catch (AggregateException ex) {
+                    // Log warning but continue with disposal
+                    logger.LogWarning(ex, "Some render tasks did not complete within the timeout during disposal");
+                    foreach (var innerEx in ex.InnerExceptions) {
+                        logger.LogWarning(innerEx, "Render task exception during disposal: {ExceptionType}", innerEx.GetType().Name);
+                    }
+                }
+            }
+            
+            // Clear collections
+            renderTasks.Clear();
+            mergeStrategies.Clear();
+            setStateTriggers.Clear();
+            stateKeysInResponse.Clear();
+            
+            disposed = true;
+        }
+        catch (Exception ex) {
+            logger.LogError(ex, "Error during RxResponseBuilder disposal");
+            throw;
+        }
+    }
+    
+    private void ThrowIfDisposed() {
+        if (disposed) {
+            throw new ObjectDisposedException(nameof(RxResponseBuilder));
+        }
     }
 }

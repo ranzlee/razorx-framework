@@ -1,0 +1,38 @@
+{
+  "name": "razorx-tests",
+  "version": "1.0.0",
+  "description": "Node test runner for the RazorX.Framework JavaScript client.",
+  "main": "razorx.js",
+  "scripts": {
+    "prebuild": "tsc",
+    "build": "node esbuild.mjs",
+    "test": "vitest run --reporter=verbose --no-color",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ci": "vitest run --reporter=verbose",
+    "test:silent": "vitest run --reporter=basic"
+  },
+  "keywords": [
+    "RazorX",
+    "RazorX.Framework",
+    "RazorX.Framework.Tests"
+  ],
+  "author": "Randy Lee",
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "@eslint/js": "^9.31.0",
+    "@types/node": "^24.3.0",
+    "@vitest/coverage-v8": "^2.1.8",
+    "esbuild": "^0.25.5",
+    "eslint": "^9.31.0",
+    "globals": "^16.3.0",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.36.0",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "idiomorph": "^0.7.3"
+  }
+}

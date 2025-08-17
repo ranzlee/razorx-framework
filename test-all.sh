@@ -1,0 +1,31 @@
+#!/bin/bash
+set -e
+
+echo "Running all RazorX.Framework tests..."
+echo ""
+
+# Build the project
+echo "========================================"
+echo "Building RazorX.Framework"
+echo "========================================"
+dotnet build
+
+echo ""
+echo "========================================"
+echo "Running .NET Tests (MSTest)"
+echo "========================================"
+dotnet test RazorX.Framework.Tests --no-build
+
+echo ""
+echo "========================================"
+echo "Running JavaScript Tests (Vitest)"
+echo "========================================"
+
+# Run JavaScript tests
+cd RazorX.Framework.Tests/Node
+npm test
+
+echo ""
+echo "========================================"
+echo "All Tests Complete!"
+echo "========================================"

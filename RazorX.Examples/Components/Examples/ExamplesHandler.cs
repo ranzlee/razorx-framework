@@ -111,26 +111,28 @@ public class ExamplesHandler : IRequestHandler {
             .Render();
     }
 
-    public static async Task<IResult> DeleteTodo(HttpContext context, IRxDriver rxDriver, int id) {
+    public static async Task<IResult> DeleteTodo(HttpContext context, IRxDriver rxDriver, int id, string filter = "") {
         var todo = Todos.SingleOrDefault(x => x.Id == id);
         if (todo == null) {
             return TypedResults.NotFound();
         }
-        var index = Todos.IndexOf(todo);
+        var todos = Todos
+            .Where(x => x.Text.Contains(filter, StringComparison.InvariantCultureIgnoreCase))
+            .OrderBy(x => x.Id)
+            .ToList();
+        todos.Remove(todo);
         Todos.Remove(todo);
         var driver = rxDriver
             .With(context)
             .AddTriggerCloseDialog("delete-todo-modal")
             .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)
             .RemoveElement($"todo-item-{id}");
-        if (Todos.Count == 0) {
+        if (todos.Count == 0) {
             driver.AddTriggerFocusElement("new-todo-modal-trigger", true);
         } else {
-            if (Todos.Count - 1 < index) {
-                driver.AddTriggerFocusElement($"edit-todo-modal-trigger-{Todos.Last().Id}");
-            } else {
-                driver.AddTriggerFocusElement($"edit-todo-modal-trigger-{Todos[index].Id}");
-            }
+            var nextFocus = todos.FirstOrDefault(x => x.Id > id) ?? todos.FirstOrDefault(x => x.Id < id);
+            var nextFocusId = nextFocus?.Id ?? todos.First().Id;
+            driver.AddTriggerFocusElement($"edit-todo-modal-trigger-{nextFocusId}");
         }
         return await driver.Render();
     }

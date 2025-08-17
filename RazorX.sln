@@ -3,15 +3,11 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Framework", "RazorX.Framework\RazorX.Framework.csproj", "{159FE2D1-616F-4B89-A2C9-23E41F14FDE6}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Integration", "RazorX.Integration\RazorX.Integration.csproj", "{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Integration.Tests", "RazorX.Integration.Tests\RazorX.Integration.Tests.csproj", "{CF795D16-5985-4655-A2A9-ABA5D182B4AA}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Examples", "RazorX.Examples\RazorX.Examples.csproj", "{40578D6D-E86E-4081-AE90-92778E310965}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Framework.UnitTests", "RazorX.Framework.UnitTests\RazorX.Framework.UnitTests.csproj", "{F047C035-B3A0-4869-A9A6-179AF8F41360}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Framework", "RazorX.Framework\RazorX.Framework.csproj", "{159FE2D1-616F-4B89-A2C9-23E41F14FDE6}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RazorX.Framework.Tests", "RazorX.Framework.Tests\RazorX.Framework.Tests.csproj", "{F047C035-B3A0-4869-A9A6-179AF8F41360}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -35,30 +31,6 @@ Global
 		{159FE2D1-616F-4B89-A2C9-23E41F14FDE6}.Release|x64.Build.0 = Release|Any CPU
 		{159FE2D1-616F-4B89-A2C9-23E41F14FDE6}.Release|x86.ActiveCfg = Release|Any CPU
 		{159FE2D1-616F-4B89-A2C9-23E41F14FDE6}.Release|x86.Build.0 = Release|Any CPU
-		{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}.Debug|x64.Build.0 = Debug|Any CPU
-		{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}.Debug|x86.Build.0 = Debug|Any CPU
-		{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}.Release|Any CPU.Build.0 = Release|Any CPU
-		{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}.Release|x64.ActiveCfg = Release|Any CPU
-		{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}.Release|x64.Build.0 = Release|Any CPU
-		{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}.Release|x86.ActiveCfg = Release|Any CPU
-		{4B1E8237-F1CE-4E21-8C37-AB5182F34A95}.Release|x86.Build.0 = Release|Any CPU
-		{CF795D16-5985-4655-A2A9-ABA5D182B4AA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{CF795D16-5985-4655-A2A9-ABA5D182B4AA}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{CF795D16-5985-4655-A2A9-ABA5D182B4AA}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{CF795D16-5985-4655-A2A9-ABA5D182B4AA}.Debug|x64.Build.0 = Debug|Any CPU
-		{CF795D16-5985-4655-A2A9-ABA5D182B4AA}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{CF795D16-5985-4655-A2A9-ABA5D182B4AA}.Debug|x86.Build.0 = Debug|Any CPU
-		{CF795D16-5985-4655-A2A9-ABA5D182B4AA}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{CF795D16-5985-4655-A2A9-ABA5D182B4AA}.Release|Any CPU.Build.0 = Release|Any CPU
-		{CF795D16-5985-4655-A2A9-ABA5D182B4AA}.Release|x64.ActiveCfg = Release|Any CPU
-		{CF795D16-5985-4655-A2A9-ABA5D182B4AA}.Release|x64.Build.0 = Release|Any CPU
-		{CF795D16-5985-4655-A2A9-ABA5D182B4AA}.Release|x86.ActiveCfg = Release|Any CPU
-		{CF795D16-5985-4655-A2A9-ABA5D182B4AA}.Release|x86.Build.0 = Release|Any CPU
 		{40578D6D-E86E-4081-AE90-92778E310965}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{40578D6D-E86E-4081-AE90-92778E310965}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{40578D6D-E86E-4081-AE90-92778E310965}.Debug|x64.ActiveCfg = Debug|Any CPU

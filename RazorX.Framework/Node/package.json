@@ -12,7 +12,7 @@
     "RazorX.Framework"
   ],
   "author": "Randy Lee",
-  "license": "0BSD",
+  "license": "MIT",
   "type": "module",
   "devDependencies": {
     "@eslint/js": "^9.31.0",

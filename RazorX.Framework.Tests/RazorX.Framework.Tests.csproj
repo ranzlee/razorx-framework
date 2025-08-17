@@ -1,17 +1,23 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <InternalsVisibleTo Include="RazorX.Framework.Tests" />
+    <ProjectReference Include="..\RazorX.Framework\RazorX.Framework.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="MSTest" Version="3.6.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Microsoft.VisualStudio.TestTools.UnitTesting" />
   </ItemGroup>
 
   <Target Name="NodeInstall" BeforeTargets="Compile" Condition="!Exists('Node/node_modules')">
@@ -25,9 +31,11 @@
     <Exec WorkingDirectory="Node" Command="npm install" />
   </Target>
 
-  <Target Name="JS build" BeforeTargets="Compile">
-    <Message Importance="High" Text="Building the razorx.js script" />
-    <Exec WorkingDirectory="Node" Command="npm run build" />
+  <Target Name="CopyTsFiles" AfterTargets="Compile">
+    <ItemGroup>
+      <TsFiles Include="../RazorX.Framework/Node/src/*.*"/>
+    </ItemGroup>
+    <Copy SourceFiles="@(TsFiles)" DestinationFolder="Node/src" />
   </Target>
 
 </Project>
