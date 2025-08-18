@@ -136,7 +136,7 @@ const _requestRefTracker: Set<string> = new Set();
 
 const _debouncedRequests: Map<string, (() => Promise<void>) & { _cleanup?: () => void }> = new Map();
 
-const _elementCache: Map<string, HTMLElement | null> = new Map();
+const _elementCache: Map<string, HTMLElement> = new Map();
 
 const _elementTriggerState: WeakMap<HTMLElement, ElementTriggerState> = new WeakMap();
 
@@ -209,6 +209,15 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (!(node instanceof HTMLElement)) {
                     return;
                 }
+                // Check for duplicate IDs
+                if (node.id && _elementCache.has(node.id)) {
+                    const cachedElement = _elementCache.get(node.id)!;
+                    if (document.contains(cachedElement)) {
+                        throw new Error(`Duplicate element ID detected: "${node.id}". An element with this ID already exists in the DOM.`);
+                    }
+                    // If cached element is detached, invalidate it (self-healing)
+                    _elementCache.delete(node.id);
+                }
                 normalizeScriptTags(node);
                 addTriggers(node);
                 if (_callbacks.onElementAdded) {
@@ -229,10 +238,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     // Element cache helper functions
     function getCachedElement(id: string): HTMLElement | null {
         if (_elementCache.has(id)) {
-            return _elementCache.get(id) || null;
+            return _elementCache.get(id)!;
         }
         const element = document.getElementById(id);
-        _elementCache.set(id, element);
+        if (element) {
+            _elementCache.set(id, element);
+        }
         return element;
     }
 
