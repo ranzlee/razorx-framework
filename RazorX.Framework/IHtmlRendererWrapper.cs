@@ -51,36 +51,30 @@ internal class HtmlRootComponentWrapper(object htmlRootComponent, ILogger<HtmlRo
     private static readonly ConcurrentDictionary<Type, Func<object, string>?> _toHtmlStringFuncCache = new();
 
     public string ToHtmlString() {
-        try {
-            // Use cached compiled expression for better performance
-            var componentType = _htmlRootComponent.GetType();
-            var func = _toHtmlStringFuncCache.GetOrAdd(componentType, type => CreateToHtmlStringFunc(type, _logger));
-            return func?.Invoke(_htmlRootComponent) ?? "";
-        }
-        catch (Exception ex) {
-            // Log reflection failure and return empty string
-            _logger.LogWarning(ex, "Failed to invoke ToHtmlString on {ComponentType}", _htmlRootComponent.GetType().Name);
-            return "";
-        }
+        // Use cached compiled expression for better performance
+        var componentType = _htmlRootComponent.GetType();
+        var func = _toHtmlStringFuncCache.GetOrAdd(componentType, type => CreateToHtmlStringFunc(type, _logger))
+            ?? throw new InvalidOperationException($"Failed to create ToHtmlString delegate for {componentType.Name}");
+        
+        return func.Invoke(_htmlRootComponent);
     }
     
     private static Func<object, string>? CreateToHtmlStringFunc(Type componentType, ILogger<HtmlRootComponentWrapper> logger) {
         try {
             var method = componentType.GetMethod("ToHtmlString", Type.EmptyTypes);
             if (method == null) {
-                logger.LogWarning("ToHtmlString method not found on {ComponentType}", componentType.Name);
+                logger.LogError("ToHtmlString method not found on {ComponentType}", componentType.Name);
                 return null;
             }
-            // Create compiled expression: obj => ((ComponentType)obj).ToHtmlString() ?? ""
+            // Create compiled expression: obj => ((ComponentType)obj).ToHtmlString()
             var parameter = Expression.Parameter(typeof(object), "obj");
             var cast = Expression.Convert(parameter, componentType);
             var call = Expression.Call(cast, method);
-            var nullCoalesce = Expression.Coalesce(call, Expression.Constant(""));
-            var lambda = Expression.Lambda<Func<object, string>>(nullCoalesce, parameter);
+            var lambda = Expression.Lambda<Func<object, string>>(call, parameter);
             return lambda.Compile();
         }
         catch (Exception ex) {
-            logger.LogWarning(ex, "Failed to create compiled expression for {ComponentType}", componentType.Name);
+            logger.LogError(ex, "Failed to create compiled expression for {ComponentType}", componentType.Name);
             return null;
         }
     }
