@@ -449,13 +449,11 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
             // Use cached compiled expression for better performance
             var dispatcherType = dispatcher.GetType();
             var func = _invokeAsyncFuncCache.GetOrAdd(dispatcherType, type => CreateInvokeAsyncFunc(type, logger));
-            
             return func?.Invoke(dispatcher, workItem) ?? Task.CompletedTask;
         }
         catch (Exception ex) {
             // Log reflection failure
             logger.LogWarning(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
-            
             if (throwOnError) {
                 throw;
             }
@@ -470,11 +468,9 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
                 logger.LogWarning("InvokeAsync method not found on dispatcher {DispatcherType}", dispatcherType.Name);
                 return null;
             }
-            
             // Create compiled expression based on whether method is static or instance
             var dispatcherParam = Expression.Parameter(typeof(object), "dispatcher");
             var workItemParam = Expression.Parameter(typeof(Func<Task>), "workItem");
-            
             Expression call;
             if (method.IsStatic) {
                 // Static method: DispatcherType.InvokeAsync(workItem)
@@ -484,7 +480,6 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
                 var cast = Expression.Convert(dispatcherParam, dispatcherType);
                 call = Expression.Call(cast, method, workItemParam);
             }
-            
             var lambda = Expression.Lambda<Func<object, Func<Task>, Task>>(call, dispatcherParam, workItemParam);
             return lambda.Compile();
         }
@@ -499,8 +494,9 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     }
     
     private void ThrowIfDisposed() {
-        if (disposed) {
-            throw new ObjectDisposedException(nameof(RxResponseBuilder));
+        if (!disposed) {
+            return;
         }
+        throw new ObjectDisposedException(nameof(RxResponseBuilder));
     }
 }
