@@ -1,4 +1,14 @@
+using Microsoft.AspNetCore.Routing;
+
 namespace RazorX.Framework;
+
+/// <summary>
+/// Interface for a class that contains endpoints.
+/// </summary>
+public abstract class RequestHandler {
+    protected RequestHandler() { }
+    public abstract void MapRoutes(IEndpointRouteBuilder router);
+}
 
 /// <summary>
 /// Interface for a component that represents a page layout.

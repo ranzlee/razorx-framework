@@ -12,8 +12,8 @@ public class TodoModel(int id, string text, bool isComplete) {
 public record ExampleModel(IEnumerable<TodoModel> Todos, int Total, int Completed);
 public record TodoFormModel(int Id, string Text, bool IsComplete, bool HasError, bool IsEdit);
 
-public class ExamplesHandler : IRequestHandler {
-    public void MapRoutes(IEndpointRouteBuilder router) {
+public class ExamplesHandler : RequestHandler {
+    public override void MapRoutes(IEndpointRouteBuilder router) {
         router.MapGet("/examples", Get);
         router.MapPost("/todo", NewTodo);
         router.MapPut("/todo/{id:int}", SaveTodo);

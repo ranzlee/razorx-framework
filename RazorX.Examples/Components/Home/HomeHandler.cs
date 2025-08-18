@@ -3,8 +3,8 @@ using RazorX.Examples.Components.Layout;
 
 namespace RazorX.Examples.Components.Home;
 
-public class HomeHandler : IRequestHandler {
-    public void MapRoutes(IEndpointRouteBuilder router) {
+public class HomeHandler : RequestHandler {
+    public override void MapRoutes(IEndpointRouteBuilder router) {
         router.MapGet("/", Get);
     }
 

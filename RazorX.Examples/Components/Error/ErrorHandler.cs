@@ -5,9 +5,9 @@ namespace RazorX.Examples.Components.Error;
 
 public record ErrorModel(int Code);
 
-public class ErrorHandler : IRequestHandler {
+public class ErrorHandler : RequestHandler {
 
-    public void MapRoutes(IEndpointRouteBuilder router) {
+    public override void MapRoutes(IEndpointRouteBuilder router) {
         router.Map("/error", Get);
     }
 

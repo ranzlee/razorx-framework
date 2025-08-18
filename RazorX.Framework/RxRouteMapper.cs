@@ -4,25 +4,18 @@ using Microsoft.Extensions.Logging;
 
 namespace RazorX.Framework;
 
-/// <summary>
-/// Interface for a class that contains endpoints.
-/// </summary>
-public interface IRequestHandler {
-    void MapRoutes(IEndpointRouteBuilder router);
-}
-
 public static class RouteMapper {
     public static RouteGroupBuilder MapRoutes(this RouteGroupBuilder router, Assembly? routeHandlerAssembly = null, ILogger? logger = null) {
         var assembly = routeHandlerAssembly ?? Assembly.GetCallingAssembly();
         var handlerTypes = assembly.DefinedTypes
-            .Where(type => type is { IsAbstract: false, IsInterface: false } && type.IsAssignableTo(typeof(IRequestHandler)))
+            .Where(type => type is { IsAbstract: false, IsInterface: false } && type.IsAssignableTo(typeof(RequestHandler)))
             .ToArray();
         var processedCount = 0;
         // Process each handler type and ensure proper disposal
         foreach (var type in handlerTypes) {
-            IRequestHandler? handler = null;
+            RequestHandler? handler = null;
             try {
-                handler = Activator.CreateInstance(type) as IRequestHandler;
+                handler = Activator.CreateInstance(type) as RequestHandler;
                 if (handler != null) {
                     handler.MapRoutes(router);
                     logger?.LogDebug("Successfully mapped routes for handler {HandlerType}", type.Name);
@@ -30,6 +23,7 @@ public static class RouteMapper {
                 }
             }
             finally {
+                // Dispose handler if it implements IDisposable to clean up any resources
                 (handler as IDisposable)?.Dispose();
             }
         }
