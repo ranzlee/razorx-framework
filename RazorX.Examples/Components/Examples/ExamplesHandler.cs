@@ -84,7 +84,7 @@ public class ExamplesHandler : IRequestHandler {
         }
         var todo = Todos.FirstOrDefault(x => x.Id == id);
         if (todo == null) {
-            return TypedResults.NotFound();
+            return TypedResults.Accepted("/error?code=404");
         }
         todo.Text = model.Text;
         return await rxDriver
@@ -114,7 +114,7 @@ public class ExamplesHandler : IRequestHandler {
     public static async Task<IResult> DeleteTodo(HttpContext context, IRxDriver rxDriver, int id, string filter = "") {
         var todo = Todos.SingleOrDefault(x => x.Id == id);
         if (todo == null) {
-            return TypedResults.NotFound();
+            return TypedResults.Accepted("/error?code=404");
         }
         var todos = Todos
             .Where(x => x.Text.Contains(filter, StringComparison.InvariantCultureIgnoreCase))
@@ -140,7 +140,7 @@ public class ExamplesHandler : IRequestHandler {
     public static async Task<IResult> EditTodo(HttpContext context, IRxDriver rxDriver, int id) {
         var todo = Todos.FirstOrDefault(x => x.Id == id);
         if (todo == null) {
-            return TypedResults.NotFound();
+            return TypedResults.Accepted("/error?code=404");
         }
         var model = new TodoFormModel(todo.Id, todo.Text, todo.IsComplete, false, true);
         return await rxDriver
