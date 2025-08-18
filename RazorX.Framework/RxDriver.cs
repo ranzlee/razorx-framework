@@ -495,38 +495,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     }
     
     public void Dispose() {
-        if (disposed) {
-            return;
-        }
-        
-        try {
-            // Wait for any pending render tasks to complete or cancel them
-            if (renderTasks.Count > 0) {
-                // Use a short timeout to avoid blocking indefinitely
-                try {
-                    Task.WaitAll([.. renderTasks], TimeSpan.FromSeconds(5));
-                }
-                catch (AggregateException ex) {
-                    // Log warning but continue with disposal
-                    logger.LogWarning(ex, "Some render tasks did not complete within the timeout during disposal");
-                    foreach (var innerEx in ex.InnerExceptions) {
-                        logger.LogWarning(innerEx, "Render task exception during disposal: {ExceptionType}", innerEx.GetType().Name);
-                    }
-                }
-            }
-            
-            // Clear collections
-            renderTasks.Clear();
-            mergeStrategies.Clear();
-            setStateTriggers.Clear();
-            stateKeysInResponse.Clear();
-            
-            disposed = true;
-        }
-        catch (Exception ex) {
-            logger.LogError(ex, "Error during RxResponseBuilder disposal");
-            throw;
-        }
+        disposed = true;
     }
     
     private void ThrowIfDisposed() {
