@@ -444,7 +444,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     
     private static readonly ConcurrentDictionary<Type, Func<object, Func<Task>, Task>?> _invokeAsyncFuncCache = new();
     
-    private static Task InvokeOnDispatcher(object dispatcher, Func<Task> workItem, ILogger logger, bool throwOnError = true) {
+    private static Task InvokeOnDispatcher(object dispatcher, Func<Task> workItem, ILogger logger) {
         try {
             // Use cached compiled expression for better performance
             var dispatcherType = dispatcher.GetType();
@@ -453,11 +453,8 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         }
         catch (Exception ex) {
             // Log reflection failure
-            logger.LogWarning(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
-            if (throwOnError) {
-                throw;
-            }
-            return Task.CompletedTask;
+            logger.LogError(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
+            throw;
         }
     }
     
