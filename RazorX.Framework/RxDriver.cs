@@ -155,7 +155,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     private bool disposed = false;
     private Type? rootComponent = null;
     private ParameterView rootParameters;
-    private readonly StringBuilder content = new();
+    private readonly StringBuilder content = new(capacity: 4096);
     private readonly Lock contentLock = new();
     private readonly List<Task> renderTasks = [];
     private readonly List<MergeStrategy> mergeStrategies = [];
