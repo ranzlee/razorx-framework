@@ -36,7 +36,9 @@ public static class RxDriverServices {
         }
         if (!services.Any(x => x.ServiceType == typeof(IHtmlRendererWrapper))) {
             services.AddScoped<IHtmlRendererWrapper>(factory => {
-                return new HtmlRendererWrapper(factory.GetRequiredService<HtmlRenderer>());
+                return new HtmlRendererWrapper(
+                    factory.GetRequiredService<HtmlRenderer>(),
+                    factory.GetRequiredService<ILogger<HtmlRootComponentWrapper>>());
             });         
         }
         services.AddScoped<IRxDriver, RxDriver>();
@@ -264,7 +266,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
             lock (contentLock) {
                 content.Append(template);
             }
-        }));
+        }, logger));
         AddMergeStrategy(targetId, fragmentMergeStrategy);
         return this;
     }
@@ -283,7 +285,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
             lock (contentLock) {
                 content.Append(template);
             }
-        }));
+        }, logger));
         AddMergeStrategy(targetId, fragmentMergeStrategy);
         return this;
     }
@@ -408,7 +410,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
             cancellationToken.ThrowIfCancellationRequested();
             var root = await htmlRenderer.RenderComponentAsync(rootComponent, rootParameters).ConfigureAwait(false);
             output = root.ToHtmlString();
-        });
+        }, logger);
         return Results.Content(output, "text/html");
     }
 
@@ -442,23 +444,17 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     
     private static readonly ConcurrentDictionary<Type, Func<object, Func<Task>, Task>?> _invokeAsyncFuncCache = new();
     
-    private static readonly Lazy<ILoggerFactory> _loggerFactory = new(() => 
-        LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Warning)));
-    
-    private static readonly Lazy<ILogger> _staticLogger = new(() => 
-        _loggerFactory.Value.CreateLogger<RxDriver>());
-    
-    private static Task InvokeOnDispatcher(object dispatcher, Func<Task> workItem, bool throwOnError = true) {
+    private static Task InvokeOnDispatcher(object dispatcher, Func<Task> workItem, ILogger logger, bool throwOnError = true) {
         try {
             // Use cached compiled expression for better performance
             var dispatcherType = dispatcher.GetType();
-            var func = _invokeAsyncFuncCache.GetOrAdd(dispatcherType, CreateInvokeAsyncFunc);
+            var func = _invokeAsyncFuncCache.GetOrAdd(dispatcherType, type => CreateInvokeAsyncFunc(type, logger));
             
             return func?.Invoke(dispatcher, workItem) ?? Task.CompletedTask;
         }
         catch (Exception ex) {
             // Log reflection failure
-            _staticLogger.Value.LogWarning(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
+            logger.LogWarning(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
             
             if (throwOnError) {
                 throw;
@@ -467,11 +463,11 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         }
     }
     
-    private static Func<object, Func<Task>, Task>? CreateInvokeAsyncFunc(Type dispatcherType) {
+    private static Func<object, Func<Task>, Task>? CreateInvokeAsyncFunc(Type dispatcherType, ILogger logger) {
         try {
             var method = dispatcherType.GetMethod("InvokeAsync", [typeof(Func<Task>)]);
             if (method == null) {
-                _staticLogger.Value.LogWarning("InvokeAsync method not found on dispatcher {DispatcherType}", dispatcherType.Name);
+                logger.LogWarning("InvokeAsync method not found on dispatcher {DispatcherType}", dispatcherType.Name);
                 return null;
             }
             
@@ -493,7 +489,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
             return lambda.Compile();
         }
         catch (Exception ex) {
-            _staticLogger.Value.LogWarning(ex, "Failed to create compiled expression for dispatcher {DispatcherType}", dispatcherType.Name);
+            logger.LogWarning(ex, "Failed to create compiled expression for dispatcher {DispatcherType}", dispatcherType.Name);
             return null;
         }
     }

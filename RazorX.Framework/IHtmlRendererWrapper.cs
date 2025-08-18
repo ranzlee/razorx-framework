@@ -19,19 +19,20 @@ public interface IHtmlRootComponentWrapper {
 }
 
 // Concrete wrapper that delegates to real HtmlRenderer
-internal class HtmlRendererWrapper(HtmlRenderer htmlRenderer) : IHtmlRendererWrapper {
+internal class HtmlRendererWrapper(HtmlRenderer htmlRenderer, ILogger<HtmlRootComponentWrapper> logger) : IHtmlRendererWrapper {
     private readonly HtmlRenderer _htmlRenderer = htmlRenderer;
+    private readonly ILogger<HtmlRootComponentWrapper> _logger = logger;
     
     public object Dispatcher => _htmlRenderer.Dispatcher;
 
     public async ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync(Type componentType, ParameterView parameters) {
         var result = await _htmlRenderer.RenderComponentAsync(componentType, parameters).ConfigureAwait(false);
-        return new HtmlRootComponentWrapper(result);
+        return new HtmlRootComponentWrapper(result, _logger);
     }
     
     public async ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync<TComponent>(ParameterView parameters) where TComponent : IComponent {
         var result = await _htmlRenderer.RenderComponentAsync<TComponent>(parameters).ConfigureAwait(false);
-        return new HtmlRootComponentWrapper(result);
+        return new HtmlRootComponentWrapper(result, _logger);
     }
     
     public void Dispose() {
@@ -44,36 +45,30 @@ internal class HtmlRendererWrapper(HtmlRenderer htmlRenderer) : IHtmlRendererWra
 }
 
 // Wrapper for HtmlRootComponent
-internal class HtmlRootComponentWrapper(object htmlRootComponent) : IHtmlRootComponentWrapper {
+internal class HtmlRootComponentWrapper(object htmlRootComponent, ILogger<HtmlRootComponentWrapper> logger) : IHtmlRootComponentWrapper {
     private readonly object _htmlRootComponent = htmlRootComponent; // Use object since HtmlRootComponent is internal to ASP.NET Core
+    private readonly ILogger<HtmlRootComponentWrapper> _logger = logger;
     private static readonly ConcurrentDictionary<Type, Func<object, string>?> _toHtmlStringFuncCache = new();
-    private static readonly Lazy<ILoggerFactory> _loggerFactory = new(() => {
-        return LoggerFactory.Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Warning));
-    });
-    
-    private static readonly Lazy<ILogger> _logger = new(() => {
-        return _loggerFactory.Value.CreateLogger<HtmlRootComponentWrapper>();
-    });
 
     public string ToHtmlString() {
         try {
             // Use cached compiled expression for better performance
             var componentType = _htmlRootComponent.GetType();
-            var func = _toHtmlStringFuncCache.GetOrAdd(componentType, CreateToHtmlStringFunc);
+            var func = _toHtmlStringFuncCache.GetOrAdd(componentType, type => CreateToHtmlStringFunc(type, _logger));
             return func?.Invoke(_htmlRootComponent) ?? "";
         }
         catch (Exception ex) {
             // Log reflection failure and return empty string
-            _logger.Value.LogWarning(ex, "Failed to invoke ToHtmlString on {ComponentType}", _htmlRootComponent.GetType().Name);
+            _logger.LogWarning(ex, "Failed to invoke ToHtmlString on {ComponentType}", _htmlRootComponent.GetType().Name);
             return "";
         }
     }
     
-    private static Func<object, string>? CreateToHtmlStringFunc(Type componentType) {
+    private static Func<object, string>? CreateToHtmlStringFunc(Type componentType, ILogger<HtmlRootComponentWrapper> logger) {
         try {
             var method = componentType.GetMethod("ToHtmlString", Type.EmptyTypes);
             if (method == null) {
-                _logger.Value.LogWarning("ToHtmlString method not found on {ComponentType}", componentType.Name);
+                logger.LogWarning("ToHtmlString method not found on {ComponentType}", componentType.Name);
                 return null;
             }
             // Create compiled expression: obj => ((ComponentType)obj).ToHtmlString() ?? ""
@@ -85,7 +80,7 @@ internal class HtmlRootComponentWrapper(object htmlRootComponent) : IHtmlRootCom
             return lambda.Compile();
         }
         catch (Exception ex) {
-            _logger.Value.LogWarning(ex, "Failed to create compiled expression for {ComponentType}", componentType.Name);
+            logger.LogWarning(ex, "Failed to create compiled expression for {ComponentType}", componentType.Name);
             return null;
         }
     }
