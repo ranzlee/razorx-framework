@@ -48,34 +48,26 @@ internal class HtmlRendererWrapper(HtmlRenderer htmlRenderer, ILogger<HtmlRootCo
 internal class HtmlRootComponentWrapper(object htmlRootComponent, ILogger<HtmlRootComponentWrapper> logger) : IHtmlRootComponentWrapper {
     private readonly object _htmlRootComponent = htmlRootComponent; // Use object since HtmlRootComponent is internal to ASP.NET Core
     private readonly ILogger<HtmlRootComponentWrapper> _logger = logger;
-    private static readonly ConcurrentDictionary<Type, Func<object, string>?> _toHtmlStringFuncCache = new();
+    private static readonly ConcurrentDictionary<Type, Func<object, string>> _toHtmlStringFuncCache = new();
 
     public string ToHtmlString() {
         // Use cached compiled expression for better performance
         var componentType = _htmlRootComponent.GetType();
-        var func = _toHtmlStringFuncCache.GetOrAdd(componentType, type => CreateToHtmlStringFunc(type, _logger))
-            ?? throw new InvalidOperationException($"Failed to create ToHtmlString delegate for {componentType.Name}");
-        
+        var func = _toHtmlStringFuncCache.GetOrAdd(componentType, type => CreateToHtmlStringFunc(type, _logger));
         return func.Invoke(_htmlRootComponent);
     }
     
-    private static Func<object, string>? CreateToHtmlStringFunc(Type componentType, ILogger<HtmlRootComponentWrapper> logger) {
-        try {
-            var method = componentType.GetMethod("ToHtmlString", Type.EmptyTypes);
-            if (method == null) {
-                logger.LogError("ToHtmlString method not found on {ComponentType}", componentType.Name);
-                return null;
-            }
-            // Create compiled expression: obj => ((ComponentType)obj).ToHtmlString()
-            var parameter = Expression.Parameter(typeof(object), "obj");
-            var cast = Expression.Convert(parameter, componentType);
-            var call = Expression.Call(cast, method);
-            var lambda = Expression.Lambda<Func<object, string>>(call, parameter);
-            return lambda.Compile();
+    private static Func<object, string> CreateToHtmlStringFunc(Type componentType, ILogger<HtmlRootComponentWrapper> logger) {
+        var method = componentType.GetMethod("ToHtmlString", Type.EmptyTypes);
+        if (method == null) {
+            logger.LogError("ToHtmlString method not found on {ComponentType}", componentType.Name);
+            throw new InvalidOperationException($"ToHtmlString method not found on {componentType.Name}");
         }
-        catch (Exception ex) {
-            logger.LogError(ex, "Failed to create compiled expression for {ComponentType}", componentType.Name);
-            return null;
-        }
+        // Create compiled expression: obj => ((ComponentType)obj).ToHtmlString()
+        var parameter = Expression.Parameter(typeof(object), "obj");
+        var cast = Expression.Convert(parameter, componentType);
+        var call = Expression.Call(cast, method);
+        var lambda = Expression.Lambda<Func<object, string>>(call, parameter);
+        return lambda.Compile();
     }
 }
