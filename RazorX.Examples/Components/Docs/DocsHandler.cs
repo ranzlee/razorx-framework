@@ -3,8 +3,8 @@ using RazorX.Examples.Components.Layout;
 
 namespace RazorX.Examples.Components.Docs;
 
-public class DocsHandler : IRequestHandler {
-    public void MapRoutes(IEndpointRouteBuilder router) {
+public class DocsHandler : RequestHandler {
+    public override void MapRoutes(IEndpointRouteBuilder router) {
         router.MapGet("/docs", Get);
     }
 

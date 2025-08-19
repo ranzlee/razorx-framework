@@ -155,7 +155,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     private bool disposed = false;
     private Type? rootComponent = null;
     private ParameterView rootParameters;
-    private readonly StringBuilder content = new();
+    private readonly StringBuilder content = new(capacity: 4096);
     private readonly Lock contentLock = new();
     private readonly List<Task> renderTasks = [];
     private readonly List<MergeStrategy> mergeStrategies = [];
@@ -444,22 +444,17 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     
     private static readonly ConcurrentDictionary<Type, Func<object, Func<Task>, Task>?> _invokeAsyncFuncCache = new();
     
-    private static Task InvokeOnDispatcher(object dispatcher, Func<Task> workItem, ILogger logger, bool throwOnError = true) {
+    private static Task InvokeOnDispatcher(object dispatcher, Func<Task> workItem, ILogger logger) {
         try {
             // Use cached compiled expression for better performance
             var dispatcherType = dispatcher.GetType();
             var func = _invokeAsyncFuncCache.GetOrAdd(dispatcherType, type => CreateInvokeAsyncFunc(type, logger));
-            
             return func?.Invoke(dispatcher, workItem) ?? Task.CompletedTask;
         }
         catch (Exception ex) {
             // Log reflection failure
-            logger.LogWarning(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
-            
-            if (throwOnError) {
-                throw;
-            }
-            return Task.CompletedTask;
+            logger.LogError(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
+            throw;
         }
     }
     
@@ -470,11 +465,9 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
                 logger.LogWarning("InvokeAsync method not found on dispatcher {DispatcherType}", dispatcherType.Name);
                 return null;
             }
-            
             // Create compiled expression based on whether method is static or instance
             var dispatcherParam = Expression.Parameter(typeof(object), "dispatcher");
             var workItemParam = Expression.Parameter(typeof(Func<Task>), "workItem");
-            
             Expression call;
             if (method.IsStatic) {
                 // Static method: DispatcherType.InvokeAsync(workItem)
@@ -484,7 +477,6 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
                 var cast = Expression.Convert(dispatcherParam, dispatcherType);
                 call = Expression.Call(cast, method, workItemParam);
             }
-            
             var lambda = Expression.Lambda<Func<object, Func<Task>, Task>>(call, dispatcherParam, workItemParam);
             return lambda.Compile();
         }
@@ -495,43 +487,13 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     }
     
     public void Dispose() {
-        if (disposed) {
-            return;
-        }
-        
-        try {
-            // Wait for any pending render tasks to complete or cancel them
-            if (renderTasks.Count > 0) {
-                // Use a short timeout to avoid blocking indefinitely
-                try {
-                    Task.WaitAll([.. renderTasks], TimeSpan.FromSeconds(5));
-                }
-                catch (AggregateException ex) {
-                    // Log warning but continue with disposal
-                    logger.LogWarning(ex, "Some render tasks did not complete within the timeout during disposal");
-                    foreach (var innerEx in ex.InnerExceptions) {
-                        logger.LogWarning(innerEx, "Render task exception during disposal: {ExceptionType}", innerEx.GetType().Name);
-                    }
-                }
-            }
-            
-            // Clear collections
-            renderTasks.Clear();
-            mergeStrategies.Clear();
-            setStateTriggers.Clear();
-            stateKeysInResponse.Clear();
-            
-            disposed = true;
-        }
-        catch (Exception ex) {
-            logger.LogError(ex, "Error during RxResponseBuilder disposal");
-            throw;
-        }
+        disposed = true;
     }
     
     private void ThrowIfDisposed() {
-        if (disposed) {
-            throw new ObjectDisposedException(nameof(RxResponseBuilder));
+        if (!disposed) {
+            return;
         }
+        throw new ObjectDisposedException(nameof(RxResponseBuilder));
     }
 }

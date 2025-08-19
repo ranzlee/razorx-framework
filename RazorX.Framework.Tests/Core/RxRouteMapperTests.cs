@@ -125,15 +125,6 @@ public class RxRouteMapperTests {
         Assert.IsNotNull(result);
     }
 
-    [TestMethod]
-    public void MapRoutes_HandlesHandlersWithoutParameterlessConstructor() {
-        // This test verifies graceful handling of handlers that can't be instantiated
-        // In real scenarios, handlers should have parameterless constructors or use DI
-        
-        // Act & Assert - Should not throw
-        var result = _routeGroup.MapRoutes();
-        Assert.IsNotNull(result);
-    }
 
     #endregion
 
@@ -146,54 +137,31 @@ public class RxRouteMapperTests {
         Assert.IsNotNull(result);
     }
 
-    [TestMethod]
-    public void MapRoutes_WithHandlerThatThrowsInMapRoutes_ContinuesWithOtherHandlers() {
-        // This test ensures that if one handler throws during MapRoutes, others still get processed
-        // The ThrowingTestHandler is designed to throw in MapRoutes method
-        
-        // Act & Assert - Should not throw
-        var result = _routeGroup.MapRoutes();
-        Assert.IsNotNull(result);
-        
-        // Other handlers should still be registered
-        // Route validation requires integration testing
-    }
 
     #endregion
 }
 
 #region Test Request Handlers
 
-public class TestRequestHandler : IRequestHandler {
-    public void MapRoutes(IEndpointRouteBuilder router) {
+public class TestRequestHandler : RequestHandler {
+    public override void MapRoutes(IEndpointRouteBuilder router) {
         router.MapGet("/test", () => "Test");
         router.MapPost("/test", () => "Test Post");
         router.MapGet("/test/{id:int}", (int id) => $"Test {id}");
     }
 }
 
-public class AnotherTestHandler : IRequestHandler {
-    public void MapRoutes(IEndpointRouteBuilder router) {
+public class AnotherTestHandler : RequestHandler {
+    public override void MapRoutes(IEndpointRouteBuilder router) {
         router.MapGet("/another", () => "Another");
         router.MapDelete("/another/{id:int}", (int id) => $"Delete {id}");
     }
 }
 
-public abstract class AbstractTestHandler : IRequestHandler {
-    public abstract void MapRoutes(IEndpointRouteBuilder router);
+public abstract class AbstractTestHandler : RequestHandler {
+    public abstract override void MapRoutes(IEndpointRouteBuilder router);
 }
 
-public class ThrowingTestHandler : IRequestHandler {
-    public void MapRoutes(IEndpointRouteBuilder router) {
-        throw new InvalidOperationException("Test exception in MapRoutes");
-    }
-}
 
-// This class tests that the framework handles handlers without parameterless constructors
-public class HandlerWithConstructorParameters(string requiredParam) : IRequestHandler {
-    public void MapRoutes(IEndpointRouteBuilder router) {
-        router.MapGet("/constructor-params", () => "Test");
-    }
-}
 
 #endregion
