@@ -20,6 +20,7 @@ declare global {
             rxHoistTo?: string //data-rx-hoist-to transfer rx behaviors to another element
             rxIncludeState?: string //data-rx-include-state
             rxRevealMargin?: string //data-rx-reveal-margin
+            rxLoadingIndicator?: string //data-rx-loading-indicator
         },
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
         _rxCallbacks?: ElementCallbacks,
@@ -34,6 +35,10 @@ export type RazorX = {
 export type Options = {
     addCookieToRequestHeader?: string | string[],
     encodeRequestFormDataAsJson?: boolean, //true
+    loadingIndicatorClasses?: {
+        hidden?: string,  // Default: 'rx-loading-hidden'
+        visible?: string  // Default: 'rx-loading-visible'
+    }
 }
 
 export type DocumentCallbacks = {
@@ -140,9 +145,16 @@ const _elementCache: Map<string, HTMLElement> = new Map();
 
 const _elementTriggerState: WeakMap<HTMLElement, ElementTriggerState> = new WeakMap();
 
+const _activeLoadingIndicators: Map<string, Set<string>> = new Map();
+
 const _fetchRedirect: FetchRedirect = "follow";
 
 const _callbacks: DocumentCallbacks = {};
+
+let _loadingClasses = {
+    hidden: 'rx-loading-hidden',
+    visible: 'rx-loading-visible'
+}
 
 const _addCallbacks = (callbacks: DocumentCallbacks): void => {
     _callbacks.afterDocumentProcessed = callbacks.afterDocumentProcessed;
@@ -169,6 +181,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         // Document already processed - this is intentional
         console.debug("Document already has active MutationObserver");
         return;
+    }
+
+    // Configure loading indicator classes
+    if (options?.loadingIndicatorClasses) {
+        _loadingClasses = {
+            ..._loadingClasses,
+            ...options.loadingIndicatorClasses
+        }
     }
 
     // Add cleanup for page unload scenarios
@@ -253,6 +273,37 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     function invalidateCachedElement(id: string): void {
         _elementCache.delete(id);
+    }
+
+    function toggleLoadingIndicator(ele: HTMLElement, show: boolean): void {
+        const indicatorId = ele.dataset.rxLoadingIndicator;
+        if (!indicatorId) {
+            return;
+        }
+        if (!_activeLoadingIndicators.has(indicatorId)) {
+            _activeLoadingIndicators.set(indicatorId, new Set());
+        }
+        const activeElements = _activeLoadingIndicators.get(indicatorId)!;
+        if (show) {
+            activeElements.add(ele.id);
+            const indicator = getCachedElement(indicatorId);
+            if (indicator) {
+                indicator.classList.remove(_loadingClasses.hidden);
+                indicator.classList.add(_loadingClasses.visible);
+            } else if (activeElements.size === 1) { // Only warn once
+                console.warn(`Loading indicator element '${indicatorId}' not found`);
+            }
+        } else {
+            activeElements.delete(ele.id);
+            // Only hide if no other elements are using it
+            if (activeElements.size === 0) {
+                const indicator = getCachedElement(indicatorId);
+                if (indicator) {
+                    indicator.classList.remove(_loadingClasses.visible);
+                    indicator.classList.add(_loadingClasses.hidden);
+                }
+            }
+        }
     }
 
     function setTriggers(ele: HTMLElement): void {
@@ -618,6 +669,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 throw new Error(`Element ${ele.id} is already executing a request.`);
             }
             _requestRefTracker.add(ele.id);
+            toggleLoadingIndicator(ele, true);
             let form: HTMLFormElement | null = null;
             if ("form" in ele && ele.form instanceof HTMLFormElement) {
                 form = ele.form; 
@@ -710,6 +762,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 }
             } finally {
                 _requestRefTracker.delete(ele.id);
+                toggleLoadingIndicator(ele, false);
                 if (disableElement !== undefined && disableElement.toLowerCase() !== "false") {
                     toggleDisable(ele, false);
                 }
