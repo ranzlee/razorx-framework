@@ -6,17 +6,34 @@
     <Nullable>enable</Nullable>
     
     <!-- NuGet Package Properties -->
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release' AND '$(CI)' != 'true'">true</GeneratePackageOnBuild>
     <PackageId>RazorX.Framework</PackageId>
     <PackageVersion>1.0.0-alpha</PackageVersion>
     <Authors>Randy Lee</Authors>
-    <Description>Server-Driven User Interface (SDUI) hypermedia framework implementing true HATEOAS principles with C#/.NET 9 and TypeScript client library.</Description>
+    <Company>RazorX Framework</Company>
+    <Product>RazorX Framework</Product>
+    <Title>RazorX Framework - Server-Driven UI Framework</Title>
+    <Description>A production-ready Server-Driven User Interface (SDUI) hypermedia framework implementing true HATEOAS principles. Combines C#/.NET 9 server-side rendering with an intelligent TypeScript client library to deliver HTML-over-the-wire functionality with exceptional developer experience.</Description>
+    <Summary>Server-Driven UI framework with C#/.NET 9 backend and TypeScript client for hypermedia applications</Summary>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageTags>SDUI;hypermedia;HATEOAS;ASP.NET Core;TypeScript;HTML-over-the-wire</PackageTags>
+    <PackageTags>SDUI;hypermedia;HATEOAS;ASP.NET Core;TypeScript;HTML-over-the-wire;server-driven;web-framework</PackageTags>
+    <PackageReleaseNotes>See CHANGELOG.md for detailed release notes</PackageReleaseNotes>
     <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/ranzlee/razorx-framework</RepositoryUrl>
+    <RepositoryBranch>main</RepositoryBranch>
+    <PackageProjectUrl>https://github.com/ranzlee/razorx-framework</PackageProjectUrl>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
     <IncludeSymbols>true</IncludeSymbols>
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <DeterministicSourcePaths>true</DeterministicSourcePaths>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    
+    <!-- Framework requirements -->
+    <MinClientVersion>4.0</MinClientVersion>
+    <DevelopmentDependency>false</DevelopmentDependency>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,6 +42,10 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
   </ItemGroup>
 
   <!-- Include TypeScript client distribution files in NuGet package -->

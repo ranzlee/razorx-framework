@@ -1,35 +1,49 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
+  <PropertyGroup>
+    <RazorXClientSourcePath>$(MSBuildThisFileDirectory)../contentFiles/any/any/wwwroot/js</RazorXClientSourcePath>
+    <RazorXClientDestPath>$(MSBuildProjectDirectory)/wwwroot/js</RazorXClientDestPath>
+  </PropertyGroup>
+
   <!-- Copy RazorX client files to consuming project's wwwroot/js folder -->
-  <Target Name="CopyRazorXClientFiles" BeforeTargets="Build">
+  <Target Name="CopyRazorXClientFiles" BeforeTargets="Build" Condition="'$(EnableRazorXClientFiles)' != 'false'">
     
     <!-- Ensure wwwroot/js directory exists -->
-    <MakeDir Directories="$(MSBuildProjectDirectory)/wwwroot/js" Condition="!Exists('$(MSBuildProjectDirectory)/wwwroot/js')" />
+    <MakeDir Directories="$(RazorXClientDestPath)" Condition="!Exists('$(RazorXClientDestPath)')" />
     
-    <!-- Copy JavaScript file -->
+    <!-- Define client files to copy -->
+    <ItemGroup>
+      <RazorXClientFiles Include="$(RazorXClientSourcePath)/razorx.js" />
+      <RazorXClientFiles Include="$(RazorXClientSourcePath)/razorx.js.map" />
+      <RazorXClientFiles Include="$(RazorXClientSourcePath)/razorx.d.ts" />
+    </ItemGroup>
+    
+    <!-- Copy files with proper error handling -->
     <Copy 
-      SourceFiles="$(MSBuildThisFileDirectory)../contentFiles/any/any/wwwroot/js/razorx.js"
-      DestinationFiles="$(MSBuildProjectDirectory)/wwwroot/js/razorx.js"
+      SourceFiles="@(RazorXClientFiles)"
+      DestinationFolder="$(RazorXClientDestPath)"
       SkipUnchangedFiles="true"
-      Condition="Exists('$(MSBuildThisFileDirectory)../contentFiles/any/any/wwwroot/js/razorx.js')" />
+      ContinueOnError="WarnAndContinue" />
     
-    <!-- Copy source map -->
-    <Copy 
-      SourceFiles="$(MSBuildThisFileDirectory)../contentFiles/any/any/wwwroot/js/razorx.js.map"
-      DestinationFiles="$(MSBuildProjectDirectory)/wwwroot/js/razorx.js.map"
-      SkipUnchangedFiles="true"
-      Condition="Exists('$(MSBuildThisFileDirectory)../contentFiles/any/any/wwwroot/js/razorx.js.map')" />
+    <Message Importance="high" Text="RazorX.Framework: Copied client files to $(RazorXClientDestPath)/" 
+             Condition="Exists('$(RazorXClientSourcePath)/razorx.js')" />
     
-    <!-- Copy TypeScript definitions -->
-    <Copy 
-      SourceFiles="$(MSBuildThisFileDirectory)../contentFiles/any/any/wwwroot/js/razorx.d.ts"
-      DestinationFiles="$(MSBuildProjectDirectory)/wwwroot/js/razorx.d.ts"
-      SkipUnchangedFiles="true"
-      Condition="Exists('$(MSBuildThisFileDirectory)../contentFiles/any/any/wwwroot/js/razorx.d.ts')" />
+    <Warning Text="RazorX.Framework: Client files not found at $(RazorXClientSourcePath). Package may not be properly installed." 
+             Condition="!Exists('$(RazorXClientSourcePath)/razorx.js')" />
     
-    <Message Importance="high" Text="RazorX.Framework: Copied client files to wwwroot/js/" />
+  </Target>
+
+  <!-- Clean target for client files -->
+  <Target Name="CleanRazorXClientFiles" BeforeTargets="Clean" Condition="'$(EnableRazorXClientFiles)' != 'false'">
+    <ItemGroup>
+      <RazorXFilesToDelete Include="$(RazorXClientDestPath)/razorx.js" />
+      <RazorXFilesToDelete Include="$(RazorXClientDestPath)/razorx.js.map" />
+      <RazorXFilesToDelete Include="$(RazorXClientDestPath)/razorx.d.ts" />
+    </ItemGroup>
     
+    <Delete Files="@(RazorXFilesToDelete)" ContinueOnError="true" />
+    <Message Importance="high" Text="RazorX.Framework: Cleaned client files from $(RazorXClientDestPath)/" />
   </Target>
 
 </Project>

@@ -18,6 +18,27 @@
 
 # Claude
 .claude
+
+# Package Management
+packages/
+*.nupkg
+*.snupkg
+package-validation-report.txt
+temp-validation/
+
+# NuGet
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Build outputs for packaging
+**/bin/Release/
+**/obj/Release/
+
+# Backup files
+*.backup
 CLAUDE.md
 TODO.md
 TESTING.md
