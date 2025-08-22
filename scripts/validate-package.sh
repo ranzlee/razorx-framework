@@ -197,7 +197,7 @@ test_package_installation() {
 run_package_validation_tool() {
     log_info "Running Microsoft Package Validation tool..."
     
-    if ! dotnet tool list -g | grep -q "microsoft.dotnet.packagevalidation.cli"; then
+    if ! dotnet tool list -g | grep -q "Microsoft.DotNet.PackageValidation.Cli"; then
         log_info "Installing Microsoft Package Validation CLI..."
         dotnet tool install -g Microsoft.DotNet.PackageValidation.Cli || {
             log_warning "Could not install package validation tool. Skipping automated validation."
