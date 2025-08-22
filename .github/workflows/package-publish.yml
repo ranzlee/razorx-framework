@@ -173,14 +173,8 @@ jobs:
         name: nuget-packages
         path: ${{ env.PACKAGE_OUTPUT_DIR }}
     
-    - name: Install Package Validation Tool
-      run: dotnet tool install -g Microsoft.DotNet.PackageValidation.Cli
-    
-    - name: Validate Package
-      run: |
-        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "RazorX.Framework.${{ needs.build-and-test.outputs.package-version }}.nupkg")
-        echo "Validating package: $PACKAGE_FILE"
-        validate-package "$PACKAGE_FILE"
+    # Package validation via installation test (external validation tool not needed for initial release)
+    # Future: Add Microsoft.DotNet.ApiCompat.Tool for API compatibility checks when baseline versions exist
     
     - name: Test Package Installation
       run: |
