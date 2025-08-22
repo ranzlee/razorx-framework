@@ -4,6 +4,19 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    
+    <!-- NuGet Package Properties -->
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>RazorX.Framework</PackageId>
+    <PackageVersion>1.0.0</PackageVersion>
+    <Authors>Randy Lee</Authors>
+    <Description>Server-Driven User Interface (SDUI) hypermedia framework implementing true HATEOAS principles with C#/.NET 9 and TypeScript client library.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>SDUI;hypermedia;HATEOAS;ASP.NET Core;TypeScript;HTML-over-the-wire</PackageTags>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
   </PropertyGroup>
 
   <ItemGroup>
@@ -12,6 +25,16 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- Include TypeScript client distribution files in NuGet package -->
+  <ItemGroup>
+    <None Include="Node/dist/razorx.js" Pack="true" PackagePath="contentFiles/any/any/wwwroot/js/razorx.js" />
+    <None Include="Node/dist/razorx.js.map" Pack="true" PackagePath="contentFiles/any/any/wwwroot/js/razorx.js.map" />
+    <None Include="Node/dist/razorx.d.ts" Pack="true" PackagePath="contentFiles/any/any/wwwroot/js/razorx.d.ts" />
+    <None Include="build/RazorX.Framework.targets" Pack="true" PackagePath="build/RazorX.Framework.targets" />
+    <None Include="buildTransitive/RazorX.Framework.targets" Pack="true" PackagePath="buildTransitive/RazorX.Framework.targets" />
+    <None Include="../README.md" Pack="true" PackagePath="README.md" />
   </ItemGroup>
 
   <Target Name="NodeInstall" BeforeTargets="Compile" Condition="!Exists('Node/node_modules')">
