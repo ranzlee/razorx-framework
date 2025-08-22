@@ -197,10 +197,10 @@ test_package_installation() {
 run_package_validation_tool() {
     log_info "Running Microsoft Package Validation tool..."
     
-    if ! dotnet tool list -g | grep -q "Microsoft.DotNet.PackageValidation.Cli"; then
-        log_info "Installing Microsoft Package Validation CLI..."
-        dotnet tool install -g Microsoft.DotNet.PackageValidation.Cli || {
-            log_warning "Could not install package validation tool. Skipping automated validation."
+    if ! dotnet tool list -g | grep -q "Microsoft.DotNet.ApiCompat.Tool"; then
+        log_info "Installing Microsoft API Compatibility Tool..."
+        dotnet tool install -g Microsoft.DotNet.ApiCompat.Tool || {
+            log_warning "Could not install API compatibility tool. Skipping automated validation."
             return 0
         }
     fi
@@ -208,13 +208,13 @@ run_package_validation_tool() {
     local package_file
     package_file=$(find "$PACKAGE_OUTPUT_DIR" -name "RazorX.Framework.*.nupkg" | grep -v "\.symbols\." | head -1)
     
-    if command -v validate-package &> /dev/null; then
-        validate-package "$package_file" || {
-            log_warning "Package validation tool reported issues. Please review."
-        }
-        log_success "Package validation tool completed"
+    if command -v apicompat &> /dev/null; then
+        # Note: API compatibility checks require baseline version for comparison
+        # For initial release, we'll skip this validation
+        log_info "API compatibility tool available but skipping (no baseline version for comparison)"
+        log_success "Package validation completed (skipped API compatibility checks)"
     else
-        log_warning "Package validation tool not available"
+        log_warning "API compatibility tool not available"
     fi
 }
 
