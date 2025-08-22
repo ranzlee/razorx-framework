@@ -14,7 +14,7 @@
     <ItemGroup>
       <JsFiles Include="../RazorX.Framework/Node/dist/*.*"/>
     </ItemGroup>
-    <Copy SourceFiles="@(JsFiles)" DestinationFolder="wwwroot" />
+    <Copy SourceFiles="@(JsFiles)" DestinationFolder="wwwroot/js" />
   </Target>
 
 </Project>

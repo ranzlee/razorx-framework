@@ -18,6 +18,27 @@
 
 # Claude
 .claude
+
+# Package Management
+packages/
+*.nupkg
+*.snupkg
+package-validation-report.txt
+temp-validation/
+
+# NuGet
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Build outputs for packaging
+**/bin/Release/
+**/obj/Release/
+
+# Backup files
+*.backup
 CLAUDE.md
 TODO.md
 TESTING.md
@@ -31,6 +52,7 @@ RazorX.Framework/bin/
 RazorX.Framework/obj/
 RazorX.Framework/Node/dist
 RazorX.Framework/Node/node_modules
+RazorX.Framework/nupkg
 
 # RazorX.Framework.Tests Project artifacts
 RazorX.Framework.Tests/bin/
@@ -43,4 +65,4 @@ RazorX.Framework.Tests/Node/coverage
 # RazorX.Examples Project artifacts
 RazorX.Examples/bin/
 RazorX.Examples/obj/
-RazorX.Examples/wwwroot/razorx.*
+RazorX.Examples/wwwroot/js/razorx.*

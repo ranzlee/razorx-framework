@@ -1,0 +1,314 @@
+name: Package Build and Publish
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      publish_package:
+        description: 'Force publish package (use with caution)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  DOTNET_VERSION: '9.0.x'
+  NODE_VERSION: '20'
+  PACKAGE_OUTPUT_DIR: ${{ github.workspace }}/packages
+  CI: true
+
+jobs:
+  # Job 1: Build and Test (always runs)
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    outputs:
+      package-version: ${{ steps.version.outputs.package-version }}
+      is-release: ${{ steps.version.outputs.is-release }}
+      should-publish: ${{ steps.publish-decision.outputs.should-publish }}
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Required for GitVersion
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+        
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: |
+          RazorX.Framework/Node/package-lock.json
+          RazorX.Framework.Tests/Node/package-lock.json
+    
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+    
+    # Determine version and release type
+    - name: Determine Package Version
+      id: version
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          # Release tag (v1.2.3)
+          VERSION=$(echo "${{ github.ref }}" | sed 's/refs\/tags\/v//')
+          IS_RELEASE=true
+          echo "Release version: $VERSION"
+        elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          # Main branch - beta release
+          VERSION="1.0.0-beta.${{ github.run_number }}"
+          IS_RELEASE=false
+          echo "Beta version: $VERSION"
+        else
+          # PR or other branch - alpha release
+          VERSION="1.0.0-alpha.${{ github.run_number }}"
+          IS_RELEASE=false
+          echo "Alpha version: $VERSION"
+        fi
+        
+        echo "package-version=$VERSION" >> $GITHUB_OUTPUT
+        echo "is-release=$IS_RELEASE" >> $GITHUB_OUTPUT
+    
+    # Update project file with dynamic version
+    - name: Update Package Version
+      run: |
+        sed -i 's/<PackageVersion>.*<\/PackageVersion>/<PackageVersion>${{ steps.version.outputs.package-version }}<\/PackageVersion>/' RazorX.Framework/RazorX.Framework.csproj
+        echo "Updated version to: ${{ steps.version.outputs.package-version }}"
+    
+    - name: Restore .NET dependencies
+      run: dotnet restore
+    
+    - name: Build solution
+      run: dotnet build --no-restore --configuration Release
+    
+    - name: Run .NET tests
+      run: dotnet test --no-build --configuration Release --verbosity normal --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage"
+    
+    - name: Install JavaScript test dependencies
+      working-directory: RazorX.Framework.Tests/Node
+      run: npm ci
+    
+    - name: Run JavaScript tests
+      working-directory: RazorX.Framework.Tests/Node
+      run: npm run test:coverage
+    
+    # Create NuGet package
+    - name: Create NuGet Package
+      run: |
+        mkdir -p ${{ env.PACKAGE_OUTPUT_DIR }}
+        dotnet pack RazorX.Framework/RazorX.Framework.csproj --no-build --configuration Release --output ${{ env.PACKAGE_OUTPUT_DIR }} --include-symbols --include-source
+    
+    # Upload artifacts
+    - name: Upload Package Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuget-packages
+        path: ${{ env.PACKAGE_OUTPUT_DIR }}/*
+        retention-days: 30
+    
+    - name: Upload Test Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: |
+          **/test-results.trx
+          **/coverage.cobertura.xml
+          RazorX.Framework.Tests/Node/coverage/
+        retention-days: 30
+    
+    # Decide if we should publish
+    - name: Publish Decision
+      id: publish-decision
+      run: |
+        SHOULD_PUBLISH=false
+        
+        if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
+          SHOULD_PUBLISH=true
+          echo "Will publish beta package from main branch"
+        elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          SHOULD_PUBLISH=true
+          echo "Will publish release package from tag"
+        elif [[ "${{ github.event.inputs.publish_package }}" == "true" ]]; then
+          SHOULD_PUBLISH=true
+          echo "Will publish package due to manual trigger"
+        else
+          echo "Will not publish package"
+        fi
+        
+        echo "should-publish=$SHOULD_PUBLISH" >> $GITHUB_OUTPUT
+
+  # Job 2: Package Validation (runs after build)
+  validate-package:
+    name: Validate Package
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: needs.build-and-test.outputs.should-publish == 'true'
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: Download Package Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: nuget-packages
+        path: ${{ env.PACKAGE_OUTPUT_DIR }}
+    
+    - name: Install Package Validation Tool
+      run: dotnet tool install -g Microsoft.Dotnet.PackageValidation.Cli
+    
+    - name: Validate Package
+      run: |
+        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "RazorX.Framework.${{ needs.build-and-test.outputs.package-version }}.nupkg")
+        echo "Validating package: $PACKAGE_FILE"
+        validate-package "$PACKAGE_FILE"
+    
+    - name: Test Package Installation
+      run: |
+        # Create a test project to verify package installation
+        mkdir -p test-install
+        cd test-install
+        dotnet new web --name TestApp --force
+        cd TestApp
+        
+        # Add our package from local source
+        dotnet nuget add source ${{ env.PACKAGE_OUTPUT_DIR }} --name local-packages
+        dotnet add package RazorX.Framework --version ${{ needs.build-and-test.outputs.package-version }} --source local-packages
+        
+        # Verify the package was installed and files were copied
+        dotnet build
+        
+        if [[ -f "wwwroot/js/razorx.js" ]]; then
+          echo "✅ Package installation successful - client files copied correctly"
+        else
+          echo "❌ Package installation failed - client files not found"
+          exit 1
+        fi
+
+  # Job 3: Publish to GitHub Packages (runs after validation)
+  publish-github-packages:
+    name: Publish to GitHub Packages
+    needs: [build-and-test, validate-package]
+    runs-on: ubuntu-latest
+    if: needs.build-and-test.outputs.should-publish == 'true'
+    permissions:
+      packages: write
+      contents: read
+    
+    steps:
+    - name: Download Package Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: nuget-packages
+        path: ${{ env.PACKAGE_OUTPUT_DIR }}
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: Publish to GitHub Packages
+      run: |
+        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "RazorX.Framework.${{ needs.build-and-test.outputs.package-version }}.nupkg")
+        SYMBOL_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "RazorX.Framework.${{ needs.build-and-test.outputs.package-version }}.snupkg")
+        
+        echo "Publishing package: $PACKAGE_FILE"
+        echo "Publishing symbols: $SYMBOL_FILE"
+        
+        dotnet nuget push "$PACKAGE_FILE" \
+          --api-key ${{ github.token }} \
+          --source https://nuget.pkg.github.com/ranzlee/index.json \
+          --skip-duplicate
+        
+        if [[ -f "$SYMBOL_FILE" ]]; then
+          echo "Publishing symbol package..."
+          dotnet nuget push "$SYMBOL_FILE" \
+            --api-key ${{ github.token }} \
+            --source https://nuget.pkg.github.com/ranzlee/index.json \
+            --skip-duplicate
+        fi
+    
+    - name: Create Release (for release tags)
+      if: needs.build-and-test.outputs.is-release == 'true'
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ needs.build-and-test.outputs.package-version }}
+        body: |
+          ## RazorX.Framework v${{ needs.build-and-test.outputs.package-version }}
+          
+          🚀 **Production Release**
+          
+          ### Package Information
+          - **GitHub Package**: [RazorX.Framework v${{ needs.build-and-test.outputs.package-version }}](https://github.com/ranzlee/razorx-framework/packages)
+          - **Target Framework**: .NET 9.0
+          - **Client Library**: TypeScript 5.8.3
+          
+          ### Installation
+          First, configure GitHub Packages as a NuGet source:
+          ```bash
+          dotnet nuget add source https://nuget.pkg.github.com/ranzlee/index.json --name github --username YOUR_GITHUB_USERNAME --password YOUR_GITHUB_TOKEN --store-password-in-clear-text
+          ```
+          
+          Then install the package:
+          ```bash
+          dotnet add package RazorX.Framework --version ${{ needs.build-and-test.outputs.package-version }} --source github
+          ```
+          
+          See [CHANGELOG.md](CHANGELOG.md) for detailed release notes.
+        draft: false
+        prerelease: false
+
+  # Job 4: Publish Summary
+  publish-summary:
+    name: Publish Summary
+    needs: [build-and-test, publish-github-packages]
+    runs-on: ubuntu-latest
+    if: always() && needs.build-and-test.outputs.should-publish == 'true'
+    
+    steps:
+    - name: Generate Summary
+      run: |
+        echo "## 📦 Package Publication Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Package Version**: ${{ needs.build-and-test.outputs.package-version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Release Type**: ${{ needs.build-and-test.outputs.is-release == 'true' && 'Production Release' || 'Pre-release' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Build Status**: ${{ needs.build-and-test.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Publish Status**: ${{ needs.publish-github-packages.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ "${{ needs.publish-github-packages.result }}" == "success" ]]; then
+          echo "✅ **Package successfully published to GitHub Packages**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Installation Commands" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "# Add GitHub Packages source" >> $GITHUB_STEP_SUMMARY
+          echo "dotnet nuget add source https://nuget.pkg.github.com/ranzlee/index.json --name github --username YOUR_USERNAME --password YOUR_TOKEN --store-password-in-clear-text" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Install package" >> $GITHUB_STEP_SUMMARY
+          echo "dotnet add package RazorX.Framework --version ${{ needs.build-and-test.outputs.package-version }} --source github" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ **Package publication failed**" >> $GITHUB_STEP_SUMMARY
+        fi

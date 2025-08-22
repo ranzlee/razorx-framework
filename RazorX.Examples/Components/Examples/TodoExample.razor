@@ -14,10 +14,15 @@
 <dialog id="edit-todo-modal">
   <article>
     <h2>Edit</h2>
-    <div id="edit-todo-form-container"></div>
+    <div id="edit-todo-form-container">
+      <TodoFormLoading />
+    </div>
     <footer>
       <button id="edit-todo-modal-close" type="button" class="secondary" data-rx-method="GET" data-rx-action="/edit-todo-reset">Cancel</button>
-      <button id="edit-todo-save" form="edit-todo-form">Save</button>
+      <button id="edit-todo-save" form="edit-todo-form">
+        Save
+        <span id="edit-loading" aria-busy="true" class="rx-loading-hidden"></span>
+      </button>
     </footer>
   </article>
 </dialog>

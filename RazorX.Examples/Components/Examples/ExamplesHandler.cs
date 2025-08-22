@@ -77,6 +77,7 @@ public class ExamplesHandler : RequestHandler {
     }
 
     public static async Task<IResult> SaveTodo(HttpContext context, IRxDriver rxDriver, TodoFormModel model, int id) {
+        await Task.Delay(1000);
         model = model with { Id = id };
         var validationResult = ValidateTodo(context, rxDriver, true, model);
         if (validationResult != null) {
@@ -91,7 +92,7 @@ public class ExamplesHandler : RequestHandler {
             .With(context)
             .AddTriggerCloseDialog("edit-todo-modal")
             .AddTriggerFocusElement($"edit-todo-modal-trigger-{id}")
-            .RemoveElement("edit-todo-form")
+            .AddFragment<TodoFormLoading>("edit-todo-form-container", FragmentMergeStrategyType.SwapInner)
             .AddFragment<TodoItem, TodoModel>(todo, $"todo-item-{todo.Id}", FragmentMergeStrategyType.Swap)
             .Render();
     }
@@ -107,7 +108,7 @@ public class ExamplesHandler : RequestHandler {
         return await rxDriver
             .With(context)
             .AddTriggerCloseDialog("edit-todo-modal")
-            .RemoveElement("edit-todo-form")
+            .AddFragment<TodoFormLoading>("edit-todo-form-container", FragmentMergeStrategyType.SwapInner)
             .Render();
     }
 
@@ -138,6 +139,7 @@ public class ExamplesHandler : RequestHandler {
     }
 
     public static async Task<IResult> EditTodo(HttpContext context, IRxDriver rxDriver, int id) {
+        await Task.Delay(1000);
         var todo = Todos.FirstOrDefault(x => x.Id == id);
         if (todo == null) {
             return TypedResults.Accepted("/error?code=404");
@@ -146,7 +148,7 @@ public class ExamplesHandler : RequestHandler {
         return await rxDriver
             .With(context)
             .AddTriggerFocusElement($"todo-text-{id}", true)
-            .AddFragment<TodoForm, TodoFormModel>(model, "edit-todo-form-container", FragmentMergeStrategyType.AppendAfterBegin)
+            .AddFragment<TodoForm, TodoFormModel>(model, "edit-todo-form-container", FragmentMergeStrategyType.SwapInner)
             .Render();
     }
 
