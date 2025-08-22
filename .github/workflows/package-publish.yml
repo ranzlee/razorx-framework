@@ -174,7 +174,7 @@ jobs:
         path: ${{ env.PACKAGE_OUTPUT_DIR }}
     
     - name: Install Package Validation Tool
-      run: dotnet tool install -g Microsoft.Dotnet.PackageValidation.Cli
+      run: dotnet tool install -g Microsoft.DotNet.PackageValidation.Cli
     
     - name: Validate Package
       run: |
