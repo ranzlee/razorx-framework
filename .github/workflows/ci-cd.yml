@@ -1,4 +1,4 @@
-name: Optimized Package Publish
+name: CI/CD Pipeline
 
 on:
   push:
