@@ -170,12 +170,19 @@ jobs:
           ${{ runner.os }}-build-
     
     - name: Update Version
+      shell: bash
       run: |
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           pwsh -Command "(Get-Content RazorX.Framework/RazorX.Framework.csproj) -replace '<PackageVersion>.*</PackageVersion>', '<PackageVersion>${{ needs.version.outputs.package-version }}</PackageVersion>' | Set-Content RazorX.Framework/RazorX.Framework.csproj"
         else
           sed -i.bak "s|<PackageVersion>.*</PackageVersion>|<PackageVersion>${{ needs.version.outputs.package-version }}</PackageVersion>|" RazorX.Framework/RazorX.Framework.csproj
         fi
+    
+    # Install npm dependencies BEFORE dotnet build (which triggers npm build via MSBuild)
+    - name: Install Framework Node Dependencies
+      shell: bash
+      working-directory: RazorX.Framework/Node
+      run: npm ci || npm install
     
     - name: Restore
       run: dotnet restore --locked-mode
@@ -185,42 +192,30 @@ jobs:
     
     - name: Test (.NET)
       if: github.event.inputs.skip_tests != 'true'
-      run: |
-        dotnet test --no-build --configuration ${{ needs.version.outputs.build-config }} \
-          --verbosity normal \
-          --logger "trx;LogFileName=${{ matrix.os }}-test-results.trx" \
-          --logger "GitHubActions" \
-          --collect:"XPlat Code Coverage" \
-          --results-directory ./TestResults \
-          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+      shell: bash
+      run: dotnet test --no-build --configuration ${{ needs.version.outputs.build-config }} --verbosity normal --logger "trx;LogFileName=${{ matrix.os }}-test-results.trx" --collect:"XPlat Code Coverage" --results-directory ./TestResults -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
     
     - name: Test (JavaScript)
       if: github.event.inputs.skip_tests != 'true' && matrix.os == 'ubuntu-latest'
+      shell: bash
       working-directory: RazorX.Framework.Tests/Node
       run: |
-        npm ci
+        npm ci || npm install
         npm run test:coverage
     
+    # Upload test results for processing by separate test-reporter workflow
+    # Note: Test reporting moved to separate workflow due to permission restrictions
+    # on pull requests from forks. See .github/workflows/test-reporter.yml
     - name: Upload Test Results
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: test-results-${{ matrix.os }}
         path: |
-          **/TestResults/**/*.trx
-          **/TestResults/**/*.xml
+          TestResults/*.trx
+          TestResults/**/*.xml
           RazorX.Framework.Tests/Node/coverage/
         retention-days: 7
-    
-    # Generate test report
-    - name: Test Report
-      if: always() && github.event.inputs.skip_tests != 'true'
-      uses: dorny/test-reporter@v1
-      with:
-        name: Test Results (${{ matrix.os }})
-        path: '**/TestResults/**/*.trx'
-        reporter: dotnet-trx
-        fail-on-error: false
 
   # Job 3: Package Creation (single job, reuses artifacts)
   package:
