@@ -29,7 +29,7 @@
     "globals": "^16.3.0",
     "jsdom": "^25.0.1",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.36.0",
+    "typescript-eslint": "^8.40.0",
     "vitest": "^2.1.8"
   },
   "dependencies": {
