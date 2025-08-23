@@ -180,21 +180,35 @@ jobs:
       run: |
         # Create a test project to verify package installation
         mkdir -p test-install
-        cd test-install
-        dotnet new web --name TestApp --force
-        cd TestApp
+        dotnet new web --name TestApp --output test-install/TestApp --force
         
-        # Add our package from local source
-        dotnet nuget add source ${{ env.PACKAGE_OUTPUT_DIR }} --name local-packages
+        # Add our package from local source (use absolute path)
+        PACKAGE_SOURCE_PATH="${{ env.PACKAGE_OUTPUT_DIR }}"
+        echo "Adding package source: $PACKAGE_SOURCE_PATH"
+        dotnet nuget add source "$PACKAGE_SOURCE_PATH" --name local-packages
+        
+        # Install package in the test project
+        cd test-install/TestApp
+        echo "Installing package RazorX.Framework version ${{ needs.build-and-test.outputs.package-version }}"
         dotnet add package RazorX.Framework --version ${{ needs.build-and-test.outputs.package-version }} --source local-packages
         
         # Verify the package was installed and files were copied
+        echo "Building test project..."
         dotnet build
         
+        # Check if client files were copied by MSBuild targets
         if [[ -f "wwwroot/js/razorx.js" ]]; then
           echo "✅ Package installation successful - client files copied correctly"
+          echo "Files found:"
+          ls -la wwwroot/js/razorx.*
         else
           echo "❌ Package installation failed - client files not found"
+          echo "Contents of wwwroot (if exists):"
+          if [[ -d "wwwroot" ]]; then
+            find wwwroot -name "*.js" -o -name "*.map" -o -name "*.d.ts" || echo "No client files found"
+          else
+            echo "wwwroot directory does not exist"
+          fi
           exit 1
         fi
 
