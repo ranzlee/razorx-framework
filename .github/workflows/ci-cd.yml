@@ -14,6 +14,11 @@ on:
         required: false
         default: false
         type: boolean
+      publish_to_nuget:
+        description: 'Publish to NuGet.org (requires publish_package)'
+        required: false
+        default: false
+        type: boolean
       skip_tests:
         description: 'Skip tests (use with caution)'
         required: false
@@ -37,7 +42,9 @@ jobs:
     outputs:
       package-version: ${{ steps.gitversion.outputs.package-version }}
       is-release: ${{ steps.gitversion.outputs.is-release }}
+      is-prerelease: ${{ steps.gitversion.outputs.is-prerelease }}
       should-publish: ${{ steps.decision.outputs.should-publish }}
+      should-publish-nuget: ${{ steps.decision.outputs.should-publish-nuget }}
       build-config: ${{ steps.config.outputs.build-config }}
     
     steps:
@@ -54,8 +61,17 @@ jobs:
         if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
           VERSION="${{ github.ref_name }}"
           VERSION="${VERSION#v}"
-          IS_RELEASE=true
-          echo "📦 Release version: $VERSION"
+          
+          # Check if it's a prerelease (beta, rc, etc.)
+          if [[ "$VERSION" == *"-beta."* ]] || [[ "$VERSION" == *"-rc."* ]] || [[ "$VERSION" == *"-alpha."* ]]; then
+            IS_PRERELEASE=true
+            IS_RELEASE=false
+            echo "🔵 Pre-release version: $VERSION"
+          else
+            IS_PRERELEASE=false
+            IS_RELEASE=true
+            echo "📦 Release version: $VERSION"
+          fi
         elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
           # Main branch - beta with build metadata
           BASE_VERSION=$(grep -oP '<PackageVersion>\K[^<-]+' RazorX.Framework/RazorX.Framework.csproj | head -1)
@@ -84,31 +100,47 @@ jobs:
         
         echo "package-version=$VERSION" >> $GITHUB_OUTPUT
         echo "is-release=$IS_RELEASE" >> $GITHUB_OUTPUT
+        echo "is-prerelease=${IS_PRERELEASE:-false}" >> $GITHUB_OUTPUT
     
     - name: Publish Decision Matrix
       id: decision
       run: |
         SHOULD_PUBLISH=false
+        SHOULD_PUBLISH_NUGET=false
         
-        # Enhanced decision matrix
+        # Enhanced decision matrix for GitHub Packages
         if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
           SHOULD_PUBLISH=true
-          echo "✅ Will publish: Release tag"
+          echo "✅ Will publish to GitHub Packages: Release tag"
         elif [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]]; then
           SHOULD_PUBLISH=true
-          echo "✅ Will publish: Main branch push"
+          echo "✅ Will publish to GitHub Packages: Main branch push"
         elif [[ "${{ github.ref }}" == "refs/heads/dev" && "${{ github.event_name }}" == "push" ]]; then
           # Optional: publish dev builds
           SHOULD_PUBLISH=false
           echo "⏭️ Skip publish: Dev branch (change to true if desired)"
         elif [[ "${{ github.event.inputs.publish_package }}" == "true" ]]; then
           SHOULD_PUBLISH=true
-          echo "✅ Will publish: Manual trigger"
+          echo "✅ Will publish to GitHub Packages: Manual trigger"
         else
           echo "⏭️ Skip publish: Conditions not met"
         fi
         
+        # NuGet.org publishing decision (more restrictive)
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          # Auto-publish tagged releases to NuGet.org
+          SHOULD_PUBLISH_NUGET=true
+          echo "✅ Will publish to NuGet.org: Tagged release"
+        elif [[ "${{ github.event.inputs.publish_to_nuget }}" == "true" && "${{ github.event.inputs.publish_package }}" == "true" ]]; then
+          # Manual trigger for NuGet.org
+          SHOULD_PUBLISH_NUGET=true
+          echo "✅ Will publish to NuGet.org: Manual trigger"
+        else
+          echo "⏭️ Skip NuGet.org publish: More restrictive criteria not met"
+        fi
+        
         echo "should-publish=$SHOULD_PUBLISH" >> $GITHUB_OUTPUT
+        echo "should-publish-nuget=$SHOULD_PUBLISH_NUGET" >> $GITHUB_OUTPUT
     
     - name: Build Configuration
       id: config
@@ -432,12 +464,115 @@ jobs:
           -d '{"query":"query { repository(owner:\"ranzlee\", name:\"razorx-framework\") { packages(first: 10) { nodes { name statistics { downloadsTotalCount } } } } }"}' \
           https://api.github.com/graphql | jq .
 
-  # Job 6: Create Release and Generate Notes
+  # Job 6: Publish to NuGet.org
+  publish-nuget:
+    name: Publish to NuGet.org
+    needs: [version, validate]
+    runs-on: ubuntu-latest
+    if: needs.version.outputs.should-publish-nuget == 'true'
+    environment: nuget
+    
+    steps:
+    - name: Download Package
+      uses: actions/download-artifact@v4
+      with:
+        name: nuget-packages
+        path: ${{ env.PACKAGE_OUTPUT_DIR }}
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: Verify Package Before Publishing
+      run: |
+        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols." | head -1)
+        echo "📦 Package to publish: $(basename $PACKAGE_FILE)"
+        echo "📏 Package size: $(du -h $PACKAGE_FILE | cut -f1)"
+        
+        # Verify package metadata
+        dotnet nuget locals all --list
+        
+        # Test package installation locally
+        mkdir -p test-local-install
+        cd test-local-install
+        dotnet new classlib --name TestInstall --force
+        cd TestInstall
+        dotnet add package RazorX.Framework --version ${{ needs.version.outputs.package-version }} --source "${{ env.PACKAGE_OUTPUT_DIR }}"
+        
+        if [ $? -eq 0 ]; then
+          echo "✅ Package installation test successful"
+        else
+          echo "❌ Package installation test failed"
+          exit 1
+        fi
+    
+    - name: Publish to NuGet.org
+      env:
+        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      run: |
+        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols." | head -1)
+        SYMBOL_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.snupkg" | head -1)
+        
+        echo "📦 Publishing to NuGet.org: $(basename $PACKAGE_FILE)"
+        echo "🔖 Version: ${{ needs.version.outputs.package-version }}"
+        echo "🏷️ Pre-release: ${{ needs.version.outputs.is-prerelease }}"
+        
+        # Publish main package
+        dotnet nuget push "$PACKAGE_FILE" \
+          --api-key $NUGET_API_KEY \
+          --source https://api.nuget.org/v3/index.json \
+          --skip-duplicate \
+          --no-symbols
+        
+        # Publish symbols if available
+        if [[ -f "$SYMBOL_FILE" ]]; then
+          echo "🔍 Publishing symbols: $(basename $SYMBOL_FILE)"
+          dotnet nuget push "$SYMBOL_FILE" \
+            --api-key $NUGET_API_KEY \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+        fi
+    
+    - name: Verify NuGet.org Availability
+      run: |
+        echo "⏳ Waiting for package to be available on NuGet.org..."
+        sleep 30  # Give NuGet.org time to process
+        
+        # Check if package is available
+        RESPONSE=$(curl -s "https://api.nuget.org/v3-flatcontainer/razorx.framework/${{ needs.version.outputs.package-version }}/razorx.framework.${{ needs.version.outputs.package-version }}.nupkg" -o /dev/null -w "%{http_code}")
+        
+        if [ "$RESPONSE" = "200" ]; then
+          echo "✅ Package is now available on NuGet.org!"
+          echo "🔗 View at: https://www.nuget.org/packages/RazorX.Framework/${{ needs.version.outputs.package-version }}"
+        else
+          echo "⚠️ Package may still be processing. Check NuGet.org in a few minutes."
+        fi
+    
+    - name: Create Deployment Record
+      if: success()
+      run: |
+        echo "## 📦 NuGet.org Deployment" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Package**: RazorX.Framework" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: \`${{ needs.version.outputs.package-version }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Type**: ${{ needs.version.outputs.is-prerelease == 'true' && '🔵 Pre-release' || '🚀 Stable' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL**: [View on NuGet.org](https://www.nuget.org/packages/RazorX.Framework/${{ needs.version.outputs.package-version }})" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Installation" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        echo "dotnet add package RazorX.Framework --version ${{ needs.version.outputs.package-version }}" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # Job 7: Create Release and Generate Notes
   release:
     name: Create Release
-    needs: [version, publish]
+    needs: [version, publish, publish-nuget]
     runs-on: ubuntu-latest
-    if: needs.version.outputs.is-release == 'true'
+    # Run if it's a release/prerelease and at least one publish succeeded
+    if: |
+      (needs.version.outputs.is-release == 'true' || needs.version.outputs.is-prerelease == 'true') &&
+      (needs.publish.result == 'success' || needs.publish-nuget.result == 'success')
     permissions:
       contents: write
     
@@ -486,13 +621,13 @@ jobs:
         name: RazorX.Framework v${{ needs.version.outputs.package-version }}
         body_path: ${{ steps.notes.outputs.notes-file }}
         draft: false
-        prerelease: ${{ needs.version.outputs.is-release != 'true' }}
+        prerelease: ${{ needs.version.outputs.is-prerelease == 'true' }}
         generate_release_notes: true # GitHub's auto-generated notes as supplement
 
-  # Job 7: Summary and Notifications
+  # Job 8: Summary and Notifications
   summary:
     name: Publication Summary
-    needs: [version, build-test-matrix, package, validate, publish]
+    needs: [version, build-test-matrix, package, validate, publish, publish-nuget]
     runs-on: ubuntu-latest
     if: always()
     
@@ -524,12 +659,22 @@ jobs:
         echo "- Build & Test: ${{ needs.build-test-matrix.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
         echo "- Package Creation: ${{ needs.package.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
         echo "- Validation: ${{ needs.validate.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
-        echo "- Publishing: ${{ needs.publish.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- GitHub Packages: ${{ needs.publish.result == 'success' && '✅' || needs.publish.result == 'skipped' && '⏭️' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- NuGet.org: ${{ needs.publish-nuget.result == 'success' && '✅' || needs.publish-nuget.result == 'skipped' && '⏭️' || '❌' }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
-        # Installation instructions if published
-        if [[ "${{ needs.version.outputs.should-publish }}" == "true" && "${{ needs.publish.result }}" == "success" ]]; then
-          echo "## 🚀 Installation" >> $GITHUB_STEP_SUMMARY
+        # Installation instructions based on where it was published
+        if [[ "${{ needs.publish-nuget.result }}" == "success" ]]; then
+          echo "## 🚀 Installation from NuGet.org" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "dotnet add package RazorX.Framework --version ${{ needs.version.outputs.package-version }}" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ needs.version.outputs.is-prerelease }}" == "true" ]]; then
+            echo "# Or to always get the latest prerelease:" >> $GITHUB_STEP_SUMMARY
+            echo "dotnet add package RazorX.Framework --prerelease" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        elif [[ "${{ needs.publish.result }}" == "success" ]]; then
+          echo "## 🚀 Installation from GitHub Packages" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "# Configure GitHub Packages source" >> $GITHUB_STEP_SUMMARY
           echo "dotnet nuget add source https://nuget.pkg.github.com/ranzlee/index.json \\" >> $GITHUB_STEP_SUMMARY
