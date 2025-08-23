@@ -77,6 +77,7 @@ jobs:
           BASE_VERSION=$(grep -oP '<PackageVersion>\K[^<-]+' RazorX.Framework/RazorX.Framework.csproj | head -1)
           VERSION="${BASE_VERSION}-beta.${{ github.run_number }}+${GITHUB_SHA:0:7}"
           IS_RELEASE=false
+          IS_PRERELEASE=true
           echo "🔵 Beta version: $VERSION"
         elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
           # Dev branch - alpha with timestamp
@@ -84,17 +85,20 @@ jobs:
           TIMESTAMP=$(date -u +%Y%m%d%H%M%S)
           VERSION="${BASE_VERSION}-alpha.${{ github.run_number }}.${TIMESTAMP}"
           IS_RELEASE=false
+          IS_PRERELEASE=true
           echo "🟡 Alpha version: $VERSION"
         elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
           # PR - preview version
           BASE_VERSION=$(grep -oP '<PackageVersion>\K[^<-]+' RazorX.Framework/RazorX.Framework.csproj | head -1)
           VERSION="${BASE_VERSION}-preview.${{ github.event.pull_request.number }}.${{ github.run_number }}"
           IS_RELEASE=false
+          IS_PRERELEASE=true
           echo "🟣 Preview version: $VERSION"
         else
           # Fallback
           VERSION="0.0.0-dev.${{ github.run_number }}"
           IS_RELEASE=false
+          IS_PRERELEASE=true
           echo "⚪ Dev version: $VERSION"
         fi
         
@@ -126,17 +130,21 @@ jobs:
           echo "⏭️ Skip publish: Conditions not met"
         fi
         
-        # NuGet.org publishing decision (more restrictive)
+        # NuGet.org publishing decision - now includes main branch beta releases
         if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
           # Auto-publish tagged releases to NuGet.org
           SHOULD_PUBLISH_NUGET=true
           echo "✅ Will publish to NuGet.org: Tagged release"
+        elif [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]]; then
+          # Auto-publish beta versions from main branch to NuGet.org
+          SHOULD_PUBLISH_NUGET=true
+          echo "✅ Will publish to NuGet.org: Main branch beta release"
         elif [[ "${{ github.event.inputs.publish_to_nuget }}" == "true" && "${{ github.event.inputs.publish_package }}" == "true" ]]; then
           # Manual trigger for NuGet.org
           SHOULD_PUBLISH_NUGET=true
           echo "✅ Will publish to NuGet.org: Manual trigger"
         else
-          echo "⏭️ Skip NuGet.org publish: More restrictive criteria not met"
+          echo "⏭️ Skip NuGet.org publish: Criteria not met"
         fi
         
         echo "should-publish=$SHOULD_PUBLISH" >> $GITHUB_OUTPUT
