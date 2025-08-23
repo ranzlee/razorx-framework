@@ -178,6 +178,12 @@ jobs:
           sed -i.bak "s|<PackageVersion>.*</PackageVersion>|<PackageVersion>${{ needs.version.outputs.package-version }}</PackageVersion>|" RazorX.Framework/RazorX.Framework.csproj
         fi
     
+    # Install npm dependencies BEFORE dotnet build (which triggers npm build via MSBuild)
+    - name: Install Framework Node Dependencies
+      shell: bash
+      working-directory: RazorX.Framework/Node
+      run: npm ci || npm install
+    
     - name: Restore
       run: dotnet restore --locked-mode
     
@@ -186,19 +192,15 @@ jobs:
     
     - name: Test (.NET)
       if: github.event.inputs.skip_tests != 'true'
-      run: |
-        dotnet test --no-build --configuration ${{ needs.version.outputs.build-config }} \
-          --verbosity normal \
-          --logger "trx;LogFileName=${{ matrix.os }}-test-results.trx" \
-          --collect:"XPlat Code Coverage" \
-          --results-directory ./TestResults \
-          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+      shell: bash
+      run: dotnet test --no-build --configuration ${{ needs.version.outputs.build-config }} --verbosity normal --logger "trx;LogFileName=${{ matrix.os }}-test-results.trx" --collect:"XPlat Code Coverage" --results-directory ./TestResults -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
     
     - name: Test (JavaScript)
       if: github.event.inputs.skip_tests != 'true' && matrix.os == 'ubuntu-latest'
+      shell: bash
       working-directory: RazorX.Framework.Tests/Node
       run: |
-        npm ci
+        npm ci || npm install
         npm run test:coverage
     
     # Upload test results for processing by separate test-reporter workflow
