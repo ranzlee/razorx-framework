@@ -1,7 +1,22 @@
 name: Test Reporter
 
-# This workflow processes test results from the main workflow
-# It runs with elevated permissions to create check runs
+# This workflow processes test results from the main CI/CD workflow
+# It runs with elevated permissions to create check runs on pull requests
+# 
+# WHY THIS IS A SEPARATE WORKFLOW:
+# ================================
+# GitHub Actions security model restricts workflows triggered by pull_request
+# events from forks to read-only permissions, even if explicitly granted write
+# permissions. This prevents untrusted code from forks from compromising the
+# repository. The workflow_run event, however, runs in the context of the 
+# default branch with full permissions, allowing us to:
+# 1. Download artifacts from the PR workflow
+# 2. Create check runs and comments on the PR
+# 3. Maintain security by not running untrusted code
+#
+# This pattern is recommended by GitHub for scenarios requiring elevated
+# permissions for pull requests from forks.
+
 on:
   workflow_run:
     workflows: ["CI/CD Pipeline"]
@@ -9,15 +24,16 @@ on:
       - completed
 
 permissions:
-  checks: write
-  pull-requests: write
-  actions: read
-  contents: read
+  checks: write       # Required to create check runs
+  pull-requests: write # Required to comment on PRs
+  actions: read       # Required to download artifacts
+  contents: read      # Required to access repository
 
 jobs:
   test-reporter:
     name: Process Test Results
     runs-on: ubuntu-latest
+    # Only run if the triggering workflow wasn't cancelled
     if: github.event.workflow_run.conclusion != 'cancelled'
     
     strategy:
@@ -25,18 +41,30 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     
     steps:
-    - name: Download Artifacts
-      uses: dawidd6/action-download-artifact@v3
+    - name: Download Test Artifacts
+      uses: dawidd6/action-download-artifact@v11  # Updated to latest version
       with:
         run_id: ${{ github.event.workflow_run.id }}
         name: test-results-${{ matrix.os }}
         path: test-results
+        # The action will fail if artifacts don't exist, which is expected
+        # when tests are skipped or fail to upload
+        if_no_artifact_found: warn
     
-    # Use EnricoMi/publish-unit-test-result-action instead - it's designed for workflow_run
     - name: Publish Test Results
       uses: EnricoMi/publish-unit-test-result-action@v2
+      # Only run if we successfully downloaded artifacts
+      if: success()
       with:
         check_name: Test Results (${{ matrix.os }})
-        files: test-results/*.trx
+        files: |
+          test-results/*.trx
+          test-results/**/*.xml
+        # Use the commit SHA from the PR, not the merge commit
         commit: ${{ github.event.workflow_run.head_sha }}
+        # Preserve the original event type for proper PR association
         event_name: ${{ github.event.workflow_run.event }}
+        # Report mode for better visibility
+        report_individual_runs: true
+        # Include test details in the check run
+        compare_to_earlier_commit: false
