@@ -480,7 +480,7 @@ jobs:
         echo "notes-file=release-notes.md" >> $GITHUB_OUTPUT
     
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         tag_name: v${{ needs.version.outputs.package-version }}
         name: RazorX.Framework v${{ needs.version.outputs.package-version }}
