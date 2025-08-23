@@ -1,0 +1,96 @@
+version: 2
+updates:
+  # NuGet dependencies for .NET projects
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "ranzlee"
+    labels:
+      - "dependencies"
+      - "nuget"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      microsoft:
+        patterns:
+          - "Microsoft.*"
+          - "System.*"
+      test-dependencies:
+        patterns:
+          - "*Test*"
+          - "MSTest.*"
+          - "coverlet.*"
+    
+  # npm dependencies for TypeScript client
+  - package-ecosystem: "npm"
+    directory: "/RazorX.Framework/Node"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "ranzlee"
+    labels:
+      - "dependencies"
+      - "javascript"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      typescript:
+        patterns:
+          - "typescript"
+          - "@types/*"
+      build-tools:
+        patterns:
+          - "esbuild"
+          - "eslint*"
+    
+  # npm dependencies for test project
+  - package-ecosystem: "npm"
+    directory: "/RazorX.Framework.Tests/Node"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "ranzlee"
+    labels:
+      - "dependencies"
+      - "javascript"
+      - "tests"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      test-tools:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "jsdom"
+          - "@testing-library/*"
+    
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "08:00"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "ranzlee"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

@@ -18,6 +18,7 @@
 
 # Claude
 .claude
+docs
 
 # Package Management
 packages/
