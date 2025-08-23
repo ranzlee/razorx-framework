@@ -25,12 +25,6 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     
     steps:
-    # Checkout is REQUIRED for dorny/test-reporter to work (it uses git commands internally)
-    - name: Checkout
-      uses: actions/checkout@v4
-      with:
-        ref: ${{ github.event.workflow_run.head_branch }}
-    
     - name: Download Artifacts
       uses: dawidd6/action-download-artifact@v3
       with:
@@ -38,10 +32,11 @@ jobs:
         name: test-results-${{ matrix.os }}
         path: test-results
     
+    # Use EnricoMi/publish-unit-test-result-action instead - it's designed for workflow_run
     - name: Publish Test Results
-      uses: dorny/test-reporter@v1
+      uses: EnricoMi/publish-unit-test-result-action@v2
       with:
-        name: Test Results (${{ matrix.os }})
-        path: 'test-results/*.trx'
-        reporter: dotnet-trx
-        fail-on-error: false
+        check_name: Test Results (${{ matrix.os }})
+        files: test-results/*.trx
+        commit: ${{ github.event.workflow_run.head_sha }}
+        event_name: ${{ github.event.workflow_run.event }}
