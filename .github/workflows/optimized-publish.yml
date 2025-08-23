@@ -207,8 +207,8 @@ jobs:
       with:
         name: test-results-${{ matrix.os }}
         path: |
-          **/TestResults/**/*.trx
-          **/TestResults/**/*.xml
+          TestResults/*.trx
+          TestResults/**/*.xml
           RazorX.Framework.Tests/Node/coverage/
         retention-days: 7
     
@@ -218,7 +218,7 @@ jobs:
       uses: dorny/test-reporter@v1
       with:
         name: Test Results (${{ matrix.os }})
-        path: '**/TestResults/**/*.trx'
+        path: 'TestResults/*.trx'
         reporter: dotnet-trx
         fail-on-error: false
 
