@@ -170,6 +170,7 @@ jobs:
           ${{ runner.os }}-build-
     
     - name: Update Version
+      shell: bash
       run: |
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           pwsh -Command "(Get-Content RazorX.Framework/RazorX.Framework.csproj) -replace '<PackageVersion>.*</PackageVersion>', '<PackageVersion>${{ needs.version.outputs.package-version }}</PackageVersion>' | Set-Content RazorX.Framework/RazorX.Framework.csproj"
