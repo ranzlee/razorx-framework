@@ -1,0 +1,243 @@
+name: Deploy to NuGet.org (Manual)
+
+# Manual workflow for controlled NuGet.org deployments during beta phase
+# This provides additional safety and control over what gets published
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version to deploy (e.g., 1.0.0-beta.1)'
+        required: true
+        type: string
+      confirm_deployment:
+        description: 'Type "DEPLOY" to confirm deployment to NuGet.org'
+        required: true
+        type: string
+      dry_run:
+        description: 'Perform a dry run (no actual deployment)'
+        required: false
+        default: true
+        type: boolean
+
+env:
+  DOTNET_VERSION: '9.0.x'
+  PACKAGE_OUTPUT_DIR: ${{ github.workspace }}/packages
+
+jobs:
+  deploy-nuget-manual:
+    name: Deploy to NuGet.org
+    runs-on: ubuntu-latest
+    environment:
+      name: nuget-org-production
+      url: https://www.nuget.org/packages/RazorX.Framework/${{ github.event.inputs.version }}
+    
+    steps:
+    - name: Validate Inputs
+      run: |
+        if [[ "${{ github.event.inputs.confirm_deployment }}" != "DEPLOY" ]]; then
+          echo "❌ Deployment not confirmed. You must type 'DEPLOY' to proceed."
+          exit 1
+        fi
+        
+        # Validate version format
+        VERSION="${{ github.event.inputs.version }}"
+        if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9\.\-]+)?(\+[a-zA-Z0-9\.\-]+)?$ ]]; then
+          echo "❌ Invalid version format: $VERSION"
+          echo "Expected format: X.Y.Z[-prerelease][+metadata]"
+          exit 1
+        fi
+        
+        echo "✅ Deployment confirmed for version: $VERSION"
+        echo "🔵 Dry run mode: ${{ github.event.inputs.dry_run }}"
+    
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0
+        fetch-tags: true
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: RazorX.Framework/Node/package-lock.json
+    
+    - name: Update Version in Project
+      run: |
+        sed -i "s|<PackageVersion>.*</PackageVersion>|<PackageVersion>${{ github.event.inputs.version }}</PackageVersion>|" RazorX.Framework/RazorX.Framework.csproj
+        
+        echo "📋 Updated project file:"
+        grep PackageVersion RazorX.Framework/RazorX.Framework.csproj
+    
+    - name: Build and Pack
+      run: |
+        # Install Node dependencies
+        cd RazorX.Framework/Node
+        npm ci || npm install
+        cd ../..
+        
+        # Build and pack
+        dotnet restore --locked-mode
+        dotnet build --configuration Release --no-restore -p:ContinuousIntegrationBuild=true
+        
+        mkdir -p ${{ env.PACKAGE_OUTPUT_DIR }}
+        dotnet pack RazorX.Framework/RazorX.Framework.csproj \
+          --configuration Release \
+          --no-build \
+          --output ${{ env.PACKAGE_OUTPUT_DIR }} \
+          --include-symbols \
+          --include-source \
+          -p:PackageVersion=${{ github.event.inputs.version }} \
+          -p:SymbolPackageFormat=snupkg
+    
+    - name: Validate Package
+      run: |
+        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols." | head -1)
+        SYMBOL_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.snupkg" | head -1)
+        
+        echo "📦 Package Details:"
+        echo "  Main: $(basename $PACKAGE_FILE)"
+        echo "  Size: $(du -h $PACKAGE_FILE | cut -f1)"
+        if [[ -f "$SYMBOL_FILE" ]]; then
+          echo "  Symbols: $(basename $SYMBOL_FILE)"
+          echo "  Symbols Size: $(du -h $SYMBOL_FILE | cut -f1)"
+        fi
+        
+        # Extract and validate package structure
+        mkdir -p validate-extract
+        cd validate-extract
+        unzip -q "$PACKAGE_FILE"
+        
+        echo ""
+        echo "📁 Package Contents:"
+        find . -type f -name "*.dll" -o -name "*.js" -o -name "*.targets" | head -20
+        
+        # Check required files
+        REQUIRED_FILES=(
+          "contentFiles/any/any/wwwroot/js/razorx.js"
+          "build/RazorX.Framework.targets"
+          "lib/net9.0/RazorX.Framework.dll"
+        )
+        
+        MISSING_FILES=()
+        for file in "${REQUIRED_FILES[@]}"; do
+          if [[ ! -f "$file" ]]; then
+            MISSING_FILES+=("$file")
+          fi
+        done
+        
+        if [ ${#MISSING_FILES[@]} -gt 0 ]; then
+          echo "❌ Missing required files:"
+          printf '%s\n' "${MISSING_FILES[@]}"
+          exit 1
+        fi
+        
+        echo "✅ All required files present"
+        cd ..
+    
+    - name: Check Existing Version
+      if: github.event.inputs.dry_run == 'false'
+      env:
+        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      run: |
+        # Check if version already exists on NuGet.org
+        VERSION="${{ github.event.inputs.version }}"
+        RESPONSE=$(curl -s "https://api.nuget.org/v3-flatcontainer/razorx.framework/$VERSION/razorx.framework.$VERSION.nupkg" -o /dev/null -w "%{http_code}")
+        
+        if [ "$RESPONSE" = "200" ]; then
+          echo "⚠️ Version $VERSION already exists on NuGet.org"
+          echo "NuGet.org does not allow overwriting existing versions."
+          echo "Please use a different version number."
+          exit 1
+        else
+          echo "✅ Version $VERSION is available for publishing"
+        fi
+    
+    - name: Deploy to NuGet.org
+      if: github.event.inputs.dry_run == 'false'
+      env:
+        NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+      run: |
+        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols." | head -1)
+        SYMBOL_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.snupkg" | head -1)
+        
+        echo "🚀 Publishing to NuGet.org..."
+        echo "  Version: ${{ github.event.inputs.version }}"
+        echo "  Package: $(basename $PACKAGE_FILE)"
+        
+        # Publish main package
+        dotnet nuget push "$PACKAGE_FILE" \
+          --api-key $NUGET_API_KEY \
+          --source https://api.nuget.org/v3/index.json \
+          --skip-duplicate \
+          --no-symbols
+        
+        # Publish symbols if available
+        if [[ -f "$SYMBOL_FILE" ]]; then
+          echo "🔍 Publishing symbols..."
+          dotnet nuget push "$SYMBOL_FILE" \
+            --api-key $NUGET_API_KEY \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+        fi
+        
+        echo "✅ Package published successfully!"
+    
+    - name: Dry Run Summary
+      if: github.event.inputs.dry_run == 'true'
+      run: |
+        echo "## 🧪 Dry Run Complete" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "This was a dry run. No packages were published." >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Package Details" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: \`${{ github.event.inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Configuration**: Release" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "To perform actual deployment, run this workflow again with:" >> $GITHUB_STEP_SUMMARY
+        echo "- Dry run: **false**" >> $GITHUB_STEP_SUMMARY
+        echo "- Confirmation: **DEPLOY**" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Deployment Summary
+      if: github.event.inputs.dry_run == 'false'
+      run: |
+        echo "## 📦 NuGet.org Deployment Complete" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Package Information" >> $GITHUB_STEP_SUMMARY
+        echo "- **Package**: RazorX.Framework" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: \`${{ github.event.inputs.version }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **URL**: [View on NuGet.org](https://www.nuget.org/packages/RazorX.Framework/${{ github.event.inputs.version }})" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Installation" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        echo "dotnet add package RazorX.Framework --version ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+        echo "1. Verify package on [NuGet.org](https://www.nuget.org/packages/RazorX.Framework/${{ github.event.inputs.version }})" >> $GITHUB_STEP_SUMMARY
+        echo "2. Test installation in a clean project" >> $GITHUB_STEP_SUMMARY
+        echo "3. Create a GitHub release if needed" >> $GITHUB_STEP_SUMMARY
+        echo "4. Update documentation with new version" >> $GITHUB_STEP_SUMMARY
+    
+    - name: Create Git Tag
+      if: github.event.inputs.dry_run == 'false' && success()
+      run: |
+        TAG="v${{ github.event.inputs.version }}"
+        
+        # Check if tag exists
+        if git rev-parse "$TAG" >/dev/null 2>&1; then
+          echo "ℹ️ Tag $TAG already exists"
+        else
+          echo "🏷️ Creating tag $TAG"
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git tag -a "$TAG" -m "Release ${{ github.event.inputs.version }} to NuGet.org"
+          git push origin "$TAG"
+        fi
