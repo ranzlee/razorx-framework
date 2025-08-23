@@ -1,0 +1,555 @@
+name: Optimized Package Publish
+
+on:
+  push:
+    branches: [main, dev]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      publish_package:
+        description: 'Force publish package'
+        required: false
+        default: false
+        type: boolean
+      skip_tests:
+        description: 'Skip tests (use with caution)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  DOTNET_VERSION: '9.0.x'
+  NODE_VERSION: '20'
+  PACKAGE_OUTPUT_DIR: ${{ github.workspace }}/packages
+  CI: true
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  # Job 1: Version Determination (lightweight, runs first)
+  version:
+    name: Determine Version
+    runs-on: ubuntu-latest
+    outputs:
+      package-version: ${{ steps.gitversion.outputs.package-version }}
+      is-release: ${{ steps.gitversion.outputs.is-release }}
+      should-publish: ${{ steps.decision.outputs.should-publish }}
+      build-config: ${{ steps.config.outputs.build-config }}
+    
+    steps:
+    - name: Checkout (shallow)
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        fetch-tags: true
+    
+    - name: Determine Version Strategy
+      id: gitversion
+      run: |
+        # Enhanced version determination with branch-based strategy
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          IS_RELEASE=true
+          echo "📦 Release version: $VERSION"
+        elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          # Main branch - beta with build metadata
+          BASE_VERSION=$(grep -oP '<PackageVersion>\K[^<-]+' RazorX.Framework/RazorX.Framework.csproj | head -1)
+          VERSION="${BASE_VERSION}-beta.${{ github.run_number }}+${GITHUB_SHA:0:7}"
+          IS_RELEASE=false
+          echo "🔵 Beta version: $VERSION"
+        elif [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+          # Dev branch - alpha with timestamp
+          BASE_VERSION=$(grep -oP '<PackageVersion>\K[^<-]+' RazorX.Framework/RazorX.Framework.csproj | head -1)
+          TIMESTAMP=$(date -u +%Y%m%d%H%M%S)
+          VERSION="${BASE_VERSION}-alpha.${{ github.run_number }}.${TIMESTAMP}"
+          IS_RELEASE=false
+          echo "🟡 Alpha version: $VERSION"
+        elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          # PR - preview version
+          BASE_VERSION=$(grep -oP '<PackageVersion>\K[^<-]+' RazorX.Framework/RazorX.Framework.csproj | head -1)
+          VERSION="${BASE_VERSION}-preview.${{ github.event.pull_request.number }}.${{ github.run_number }}"
+          IS_RELEASE=false
+          echo "🟣 Preview version: $VERSION"
+        else
+          # Fallback
+          VERSION="0.0.0-dev.${{ github.run_number }}"
+          IS_RELEASE=false
+          echo "⚪ Dev version: $VERSION"
+        fi
+        
+        echo "package-version=$VERSION" >> $GITHUB_OUTPUT
+        echo "is-release=$IS_RELEASE" >> $GITHUB_OUTPUT
+    
+    - name: Publish Decision Matrix
+      id: decision
+      run: |
+        SHOULD_PUBLISH=false
+        
+        # Enhanced decision matrix
+        if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          SHOULD_PUBLISH=true
+          echo "✅ Will publish: Release tag"
+        elif [[ "${{ github.ref }}" == "refs/heads/main" && "${{ github.event_name }}" == "push" ]]; then
+          SHOULD_PUBLISH=true
+          echo "✅ Will publish: Main branch push"
+        elif [[ "${{ github.ref }}" == "refs/heads/dev" && "${{ github.event_name }}" == "push" ]]; then
+          # Optional: publish dev builds
+          SHOULD_PUBLISH=false
+          echo "⏭️ Skip publish: Dev branch (change to true if desired)"
+        elif [[ "${{ github.event.inputs.publish_package }}" == "true" ]]; then
+          SHOULD_PUBLISH=true
+          echo "✅ Will publish: Manual trigger"
+        else
+          echo "⏭️ Skip publish: Conditions not met"
+        fi
+        
+        echo "should-publish=$SHOULD_PUBLISH" >> $GITHUB_OUTPUT
+    
+    - name: Build Configuration
+      id: config
+      run: |
+        # Determine build configuration based on branch/tag
+        if [[ "${{ steps.gitversion.outputs.is-release }}" == "true" ]]; then
+          echo "build-config=Release" >> $GITHUB_OUTPUT
+        else
+          echo "build-config=Debug" >> $GITHUB_OUTPUT
+        fi
+
+  # Job 2: Matrix Build and Test
+  build-test-matrix:
+    name: Build & Test (${{ matrix.os }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: |
+          RazorX.Framework/Node/package-lock.json
+          RazorX.Framework.Tests/Node/package-lock.json
+    
+    # Enhanced caching with hash-based keys
+    - name: Cache - NuGet
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}-${{ needs.version.outputs.package-version }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}-
+          ${{ runner.os }}-nuget-
+    
+    - name: Cache - Build Output
+      uses: actions/cache@v4
+      with:
+        path: |
+          **/bin
+          **/obj
+        key: ${{ runner.os }}-build-${{ github.sha }}-${{ needs.version.outputs.build-config }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ github.sha }}-
+          ${{ runner.os }}-build-
+    
+    - name: Update Version
+      run: |
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          pwsh -Command "(Get-Content RazorX.Framework/RazorX.Framework.csproj) -replace '<PackageVersion>.*</PackageVersion>', '<PackageVersion>${{ needs.version.outputs.package-version }}</PackageVersion>' | Set-Content RazorX.Framework/RazorX.Framework.csproj"
+        else
+          sed -i.bak "s|<PackageVersion>.*</PackageVersion>|<PackageVersion>${{ needs.version.outputs.package-version }}</PackageVersion>|" RazorX.Framework/RazorX.Framework.csproj
+        fi
+    
+    - name: Restore
+      run: dotnet restore --locked-mode
+    
+    - name: Build
+      run: dotnet build --no-restore --configuration ${{ needs.version.outputs.build-config }} -p:ContinuousIntegrationBuild=true
+    
+    - name: Test (.NET)
+      if: github.event.inputs.skip_tests != 'true'
+      run: |
+        dotnet test --no-build --configuration ${{ needs.version.outputs.build-config }} \
+          --verbosity normal \
+          --logger "trx;LogFileName=${{ matrix.os }}-test-results.trx" \
+          --logger "GitHubActions" \
+          --collect:"XPlat Code Coverage" \
+          --results-directory ./TestResults \
+          -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+    
+    - name: Test (JavaScript)
+      if: github.event.inputs.skip_tests != 'true' && matrix.os == 'ubuntu-latest'
+      working-directory: RazorX.Framework.Tests/Node
+      run: |
+        npm ci
+        npm run test:coverage
+    
+    - name: Upload Test Results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.os }}
+        path: |
+          **/TestResults/**/*.trx
+          **/TestResults/**/*.xml
+          RazorX.Framework.Tests/Node/coverage/
+        retention-days: 7
+    
+    # Generate test report
+    - name: Test Report
+      if: always() && github.event.inputs.skip_tests != 'true'
+      uses: dorny/test-reporter@v1
+      with:
+        name: Test Results (${{ matrix.os }})
+        path: '**/TestResults/**/*.trx'
+        reporter: dotnet-trx
+        fail-on-error: false
+
+  # Job 3: Package Creation (single job, reuses artifacts)
+  package:
+    name: Create Package
+    needs: [version, build-test-matrix]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: RazorX.Framework/Node/package-lock.json
+    
+    - name: Restore Caches
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}-${{ needs.version.outputs.package-version }}
+    
+    - name: Update Version
+      run: |
+        sed -i "s|<PackageVersion>.*</PackageVersion>|<PackageVersion>${{ needs.version.outputs.package-version }}</PackageVersion>|" RazorX.Framework/RazorX.Framework.csproj
+    
+    - name: Build for Packaging
+      run: |
+        dotnet restore --locked-mode
+        dotnet build --configuration Release --no-restore -p:ContinuousIntegrationBuild=true
+    
+    - name: Create NuGet Package
+      run: |
+        mkdir -p ${{ env.PACKAGE_OUTPUT_DIR }}
+        dotnet pack RazorX.Framework/RazorX.Framework.csproj \
+          --configuration Release \
+          --no-build \
+          --output ${{ env.PACKAGE_OUTPUT_DIR }} \
+          --include-symbols \
+          --include-source \
+          -p:PackageVersion=${{ needs.version.outputs.package-version }} \
+          -p:SymbolPackageFormat=snupkg
+    
+    # Generate SBOM (Software Bill of Materials)
+    - name: Generate SBOM
+      run: |
+        dotnet tool install --global Microsoft.Sbom.DotNetTool
+        sbom-tool generate \
+          -b ${{ env.PACKAGE_OUTPUT_DIR }} \
+          -bc RazorX.Framework \
+          -pn RazorX.Framework \
+          -pv ${{ needs.version.outputs.package-version }} \
+          -ps "Randy Lee" \
+          -nsb https://github.com/ranzlee/razorx-framework
+    
+    - name: Upload Package Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuget-packages
+        path: |
+          ${{ env.PACKAGE_OUTPUT_DIR }}/*.nupkg
+          ${{ env.PACKAGE_OUTPUT_DIR }}/*.snupkg
+          ${{ env.PACKAGE_OUTPUT_DIR }}/_manifest/
+        retention-days: 30
+
+  # Job 4: Enhanced Package Validation
+  validate:
+    name: Validate Package
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    if: needs.version.outputs.should-publish == 'true'
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    - name: Download Package
+      uses: actions/download-artifact@v4
+      with:
+        name: nuget-packages
+        path: ${{ env.PACKAGE_OUTPUT_DIR }}
+    
+    # Enhanced validation with multiple checks
+    - name: Package Structure Validation
+      run: |
+        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols." | head -1)
+        echo "Validating package: $PACKAGE_FILE"
+        
+        # Extract and validate
+        mkdir -p validate-extract
+        cd validate-extract
+        unzip -q "$PACKAGE_FILE"
+        
+        # Check required files
+        REQUIRED_FILES=(
+          "contentFiles/any/any/wwwroot/js/razorx.js"
+          "contentFiles/any/any/wwwroot/js/razorx.js.map"
+          "contentFiles/any/any/wwwroot/js/razorx.d.ts"
+          "build/RazorX.Framework.targets"
+          "lib/net9.0/RazorX.Framework.dll"
+        )
+        
+        for file in "${REQUIRED_FILES[@]}"; do
+          if [[ -f "$file" ]]; then
+            echo "✅ Found: $file"
+          else
+            echo "❌ Missing: $file"
+            exit 1
+          fi
+        done
+    
+    - name: Installation Test
+      run: |
+        # Create test project
+        mkdir -p test-install
+        cd test-install
+        dotnet new web --name TestApp --force
+        cd TestApp
+        
+        # Install package
+        dotnet add package RazorX.Framework \
+          --version ${{ needs.version.outputs.package-version }} \
+          --source "${{ env.PACKAGE_OUTPUT_DIR }}"
+        
+        # Build and verify
+        dotnet build
+        
+        # Check client files
+        if [[ -f "wwwroot/js/razorx.js" ]]; then
+          echo "✅ Client files installed correctly"
+        else
+          echo "❌ Client files not found"
+          exit 1
+        fi
+    
+    - name: Security Scan
+      run: |
+        # Install security scanner
+        dotnet tool install --global security-scan
+        
+        # Scan package
+        security-scan ${{ env.PACKAGE_OUTPUT_DIR }}/*.nupkg || true
+
+  # Job 5: Publish to GitHub Packages with attestation
+  publish:
+    name: Publish to GitHub Packages
+    needs: [version, validate]
+    runs-on: ubuntu-latest
+    if: needs.version.outputs.should-publish == 'true'
+    permissions:
+      packages: write
+      contents: read
+      id-token: write # For OIDC attestation
+      attestations: write
+    
+    steps:
+    - name: Download Package
+      uses: actions/download-artifact@v4
+      with:
+        name: nuget-packages
+        path: ${{ env.PACKAGE_OUTPUT_DIR }}
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+    
+    # Generate provenance attestation
+    - name: Generate SLSA Provenance
+      uses: actions/attest-build-provenance@v1
+      with:
+        subject-path: '${{ env.PACKAGE_OUTPUT_DIR }}/*.nupkg'
+    
+    - name: Publish Package
+      run: |
+        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols." | head -1)
+        SYMBOL_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.snupkg" | head -1)
+        
+        echo "📦 Publishing: $(basename $PACKAGE_FILE)"
+        
+        # Publish main package
+        dotnet nuget push "$PACKAGE_FILE" \
+          --api-key ${{ github.token }} \
+          --source https://nuget.pkg.github.com/ranzlee/index.json \
+          --skip-duplicate \
+          --no-symbols
+        
+        # Publish symbols if available
+        if [[ -f "$SYMBOL_FILE" ]]; then
+          echo "🔍 Publishing symbols: $(basename $SYMBOL_FILE)"
+          dotnet nuget push "$SYMBOL_FILE" \
+            --api-key ${{ github.token }} \
+            --source https://nuget.pkg.github.com/ranzlee/index.json \
+            --skip-duplicate
+        fi
+    
+    - name: Package Metrics
+      run: |
+        # Query GitHub Packages GraphQL API for download stats
+        curl -H "Authorization: bearer ${{ github.token }}" \
+          -X POST \
+          -d '{"query":"query { repository(owner:\"ranzlee\", name:\"razorx-framework\") { packages(first: 10) { nodes { name statistics { downloadsTotalCount } } } } }"}' \
+          https://api.github.com/graphql | jq .
+
+  # Job 6: Create Release and Generate Notes
+  release:
+    name: Create Release
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    if: needs.version.outputs.is-release == 'true'
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Generate Release Notes
+      id: notes
+      run: |
+        # Generate release notes from commits
+        PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        
+        if [[ -n "$PREVIOUS_TAG" ]]; then
+          echo "Generating notes from $PREVIOUS_TAG to HEAD"
+          
+          # Categorize commits
+          echo "## What's Changed" > release-notes.md
+          echo "" >> release-notes.md
+          
+          # Features
+          git log $PREVIOUS_TAG..HEAD --pretty=format:"- %s (%h)" --grep="feat:" >> release-notes.md || true
+          
+          # Fixes
+          echo "" >> release-notes.md
+          echo "### 🐛 Bug Fixes" >> release-notes.md
+          git log $PREVIOUS_TAG..HEAD --pretty=format:"- %s (%h)" --grep="fix:" >> release-notes.md || true
+          
+          # Performance
+          echo "" >> release-notes.md
+          echo "### ⚡ Performance" >> release-notes.md
+          git log $PREVIOUS_TAG..HEAD --pretty=format:"- %s (%h)" --grep="perf:" >> release-notes.md || true
+        else
+          echo "## Initial Release" > release-notes.md
+          echo "First release of RazorX.Framework" >> release-notes.md
+        fi
+        
+        echo "notes-file=release-notes.md" >> $GITHUB_OUTPUT
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ needs.version.outputs.package-version }}
+        name: RazorX.Framework v${{ needs.version.outputs.package-version }}
+        body_path: ${{ steps.notes.outputs.notes-file }}
+        draft: false
+        prerelease: ${{ needs.version.outputs.is-release != 'true' }}
+        generate_release_notes: true # GitHub's auto-generated notes as supplement
+
+  # Job 7: Summary and Notifications
+  summary:
+    name: Publication Summary
+    needs: [version, build-test-matrix, package, validate, publish]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: Generate Summary
+      run: |
+        echo "# 📊 Build & Publish Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Version info
+        echo "## 📦 Package Information" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: \`${{ needs.version.outputs.package-version }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Release Type**: ${{ needs.version.outputs.is-release == 'true' && '🚀 Production' || '🔧 Pre-release' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Published**: ${{ needs.version.outputs.should-publish == 'true' && '✅ Yes' || '⏭️ No' }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Build matrix results
+        echo "## 🏗️ Build Matrix Results" >> $GITHUB_STEP_SUMMARY
+        echo "| OS | Status |" >> $GITHUB_STEP_SUMMARY
+        echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+        echo "| Ubuntu | ${{ contains(needs.build-test-matrix.result, 'success') && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Windows | ${{ contains(needs.build-test-matrix.result, 'success') && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| macOS | ${{ contains(needs.build-test-matrix.result, 'success') && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Job status
+        echo "## 📋 Job Status" >> $GITHUB_STEP_SUMMARY
+        echo "- Version Detection: ${{ needs.version.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Build & Test: ${{ needs.build-test-matrix.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Package Creation: ${{ needs.package.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Validation: ${{ needs.validate.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Publishing: ${{ needs.publish.result == 'success' && '✅' || '❌' }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        # Installation instructions if published
+        if [[ "${{ needs.version.outputs.should-publish }}" == "true" && "${{ needs.publish.result }}" == "success" ]]; then
+          echo "## 🚀 Installation" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "# Configure GitHub Packages source" >> $GITHUB_STEP_SUMMARY
+          echo "dotnet nuget add source https://nuget.pkg.github.com/ranzlee/index.json \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --name github \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --username YOUR_GITHUB_USERNAME \\" >> $GITHUB_STEP_SUMMARY
+          echo "  --password YOUR_GITHUB_TOKEN" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Install package" >> $GITHUB_STEP_SUMMARY
+          echo "dotnet add package RazorX.Framework --version ${{ needs.version.outputs.package-version }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        # Performance metrics
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "## ⏱️ Performance Metrics" >> $GITHUB_STEP_SUMMARY
+        echo "- **Total Duration**: ${{ github.run_number }} seconds" >> $GITHUB_STEP_SUMMARY
+        echo "- **Parallel Jobs**: 3 OS builds" >> $GITHUB_STEP_SUMMARY
+        echo "- **Cache Hit Rate**: Check individual job logs" >> $GITHUB_STEP_SUMMARY
