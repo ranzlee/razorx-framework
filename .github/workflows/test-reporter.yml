@@ -25,6 +25,12 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     
     steps:
+    # Checkout is REQUIRED for dorny/test-reporter to work (it uses git commands internally)
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.workflow_run.head_branch }}
+    
     - name: Download Artifacts
       uses: dawidd6/action-download-artifact@v3
       with:
