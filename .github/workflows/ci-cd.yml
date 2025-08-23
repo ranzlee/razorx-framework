@@ -42,7 +42,7 @@ jobs:
     
     steps:
     - name: Checkout (shallow)
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0
         fetch-tags: true
@@ -132,7 +132,7 @@ jobs:
     
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -225,7 +225,7 @@ jobs:
     
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -297,7 +297,7 @@ jobs:
     
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
@@ -443,7 +443,7 @@ jobs:
     
     steps:
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 0
     
