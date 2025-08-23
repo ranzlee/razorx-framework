@@ -189,7 +189,6 @@ jobs:
         dotnet test --no-build --configuration ${{ needs.version.outputs.build-config }} \
           --verbosity normal \
           --logger "trx;LogFileName=${{ matrix.os }}-test-results.trx" \
-          --logger "GitHubActions" \
           --collect:"XPlat Code Coverage" \
           --results-directory ./TestResults \
           -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
