@@ -4,7 +4,7 @@ name: Test Reporter
 # It runs with elevated permissions to create check runs
 on:
   workflow_run:
-    workflows: ["Optimized Package Publish"]
+    workflows: ["CI/CD Pipeline"]
     types:
       - completed
 
