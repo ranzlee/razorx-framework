@@ -178,42 +178,30 @@ jobs:
     
     - name: Test Package Installation
       run: |
-        # Create a test project to verify package installation
+        # Create test project
         mkdir -p test-install
         dotnet new web --name TestApp --output test-install/TestApp --force
-        
-        # Store absolute package source path
-        PACKAGE_SOURCE_PATH="${{ env.PACKAGE_OUTPUT_DIR }}"
-        echo "Package source path: $PACKAGE_SOURCE_PATH"
-        
-        # Change to test project directory first
         cd test-install/TestApp
         
-        # Add our package source from within the test project directory
-        echo "Adding package source from test project directory..."
-        dotnet nuget add source "$PACKAGE_SOURCE_PATH" --name local-packages
+        # Use absolute path directly - NO named source
+        PACKAGE_SOURCE_PATH="${{ env.PACKAGE_OUTPUT_DIR }}"
+        echo "Installing from: $PACKAGE_SOURCE_PATH"
         
-        # Install package
-        echo "Installing package RazorX.Framework version ${{ needs.build-and-test.outputs.package-version }}"
-        dotnet add package RazorX.Framework --version ${{ needs.build-and-test.outputs.package-version }} --source local-packages
+        # Direct installation with absolute path
+        dotnet add package RazorX.Framework \
+          --version ${{ needs.build-and-test.outputs.package-version }} \
+          --source "$PACKAGE_SOURCE_PATH" \
+          --source https://api.nuget.org/v3/index.json
         
-        # Verify the package was installed and files were copied
-        echo "Building test project..."
         dotnet build
         
-        # Check if client files were copied by MSBuild targets
         if [[ -f "wwwroot/js/razorx.js" ]]; then
-          echo "✅ Package installation successful - client files copied correctly"
-          echo "Files found:"
+          echo "✅ SUCCESS - Package installation and file copying works!"
           ls -la wwwroot/js/razorx.*
         else
-          echo "❌ Package installation failed - client files not found"
-          echo "Contents of wwwroot (if exists):"
-          if [[ -d "wwwroot" ]]; then
-            find wwwroot -name "*.js" -o -name "*.map" -o -name "*.d.ts" || echo "No client files found"
-          else
-            echo "wwwroot directory does not exist"
-          fi
+          echo "❌ FAILED - Client files not found"
+          echo "Directory contents:"
+          find . -name "*.js" -o -name "*.map" -o -name "*.d.ts" || echo "No client files found anywhere"
           exit 1
         fi
 
