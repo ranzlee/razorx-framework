@@ -190,8 +190,7 @@ jobs:
         # Direct installation with absolute path
         dotnet add package RazorX.Framework \
           --version ${{ needs.build-and-test.outputs.package-version }} \
-          --source "$PACKAGE_SOURCE_PATH" \
-          --source https://api.nuget.org/v3/index.json
+          --source "$PACKAGE_SOURCE_PATH"
         
         dotnet build
         
