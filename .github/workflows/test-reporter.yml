@@ -25,21 +25,18 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     
     steps:
-    - name: Download Test Results
-      uses: actions/download-artifact@v4
+    - name: Download Artifacts
+      uses: dawidd6/action-download-artifact@v3
       with:
+        run_id: ${{ github.event.workflow_run.id }}
         name: test-results-${{ matrix.os }}
-        path: test-results/
-        run-id: ${{ github.event.workflow_run.id }}
-        github-token: ${{ github.token }}
+        path: test-results
     
+    # Use EnricoMi/publish-unit-test-result-action instead - it's designed for workflow_run
     - name: Publish Test Results
-      uses: dorny/test-reporter@v1
-      if: always()
+      uses: EnricoMi/publish-unit-test-result-action@v2
       with:
-        name: Test Results (${{ matrix.os }})
-        path: 'test-results/*.trx'
-        reporter: dotnet-trx
-        fail-on-error: false
-        # Use the SHA from the workflow that triggered this one
-        commit-sha: ${{ github.event.workflow_run.head_sha }}
+        check_name: Test Results (${{ matrix.os }})
+        files: test-results/*.trx
+        commit: ${{ github.event.workflow_run.head_sha }}
+        event_name: ${{ github.event.workflow_run.event }}
