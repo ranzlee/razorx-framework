@@ -1,0 +1,172 @@
+name: Build, Test & Publish
+
+on:
+  push:
+    branches: [ main, dev ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  DOTNET_VERSION: '9.0.x'
+  NODE_VERSION: '20'
+  CI: true  # Used by MSBuild targets for deterministic builds
+
+jobs:
+  build-test:
+    name: Build & Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+      fail-fast: false
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    # Critical: Install npm dependencies BEFORE dotnet build
+    # The MSBuild targets check for node_modules existence
+    - name: Install RazorX.Framework npm dependencies
+      working-directory: RazorX.Framework/Node
+      run: npm ci || npm install
+      shell: bash
+
+    - name: Restore .NET dependencies
+      run: dotnet restore
+
+    # Build solution - this will also run npm build via MSBuild targets
+    - name: Build solution
+      run: dotnet build --configuration Release --no-restore
+
+    # Prepare test project npm dependencies
+    - name: Install RazorX.Framework.Tests npm dependencies
+      working-directory: RazorX.Framework.Tests/Node
+      run: npm ci || npm install
+      shell: bash
+
+    # Run .NET tests with cross-platform compatible single-line command
+    - name: Run .NET tests
+      run: dotnet test --configuration Release --no-build --verbosity normal --logger trx --logger "console;verbosity=detailed" --collect:"XPlat Code Coverage"
+
+    # Run JavaScript tests
+    - name: Run JavaScript tests
+      working-directory: RazorX.Framework.Tests/Node
+      run: npm test
+      shell: bash
+
+    # Upload test results for all platforms
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ matrix.os }}
+        path: |
+          **/*.trx
+          **/TestResults/**/*.xml
+          **/TestResults/**/*.coverage
+          RazorX.Framework.Tests/Node/coverage/**
+
+    # Pack NuGet package only on Linux (for efficiency)
+    - name: Pack NuGet package
+      if: matrix.os == 'ubuntu-latest'
+      run: dotnet pack RazorX.Framework/RazorX.Framework.csproj --configuration Release --no-build --output ./artifacts
+
+    # Upload NuGet package as artifact
+    - name: Upload NuGet package
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: nuget-package
+        path: ./artifacts/*.nupkg
+
+  publish:
+    name: Publish to NuGet
+    needs: build-test
+    runs-on: ubuntu-latest
+    # Only publish on tag pushes (version releases)
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Download NuGet package
+      uses: actions/download-artifact@v4
+      with:
+        name: nuget-package
+        path: ./artifacts
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    - name: Publish to NuGet.org
+      run: |
+        dotnet nuget push ./artifacts/*.nupkg \
+          --api-key ${{ secrets.NUGET_API_KEY }} \
+          --source https://api.nuget.org/v3/index.json \
+          --skip-duplicate
+      env:
+        DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+  create-release:
+    name: Create GitHub Release
+    needs: build-test
+    runs-on: ubuntu-latest
+    # Only create release on tag pushes
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Full history for release notes
+
+    - name: Download NuGet package
+      uses: actions/download-artifact@v4
+      with:
+        name: nuget-package
+        path: ./artifacts
+
+    - name: Generate Release Notes
+      id: release_notes
+      run: |
+        # Extract version from tag
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        
+        # Determine if prerelease
+        if [[ "$VERSION" == *"-"* ]]; then
+          echo "prerelease=true" >> $GITHUB_OUTPUT
+        else
+          echo "prerelease=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ./artifacts/*.nupkg
+        generate_release_notes: true
+        prerelease: ${{ steps.release_notes.outputs.prerelease }}
+        name: Release v${{ steps.release_notes.outputs.version }}
+        body: |
+          ## RazorX.Framework v${{ steps.release_notes.outputs.version }}
+          
+          ### Installation
+          ```bash
+          dotnet add package RazorX.Framework --version ${{ steps.release_notes.outputs.version }}
+          ```
+          
+          ### What's Changed
+          See the auto-generated release notes below for a complete list of changes.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
