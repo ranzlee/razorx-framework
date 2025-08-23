@@ -200,6 +200,9 @@ jobs:
         npm ci
         npm run test:coverage
     
+    # Upload test results for processing by separate test-reporter workflow
+    # Note: Test reporting moved to separate workflow due to permission restrictions
+    # on pull requests from forks. See .github/workflows/test-reporter.yml
     - name: Upload Test Results
       if: always()
       uses: actions/upload-artifact@v4
@@ -210,16 +213,6 @@ jobs:
           TestResults/**/*.xml
           RazorX.Framework.Tests/Node/coverage/
         retention-days: 7
-    
-    # Generate test report
-    - name: Test Report
-      if: always() && github.event.inputs.skip_tests != 'true'
-      uses: dorny/test-reporter@v1
-      with:
-        name: Test Results (${{ matrix.os }})
-        path: 'TestResults/*.trx'
-        reporter: dotnet-trx
-        fail-on-error: false
 
   # Job 3: Package Creation (single job, reuses artifacts)
   package:
