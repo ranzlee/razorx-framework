@@ -26,6 +26,7 @@ packages/
 *.snupkg
 package-validation-report.txt
 temp-validation/
+TestResults
 
 # NuGet
 *.nuget.props

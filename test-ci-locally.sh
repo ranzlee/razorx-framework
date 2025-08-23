@@ -57,7 +57,7 @@ echo ""
 
 # Run .NET tests
 echo "Running .NET tests..."
-dotnet test --configuration Release --no-build --verbosity normal
+dotnet test --configuration Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage" --results-directory ./TestResults
 echo ""
 
 # Run JavaScript tests
