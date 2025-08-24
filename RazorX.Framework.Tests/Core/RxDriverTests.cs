@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
 using RazorX.Framework.Tests.Mocks;
 
 namespace RazorX.Framework.Tests.Core;
@@ -516,7 +517,12 @@ public class RxDriverTests {
 
         // Assert
         Assert.IsNotNull(result);
-        // Should return NoContent when no fragments are added
+        Assert.IsInstanceOfType(result, typeof(NoContent));
+        
+        // Verify that rx-merge header is still present even with no content
+        Assert.IsTrue(_httpContext.Response.Headers.ContainsKey("rx-merge"));
+        var mergeHeader = _httpContext.Response.Headers["rx-merge"].ToString();
+        Assert.AreEqual("[]", mergeHeader);
     }
 
     [TestMethod]

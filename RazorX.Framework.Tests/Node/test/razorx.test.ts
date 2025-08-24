@@ -729,6 +729,9 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Assert
       const fetchCall = mockFetch.mock.calls[0]
+      if (!fetchCall) {
+        throw new Error('Expected fetch to be called')
+      }
       const url = fetchCall[0] as string
       expect(url).toContain('key1=value1')
       expect(url).toContain('key2=value2')
@@ -1005,6 +1008,201 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Assert
       expect(sessionStorage.removeItem).toHaveBeenCalledWith('temp-data')
+    })
+
+    test('handles 204 No Content response without rx-merge header', async () => {
+      // Arrange
+      const btnId = getUniqueId('no-content-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {}
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - Should complete without errors
+      expect(mockFetch).toHaveBeenCalledWith('/no-content', expect.any(Object))
+    })
+
+    test('handles 204 No Content with setState trigger', async () => {
+      // Arrange
+      const btnId = getUniqueId('no-content-state-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content-state'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const stateTrigger: RxSetStateTrigger = {
+        scope: 'Session',
+        key: 'poll-state',
+        value: 'active'
+      }
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {
+          'rx-trigger-set-state': JSON.stringify(stateTrigger)
+        }
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - State should be set even with 204 response
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('poll-state', 'active')
+    })
+
+    test('handles 204 No Content with closeDialog trigger', async () => {
+      // Arrange
+      const dialogId = getUniqueId('test-dialog')
+      const btnId = getUniqueId('no-content-dialog-btn')
+      
+      // Create a mock dialog
+      const dialog = document.createElement('dialog')
+      dialog.id = dialogId
+      dialog.open = true
+      const closeSpy = vi.spyOn(dialog, 'close')
+      document.body.appendChild(dialog)
+      
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content-dialog'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const dialogTrigger: RxCloseDialogTrigger = {
+        dialogId: dialogId
+      }
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {
+          'rx-trigger-close-dialog': JSON.stringify(dialogTrigger)
+        }
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - Dialog should be closed even with 204 response
+      expect(closeSpy).toHaveBeenCalled()
+    })
+
+    test('handles 204 No Content with focusElement trigger', async () => {
+      // Arrange
+      const inputId = getUniqueId('focus-input')
+      const btnId = getUniqueId('no-content-focus-btn')
+      
+      const input = document.createElement('input')
+      input.id = inputId
+      input.type = 'text'
+      const focusSpy = vi.spyOn(input, 'focus')
+      document.body.appendChild(input)
+      
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content-focus'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const focusTrigger: RxFocusElementTrigger = {
+        elementId: inputId,
+        positionCursorEnd: false
+      }
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {
+          'rx-trigger-focus-element': JSON.stringify(focusTrigger)
+        }
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+      
+      // Wait for focus trigger timeout
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      // Assert - Focus should be triggered even with 204 response
+      expect(focusSpy).toHaveBeenCalled()
+    })
+
+    test('handles 204 No Content with multiple triggers', async () => {
+      // Arrange
+      const btnId = getUniqueId('no-content-multi-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content-multi'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const stateTrigger: RxSetStateTrigger = {
+        scope: 'Session',
+        key: 'status',
+        value: 'complete'
+      }
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {
+          'rx-trigger-set-state': JSON.stringify(stateTrigger)
+        }
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - All triggers should process with 204
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('status', 'complete')
+      expect(mockFetch).toHaveBeenCalledWith('/no-content-multi', expect.any(Object))
+    })
+
+    test('handles 204 No Content with URL update from setState', async () => {
+      // Arrange
+      const btnId = getUniqueId('no-content-url-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content-url',
+        'data-rx-include-state': 'filter'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const stateTrigger: RxSetStateTrigger = {
+        scope: 'Session',
+        key: 'filter',
+        value: 'active',
+        updateUrl: true
+      }
+
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState')
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {
+          'rx-trigger-set-state': JSON.stringify(stateTrigger)
+        }
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - URL should update even with 204 response
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('filter', 'active')
+      expect(replaceStateSpy).toHaveBeenCalled()
     })
 
     test('updates browser URL when updateUrl is true', async () => {
@@ -2750,6 +2948,9 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Assert - Check that the URL contains both parameters and body is undefined
       const fetchCall = mockFetch.mock.calls[0]
+      if (!fetchCall) {
+        throw new Error('Expected fetch to be called')
+      }
       const url = fetchCall[0] as string
       const options = fetchCall[1]
       

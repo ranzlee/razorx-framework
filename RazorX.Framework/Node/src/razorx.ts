@@ -991,6 +991,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
         const parsedHeaders = parseRxHeaders(response);
         const stateResult = processSetStateTrigger(ele, parsedHeaders?.setState);
+        // Update browser URL immediately after state persistence
+        if (stateResult.shouldUpdateUrl && stateResult.stateKeys.length > 0) {
+            updateBrowserUrl(stateResult.stateKeys);
+        }
         if (response.status === 202) {
             //used to issue a follow-up GET request for rendering
             const location = response.headers.get("location");
@@ -1000,24 +1004,25 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             return; 
         }
         processCloseDialogTrigger(ele, parsedHeaders?.closeDialog);
+        // Handle 204 No Content - no merge processing required
+        if (response.status === 204) {
+            // Skip merge processing but still handle callbacks and triggers
+            if (ele._rxCallbacks!.afterDocumentUpdate) {
+                ele._rxCallbacks!.afterDocumentUpdate();
+            }
+            if (_callbacks.afterDocumentUpdate) {
+                _callbacks.afterDocumentUpdate(ele);
+            }
+            processFocusElementTrigger(ele, parsedHeaders?.focusElement);
+            return;
+        }
         if (!parsedHeaders?.merge) {
             throw new Error(`Expected a "rx-merge" header object.`);
         }
-        if (response.status === 204) {
-            const removals = parsedHeaders.merge.filter((s: MergeStrategy): boolean => s.strategy === "remove");
-            if (removals.length > 0) {
-                if (document.startViewTransition !== undefined) {
-                    await document.startViewTransition(async () => removeElements(ele, removals)).finished;
-                } else {
-                    removeElements(ele, removals);
-                }
-            }
+        if (document.startViewTransition !== undefined) {
+            await document.startViewTransition(() => mergeFragments(ele, response, parsedHeaders.merge!, parsedHeaders.morphIgnoreActive)).finished;
         } else {
-            if (document.startViewTransition !== undefined) {
-                await document.startViewTransition(() => mergeFragments(ele, response, parsedHeaders.merge!, parsedHeaders.morphIgnoreActive)).finished;
-            } else {
-                await mergeFragments(ele, response, parsedHeaders.merge, parsedHeaders.morphIgnoreActive);
-            }
+            await mergeFragments(ele, response, parsedHeaders.merge, parsedHeaders.morphIgnoreActive);
         }
         if (ele._rxCallbacks!.afterDocumentUpdate) {
             ele._rxCallbacks!.afterDocumentUpdate();
@@ -1026,9 +1031,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             _callbacks.afterDocumentUpdate(ele);
         }
         processFocusElementTrigger(ele, parsedHeaders?.focusElement);
-        if (stateResult.shouldUpdateUrl && stateResult.stateKeys.length > 0) {
-            updateBrowserUrl(stateResult.stateKeys);
-        }
     }
 
     function updateBrowserUrl(stateKeys: string[]): void {
