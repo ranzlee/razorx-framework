@@ -30,7 +30,6 @@ public class ExamplesHandler : RequestHandler {
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver, string filter = "") {
         return await rxDriver
             .With(context)
-            .AddTriggerSetState("filter", filter, MetadataScope.Session, true)
             .AddPage<App, ExamplesHead, ExamplesPage, ExampleModel>(new ExampleModel([], 0, 0), "RazorX - Examples")
             .Render();
     }

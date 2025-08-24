@@ -721,11 +721,32 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     addCookieToRequest(request, options.addCookieToRequestHeader);
                 }
             }
-            if (/GET|DELETE/.test(request.method!)) {
+            const rxInitialized: RxExtendedEvents = "rx:initialized";
+            if (evt instanceof CustomEvent && evt.type === rxInitialized) {
+                if (request.method !== "GET") {
+                    throw new Error(`Element ${ele.id} with rx:initialized trigger must use GET method, but found ${request.method}`);
+                }
+                const finalParams = new URLSearchParams();
+                const formParams = request.body instanceof FormData 
+                    ? new URLSearchParams(request.body as unknown as Record<string, string>)
+                    : new URLSearchParams(request.body);
+                formParams.forEach((value, key) => {
+                    finalParams.set(key, value);  // Use set() not append() to avoid duplicates
+                });
+                const currentUrlParams = new URLSearchParams(window.location.search);
+                currentUrlParams.forEach((value, key) => {
+                    finalParams.set(key, value);  // Overrides form data if same key exists
+                });
+                if (finalParams.size > 0) {
+                    const url = new URL(request.action!, window.location.href);
+                    finalParams.forEach((value, key) => url.searchParams.set(key, value));
+                    request.action = url.pathname + url.search;
+                }
+                delete request.body;
+            } else if (/GET|DELETE/.test(request.method!)) {
                 const params = request.body instanceof FormData 
                     ? new URLSearchParams(request.body! as unknown as Record<string, string>)
                     : new URLSearchParams(request.body);
-                //const params = new URLSearchParams(request.body.toString());
                 if (params.size) {
                     const url = new URL(request.action!, window.location.href);
                     params.forEach((value, key) => url.searchParams.append(key, value));
@@ -741,7 +762,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (Object.keys(state).length > 0) {
                 const url = new URL(request.action!, window.location.href);
                 const stateParams = new URLSearchParams(state);
-                stateParams.forEach((value, key) => url.searchParams.append(key, value));
+                stateParams.forEach((value, key) => {
+                    if (!url.searchParams.has(key)) {
+                        url.searchParams.set(key, value);
+                    }
+                });
                 request.action = url.pathname + url.search;
             }
             const config: RequestConfiguration = {

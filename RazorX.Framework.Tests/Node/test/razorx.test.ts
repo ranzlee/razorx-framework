@@ -141,6 +141,17 @@ describe('RazorX Framework API Surface Tests', () => {
     // Reset all timers
     vi.clearAllTimers()
     
+    // Reset window.location to clean state
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...window.location,
+        search: '',
+        href: 'http://localhost:3000/'
+      },
+      writable: true,
+      configurable: true
+    })
+    
     // Setup fresh fetch mock for each test
     mockFetch = vi.fn()
     globalThis.fetch = mockFetch
@@ -1938,6 +1949,518 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Assert
       expect(mockFetch).toHaveBeenCalledWith('/init-test', expect.any(Object))
+    })
+    
+    test('rx:initialized trigger validates GET method requirement', async () => {
+      // Arrange
+      const elemId = getUniqueId('init-post-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-post-test',
+        'data-rx-method': 'POST',
+        'data-rx-trigger': 'rx:initialized'
+      })
+      
+      // Spy on console.error to catch the error
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - Should throw error for non-GET method
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining(`Element ${elemId} with rx:initialized trigger must use GET method, but found POST`)
+        })
+      )
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      consoleErrorSpy.mockRestore()
+    })
+    
+    test('rx:initialized includes browser query string parameters', async () => {
+      // Arrange - Set up window.location.search
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?userId=123&filter=active',
+          href: 'http://localhost:3000/test?userId=123&filter=active'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      const elemId = getUniqueId('init-query-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-query-test',
+        'data-rx-trigger': 'rx:initialized'
+      })
+      
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - URL should include query parameters
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/init-query-test?userId=123&filter=active',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.any(Headers)
+        })
+      )
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+    })
+    
+    test('rx:initialized URL parameters take precedence over form data', async () => {
+      // Arrange - Set up window.location.search with conflicting params
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?userId=999&filter=inactive',
+          href: 'http://localhost:3000/test?userId=999&filter=inactive'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      const formId = getUniqueId('init-form')
+      const elemId = getUniqueId('init-form-elem')
+      
+      // Create form with input that has same name as URL param
+      const form = document.createElement('form')
+      form.id = formId
+      
+      const input = document.createElement('input')
+      input.name = 'userId'
+      input.value = '456'  // Different from URL param
+      form.appendChild(input)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/init-precedence-test',
+        'data-rx-trigger': 'rx:initialized',
+        'type': 'button'
+      })
+      
+      form.appendChild(element)
+      document.body.appendChild(form)
+      
+      // Act
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - URL value (999) should take precedence over form value (456)
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/init-precedence-test?userId=999&filter=inactive',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+    })
+    
+    test('rx:initialized does not send body with GET request', async () => {
+      // Arrange
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?test=value',
+          href: 'http://localhost:3000/test?test=value'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      const elemId = getUniqueId('init-nobody-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-nobody-test',
+        'data-rx-trigger': 'rx:initialized'
+      })
+      
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - Request should have no body property (it's undefined/deleted)
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/init-nobody-test?test=value',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+      
+      // Verify body property is not present in the request object
+      const [, requestInit] = mockFetch.mock.calls[0]!
+      expect(requestInit).not.toHaveProperty('body')
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+    })
+    
+    test('rx:initialized complete priority chain - URL > form > session > local', async () => {
+      // Arrange - Set up all 4 priority levels with same parameter name
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?userId=111',  // Highest priority
+          href: 'http://localhost:3000/test?userId=111'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      // Set up storage (lowest priorities)
+      mockStorage.sessionStorage.set('userId', '333')
+      mockStorage.localStorage.set('userId', '444')  // Lowest priority
+      
+      const formId = getUniqueId('complete-priority-form')
+      const elemId = getUniqueId('complete-priority-elem')
+      
+      // Create form with input (middle priority)
+      const form = document.createElement('form')
+      form.id = formId
+      
+      const input = document.createElement('input')
+      input.name = 'userId'
+      input.value = '222'
+      form.appendChild(input)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/complete-priority-test',
+        'data-rx-trigger': 'rx:initialized',
+        'data-rx-include-state': 'userId',  // Include state
+        'type': 'button'
+      })
+      
+      form.appendChild(element)
+      document.body.appendChild(form)
+      
+      // Act
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - URL value (111) should win over all others
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/complete-priority-test?userId=111',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+      mockStorage.sessionStorage.clear()
+      mockStorage.localStorage.clear()
+    })
+    
+    test('rx:initialized state storage vs URL parameters - URL wins', async () => {
+      // Arrange - URL and storage conflict
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?theme=dark',
+          href: 'http://localhost:3000/test?theme=dark'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      // Set conflicting storage value
+      mockStorage.sessionStorage.set('theme', 'light')
+      
+      const elemId = getUniqueId('state-vs-url-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/state-url-test',
+        'data-rx-trigger': 'rx:initialized',
+        'data-rx-include-state': 'theme'
+      })
+      
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - URL param should win
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/state-url-test?theme=dark',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+      mockStorage.sessionStorage.clear()
+    })
+    
+    test('rx:initialized no duplicate parameters in URL', async () => {
+      // Arrange - Same parameter in multiple sources
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?filter=active&sort=date',
+          href: 'http://localhost:3000/test?filter=active&sort=date'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      mockStorage.sessionStorage.set('filter', 'inactive')
+      mockStorage.sessionStorage.set('limit', '10')
+      
+      const formId = getUniqueId('no-dupe-form')
+      const elemId = getUniqueId('no-dupe-elem')
+      
+      const form = document.createElement('form')
+      form.id = formId
+      
+      const filterInput = document.createElement('input')
+      filterInput.name = 'filter'
+      filterInput.value = 'pending'
+      form.appendChild(filterInput)
+      
+      const pageInput = document.createElement('input')
+      pageInput.name = 'page'
+      pageInput.value = '2'
+      form.appendChild(pageInput)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/no-duplicate-test',
+        'data-rx-trigger': 'rx:initialized',
+        'data-rx-include-state': 'filter limit',
+        'type': 'button'
+      })
+      
+      form.appendChild(element)
+      document.body.appendChild(form)
+      
+      // Act
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - Check the constructed URL
+      const [actualUrl] = mockFetch.mock.calls[0]!
+      const parsedUrl = new URL(actualUrl, 'http://localhost:3000')
+      
+      // Verify no duplicates and correct priority
+      expect(parsedUrl.searchParams.getAll('filter')).toHaveLength(1)
+      expect(parsedUrl.searchParams.get('filter')).toBe('active') // URL wins
+      expect(parsedUrl.searchParams.get('sort')).toBe('date')     // From URL
+      expect(parsedUrl.searchParams.get('page')).toBe('2')       // From form
+      expect(parsedUrl.searchParams.get('limit')).toBe('10')     // From storage
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+      mockStorage.sessionStorage.clear()
+    })
+    
+    test('rx:initialized handles empty and missing values correctly', async () => {
+      // Arrange - Mix of empty and valid values
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?valid=urlValue&empty=',  // Empty URL param
+          href: 'http://localhost:3000/test?valid=urlValue&empty='
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      // Storage with mix of values
+      mockStorage.sessionStorage.set('valid', 'sessionValue')  // Should be overridden by URL
+      mockStorage.sessionStorage.set('fromSession', 'sessionOnly')
+      mockStorage.localStorage.set('fromLocal', 'localOnly')
+      
+      const formId = getUniqueId('empty-values-form')
+      const elemId = getUniqueId('empty-values-elem')
+      
+      const form = document.createElement('form')
+      form.id = formId
+      
+      // Empty form input
+      const emptyInput = document.createElement('input')
+      emptyInput.name = 'empty'
+      emptyInput.value = ''
+      form.appendChild(emptyInput)
+      
+      // Valid form input
+      const validInput = document.createElement('input')
+      validInput.name = 'fromForm'
+      validInput.value = 'formValue'
+      form.appendChild(validInput)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/empty-values-test',
+        'data-rx-trigger': 'rx:initialized',
+        'data-rx-include-state': 'valid fromSession fromLocal nonExistent',
+        'type': 'button'
+      })
+      
+      form.appendChild(element)
+      document.body.appendChild(form)
+      
+      // Act
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert
+      const [actualUrl] = mockFetch.mock.calls[0]!
+      const parsedUrl = new URL(actualUrl, 'http://localhost:3000')
+      
+      // Check all expected parameters are present with correct values
+      expect(parsedUrl.searchParams.get('valid')).toBe('urlValue')      // URL wins over storage
+      expect(parsedUrl.searchParams.get('empty')).toBe('')              // Empty URL param wins
+      expect(parsedUrl.searchParams.get('fromForm')).toBe('formValue')  // From form
+      expect(parsedUrl.searchParams.get('fromSession')).toBe('sessionOnly') // From session storage
+      expect(parsedUrl.searchParams.get('fromLocal')).toBe('localOnly') // From local storage
+      expect(parsedUrl.searchParams.has('nonExistent')).toBe(false)     // Missing storage key not added
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+      mockStorage.sessionStorage.clear()
+      mockStorage.localStorage.clear()
+    })
+    
+    test('rx:initialized multiple parameters from each source', async () => {
+      // Arrange - Multiple params from each source
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?urlParam1=url1&urlParam2=url2',
+          href: 'http://localhost:3000/test?urlParam1=url1&urlParam2=url2'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      // Multiple storage params
+      mockStorage.sessionStorage.set('sessionParam1', 'session1')
+      mockStorage.sessionStorage.set('sessionParam2', 'session2')
+      mockStorage.localStorage.set('localParam1', 'local1')
+      mockStorage.localStorage.set('localParam2', 'local2')
+      
+      const formId = getUniqueId('multi-params-form')
+      const elemId = getUniqueId('multi-params-elem')
+      
+      const form = document.createElement('form')
+      form.id = formId
+      
+      // Multiple form inputs
+      const formInput1 = document.createElement('input')
+      formInput1.name = 'formParam1'
+      formInput1.value = 'form1'
+      form.appendChild(formInput1)
+      
+      const formInput2 = document.createElement('input')
+      formInput2.name = 'formParam2'
+      formInput2.value = 'form2'
+      form.appendChild(formInput2)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/multi-params-test',
+        'data-rx-trigger': 'rx:initialized',
+        'data-rx-include-state': 'sessionParam1 sessionParam2 localParam1 localParam2',
+        'type': 'button'
+      })
+      
+      form.appendChild(element)
+      document.body.appendChild(form)
+      
+      // Act
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert
+      const [actualUrl] = mockFetch.mock.calls[0]!
+      const parsedUrl = new URL(actualUrl, 'http://localhost:3000')
+      
+      // Verify all parameters from all sources are included
+      expect(parsedUrl.searchParams.get('urlParam1')).toBe('url1')
+      expect(parsedUrl.searchParams.get('urlParam2')).toBe('url2')
+      expect(parsedUrl.searchParams.get('formParam1')).toBe('form1')
+      expect(parsedUrl.searchParams.get('formParam2')).toBe('form2')
+      expect(parsedUrl.searchParams.get('sessionParam1')).toBe('session1')
+      expect(parsedUrl.searchParams.get('sessionParam2')).toBe('session2')
+      expect(parsedUrl.searchParams.get('localParam1')).toBe('local1')
+      expect(parsedUrl.searchParams.get('localParam2')).toBe('local2')
+      
+      // Verify we have exactly 8 parameters (no duplicates)
+      expect([...parsedUrl.searchParams.keys()]).toHaveLength(8)
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+      mockStorage.sessionStorage.clear()
+      mockStorage.localStorage.clear()
     })
 
     test('rx:poll trigger fires at intervals', async () => {
