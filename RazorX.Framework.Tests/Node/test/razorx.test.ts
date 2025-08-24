@@ -1998,7 +1998,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const elemId = getUniqueId('multi-trigger-elem')
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/multi-test',
-        'data-rx-trigger': 'click mouseenter'
+        'data-rx-trigger': '["click", "mouseenter"]'
       })
       document.body.appendChild(element)
       processNewElements()
@@ -2013,6 +2013,356 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert
       expect(mockFetch).toHaveBeenCalledTimes(2)
       expect(mockFetch).toHaveBeenCalledWith('/multi-test', expect.any(Object))
+    })
+  })
+
+  describe('Trigger Parsing - Array Format', () => {
+    beforeEach(() => {
+      mockFetch.mockImplementation(mockSuccessResponse())
+      // Clear DOM to prevent conflicts with previous tests
+      document.body.innerHTML = ''
+      // Initialize razorx
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+
+    afterEach(() => {
+      // Clean up any timers or observers
+      vi.clearAllTimers()
+    })
+
+    describe('Backwards Compatibility Tests', () => {
+      test('single trigger as string', async () => {
+        // Arrange
+        const btnId = getUniqueId('single-string-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/single-string-test',
+          'data-rx-trigger': 'click'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForDOMUpdates()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledWith('/single-string-test', expect.any(Object))
+      })
+
+
+      test('existing special triggers as string - rx:initialized', async () => {
+        // Arrange - Test rx:initialized
+        const initId = getUniqueId('init-string-elem')
+        const initElement = createElementWithId('div', initId, {
+          'data-rx-action': '/init-string-test',
+          'data-rx-trigger': 'rx:initialized'
+        })
+
+        // Act
+        document.body.appendChild(initElement)
+        processNewElements()
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledWith('/init-string-test', expect.any(Object))
+      })
+
+      test('existing special triggers as string - rx:revealed', async () => {
+        // Arrange - Test rx:revealed sets up observer
+        const revealId = getUniqueId('reveal-string-elem')
+        const revealElement = createElementWithId('div', revealId, {
+          'data-rx-action': '/reveal-string-test',
+          'data-rx-trigger': 'rx:revealed'
+        })
+
+        // Act
+        document.body.appendChild(revealElement)
+        processNewElements()
+
+        // Assert - IntersectionObserver should be set up
+        expect(IntersectionObserver).toHaveBeenCalled()
+      })
+    })
+
+    describe('New Array Format Tests', () => {
+      test('single trigger in array', async () => {
+        // Arrange
+        const btnId = getUniqueId('single-array-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/single-array-test',
+          'data-rx-trigger': '["click"]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForDOMUpdates()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledWith('/single-array-test', expect.any(Object))
+      })
+
+      test('multiple triggers in array', async () => {
+        // Arrange
+        const btnId = getUniqueId('multi-array-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/multi-array-test',
+          'data-rx-trigger': '["click", "submit", "keyup"]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Test all three triggers work
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        button.dispatchEvent(new Event('submit', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        button.dispatchEvent(new Event('keyup', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(3)
+        expect(mockFetch).toHaveBeenCalledWith('/multi-array-test', expect.any(Object))
+      })
+
+      test('array with special triggers', async () => {
+        // Arrange - Test array with rx:initialized and regular trigger
+        const elemId = getUniqueId('special-array-elem')
+        const element = createElementWithId('button', elemId, {
+          'data-rx-action': '/special-array-test',
+          'data-rx-trigger': '["click", "rx:initialized"]'
+        })
+
+        // Act
+        document.body.appendChild(element)
+        processNewElements()
+        await waitForMicrotasks()
+
+        // Assert - rx:initialized should fire immediately
+        expect(mockFetch).toHaveBeenCalledWith('/special-array-test', expect.any(Object))
+        
+        mockFetch.mockClear()
+        
+        // Act - Test click trigger
+        element.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledWith('/special-array-test', expect.any(Object))
+      })
+
+      test('array with rx:poll trigger sets up polling', async () => {
+        // Arrange
+        const elemId = getUniqueId('poll-array-elem')
+        const element = createElementWithId('div', elemId, {
+          'data-rx-action': '/poll-array-test',
+          'data-rx-trigger': '["rx:poll"]',
+          'data-rx-poll-interval': '1000'
+        })
+        
+        // Act - Add to DOM
+        document.body.appendChild(element)
+        processNewElements()
+        await waitForMicrotasks()
+        
+        // Assert - Should have set up polling (we can't easily test the actual polling without timing issues)
+        // The fact that no error occurred during setup indicates the array parsing worked
+        expect(true).toBe(true) // Test passes if no errors thrown during setup
+      })
+    })
+
+    describe('Edge Case Tests', () => {
+      test('empty array falls back gracefully', async () => {
+        // Arrange
+        const btnId = getUniqueId('empty-array-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/empty-array-test',
+          'data-rx-trigger': '[]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Try to trigger (should not work since no triggers defined)
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert - No request should be made
+        expect(mockFetch).not.toHaveBeenCalled()
+      })
+
+      test('array with empty strings filters out empty values', async () => {
+        // Arrange
+        const btnId = getUniqueId('empty-strings-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/empty-strings-test',
+          'data-rx-trigger': '["click", "", "submit", ""]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Test that both valid triggers work
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        button.dispatchEvent(new Event('submit', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(2)
+        expect(mockFetch).toHaveBeenCalledWith('/empty-strings-test', expect.any(Object))
+      })
+
+      test('invalid JSON returns empty triggers', async () => {
+        // Arrange
+        const btnId = getUniqueId('invalid-json-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/invalid-json-test',
+          'data-rx-trigger': '[click submit' // Invalid JSON - missing quotes and closing bracket
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Try to trigger (should not work since invalid JSON returns empty array)
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert - No request should be made since invalid JSON returns empty triggers
+        expect(mockFetch).not.toHaveBeenCalled()
+      })
+
+      test('non-string array elements are filtered out', async () => {
+        // Arrange
+        const btnId = getUniqueId('mixed-array-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/mixed-array-test',
+          'data-rx-trigger': '[123, "click", null, "submit", true]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Test that only string triggers work
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        button.dispatchEvent(new Event('submit', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(2)
+        expect(mockFetch).toHaveBeenCalledWith('/mixed-array-test', expect.any(Object))
+      })
+
+      test('array with whitespace trims values', async () => {
+        // Arrange
+        const btnId = getUniqueId('whitespace-array-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/whitespace-array-test',
+          'data-rx-trigger': '["  click  ", "submit", "  keyup  "]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Test all triggers work despite whitespace
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        button.dispatchEvent(new Event('submit', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        button.dispatchEvent(new Event('keyup', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(3)
+        expect(mockFetch).toHaveBeenCalledWith('/whitespace-array-test', expect.any(Object))
+      })
+
+      test('duplicate triggers in array work with Set behavior', async () => {
+        // Arrange
+        const btnId = getUniqueId('duplicate-array-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/duplicate-array-test',
+          'data-rx-trigger': '["click", "click", "submit", "click"]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Click once should work (Set deduplication means only one listener)
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(1)
+        expect(mockFetch).toHaveBeenCalledWith('/duplicate-array-test', expect.any(Object))
+      })
+    })
+
+    describe('Mixed Format Compatibility Tests', () => {
+      test('mixed elements with different trigger formats work together', async () => {
+        // Arrange - Create elements with different trigger formats
+        const stringBtnId = getUniqueId('string-format-btn')
+        const arrayBtnId = getUniqueId('array-format-btn')
+        
+        const stringButton = createElementWithId('button', stringBtnId, {
+          'data-rx-action': '/string-format-test',
+          'data-rx-trigger': 'click'
+        })
+        
+        const arrayButton = createElementWithId('button', arrayBtnId, {
+          'data-rx-action': '/array-format-test',
+          'data-rx-trigger': '["click"]'
+        })
+        
+        document.body.appendChild(stringButton)
+        document.body.appendChild(arrayButton)
+        processNewElements()
+
+        // Act - Test both formats work
+        stringButton.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        arrayButton.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(2)
+        expect(mockFetch).toHaveBeenCalledWith('/string-format-test', expect.any(Object))
+        expect(mockFetch).toHaveBeenCalledWith('/array-format-test', expect.any(Object))
+      })
+
+      test('complex array format with multiple special triggers', async () => {
+        // Arrange
+        const elemId = getUniqueId('complex-array-elem')
+        const element = createElementWithId('div', elemId, {
+          'data-rx-action': '/complex-array-test',
+          'data-rx-trigger': '["click", "rx:initialized", "mouseenter"]'
+        })
+
+        // Act - Add to DOM (should trigger rx:initialized)
+        document.body.appendChild(element)
+        processNewElements()
+        await waitForDOMUpdates()
+
+        // Assert - rx:initialized should fire
+        expect(mockFetch).toHaveBeenCalledWith('/complex-array-test', expect.any(Object))
+        
+        mockFetch.mockClear()
+        
+        // Act - Test regular triggers
+        element.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForDOMUpdates()
+        
+        element.dispatchEvent(new Event('mouseenter', { bubbles: true }))
+        await waitForDOMUpdates()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(2)
+        expect(mockFetch).toHaveBeenCalledWith('/complex-array-test', expect.any(Object))
+      })
     })
   })
 

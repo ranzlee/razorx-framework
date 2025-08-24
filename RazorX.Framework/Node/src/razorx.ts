@@ -124,7 +124,7 @@ export const RxRequestHeader = "rx-request";
 
 type ElementTriggerState = {
     triggers: Set<string>;
-    intervalId?: number;
+    intervalId?: ReturnType<typeof setInterval>;
     observer?: IntersectionObserver;
 }
 
@@ -256,7 +256,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     // configuration functions
 
-    // Element cache helper functions
     function getCachedElement(id: string): HTMLElement | null {
         if (_elementCache.has(id)) {
             return _elementCache.get(id)!;
@@ -307,6 +306,27 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
+    function parseTriggers(triggerAttr: string | undefined): string[] {
+        if (!triggerAttr || triggerAttr.trim() === "") {
+            return [];
+        }
+        const trimmed = triggerAttr.trim();
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) {
+                    return parsed
+                        .filter((item): item is string => typeof item === "string" && item.trim() !== "")
+                        .map(item => item.trim());
+                }
+            } catch(jsonError) {
+                console.error("Error parsing JSON trigger:", jsonError);
+                return [];
+            }
+        }
+        return [trimmed];
+    }
+
     function setTriggers(ele: HTMLElement): void {
         if (ele.dataset.rxAction && (!ele.id || ele.id.trim() === "")) {
             throw new Error(`Element with "data-rx-action" must have a unique ID.`);
@@ -321,14 +341,13 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 : ele.matches("input:not([type=button]),select,textarea") ? "change" : "click";
             ele.setAttribute("data-rx-trigger", rxTrigger);
         }
-        const triggers = ele.dataset.rxTrigger!.split(/\s+/);
+        const triggers = parseTriggers(ele.dataset.rxTrigger);
         // Validate that special triggers are not combined with hoist
         if (ele.dataset.rxHoistTo) {
             const specialTriggers = ["rx:initialized", "rx:poll", "rx:revealed"];
             const hasSpecialTrigger = triggers.some((trigger) => 
                 specialTriggers.includes(trigger.trim().toLowerCase())
             );
-            
             if (hasSpecialTrigger) {
                 throw new Error(
                     `Element ${ele.id} cannot use special triggers (rx:initialized, rx:poll, rx:revealed) ` +
@@ -620,7 +639,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function debounce(ele: HTMLElement, evt: Event, delay: number): (() => Promise<void>) & { _cleanup?: () => void } {
-        let timeoutId: number | null = null;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
         let pending: Array<{ 
             resolve: (value: void) => void; 
             reject: (reason?: unknown) => void 
