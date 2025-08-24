@@ -23,6 +23,7 @@ public class ExamplesHandler : RequestHandler {
         router.MapGet("/todo/next/{id:int}", NextTodos);
         router.MapDelete("/todo/{id:int}", DeleteTodo);
         router.MapGet("/search-todos", SearchTodos);
+        router.MapGet("/poll-test", PollTest);
     }
 
     private static readonly List<TodoModel> Todos = [];
@@ -57,6 +58,10 @@ public class ExamplesHandler : RequestHandler {
             .AddFragment<TodoList, IEnumerable<TodoModel>>(page, "todo-list", FragmentMergeStrategyType.SwapInner)
             .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)
             .Render();
+    }
+
+    public static IResult PollTest() {
+        return TypedResults.NoContent();
     }
 
     public static async Task<IResult> NewTodo(HttpContext context, IRxDriver rxDriver, TodoFormModel model) {

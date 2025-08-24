@@ -39,6 +39,13 @@
 </dialog>
 
 <div
+  id="poll-test"
+  data-rx-action="/poll-test" 
+  data-rx-trigger="@(value: "{ \"type\": \"poll\", \"interval\": 4000 }")" 
+  data-rx-disable-queueing>
+</div>
+
+<div
   id="content"
   data-rx-method="get"
   data-rx-action="/search-todos" 
