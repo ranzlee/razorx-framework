@@ -117,6 +117,7 @@ export type RxSetStateTrigger = {
     scope: "Session" | "Persistent"
     key: string,
     value?: string | null,
+    updateUrl?: boolean,
 }
 
 export const RxRequestHeader = "rx-request";
@@ -898,7 +899,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             return;
         }
         const parsedHeaders = parseRxHeaders(response);
-        processSetStateTrigger(ele, parsedHeaders?.setState);
+        const stateResult = processSetStateTrigger(ele, parsedHeaders?.setState);
         if (response.status === 202) {
             //used to issue a follow-up GET request for rendering
             const location = response.headers.get("location");
@@ -934,11 +935,48 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             _callbacks.afterDocumentUpdate(ele);
         }
         processFocusElementTrigger(ele, parsedHeaders?.focusElement);
+        if (stateResult.shouldUpdateUrl && stateResult.stateKeys.length > 0) {
+            updateBrowserUrl(stateResult.stateKeys);
+        }
     }
 
-    function processSetStateTrigger(ele: HTMLElement, setStateTriggers?: RxSetStateTrigger[]): void {
+    function updateBrowserUrl(stateKeys: string[]): void {
+        try {
+            const currentUrl = new URL(window.location.href);
+            const newParams = new URLSearchParams(currentUrl.search);
+            stateKeys.forEach((key): void => {
+                let value: string | null = null;
+                try {
+                    value = sessionStorage.getItem(key);
+                } catch (sessionError) {
+                    console.warn(`Failed to read sessionStorage key '${key}':`, sessionError instanceof Error ? sessionError.message : String(sessionError));
+                }
+                if (!value) {
+                    try {
+                        value = localStorage.getItem(key);
+                    } catch (localError) {
+                        console.warn(`Failed to read localStorage key '${key}':`, localError instanceof Error ? localError.message : String(localError));
+                    }
+                }
+                if (value) {
+                    newParams.set(key, value);
+                } else {
+                    newParams.delete(key);
+                }
+            });
+            const newUrl = newParams.size === 0 
+                ? currentUrl.pathname 
+                : `${currentUrl.pathname}?${newParams.toString()}${currentUrl.hash}`;
+            window.history.replaceState({}, '', newUrl);
+        } catch (error) {
+            console.warn('Failed to update browser URL:', error instanceof Error ? error.message : String(error));
+        }
+    }
+
+    function processSetStateTrigger(ele: HTMLElement, setStateTriggers?: RxSetStateTrigger[]): { shouldUpdateUrl: boolean, stateKeys: string[] } {
+        const result = { shouldUpdateUrl: false, stateKeys: [] as string[] };
         if (!setStateTriggers) {
-            return;
+            return result;
         }
         for (let i = 0; i < setStateTriggers.length; i++) {
             const setStateTrigger = setStateTriggers[i]!;
@@ -961,6 +999,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     } else {
                         sessionStorage.setItem(setStateTrigger.key, setStateTrigger.value);
                     }
+                    if (setStateTrigger.updateUrl) {
+                        result.stateKeys.push(setStateTrigger.key);
+                        result.shouldUpdateUrl = true;
+                    }
                 } catch (storageError) {
                     const errorMsg = `Failed to ${!setStateTrigger.value ? 'remove' : 'set'} sessionStorage key '${setStateTrigger.key}': ${storageError instanceof Error ? storageError.message : String(storageError)}`;
                     console.warn(errorMsg, { key: setStateTrigger.key, value: setStateTrigger.value, error: storageError });
@@ -981,6 +1023,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     } else {
                         localStorage.setItem(setStateTrigger.key, setStateTrigger.value);
                     }
+                    if (setStateTrigger.updateUrl) {
+                        result.stateKeys.push(setStateTrigger.key);
+                        result.shouldUpdateUrl = true;
+                    }
                 } catch (storageError) {
                     const errorMsg = `Failed to ${!setStateTrigger.value ? 'remove' : 'set'} localStorage key '${setStateTrigger.key}': ${storageError instanceof Error ? storageError.message : String(storageError)}`;
                     console.warn(errorMsg, { key: setStateTrigger.key, value: setStateTrigger.value, error: storageError });
@@ -994,6 +1040,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 }
             }
         }
+        return result;
     }
 
     function processCloseDialogTrigger(ele: HTMLElement, closeDialogTrigger?: RxCloseDialogTrigger): void {

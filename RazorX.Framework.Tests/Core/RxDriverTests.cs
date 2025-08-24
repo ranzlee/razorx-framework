@@ -1,7 +1,5 @@
 using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Http;
-using Microsoft.Extensions.Logging;
 using RazorX.Framework.Tests.Mocks;
 
 namespace RazorX.Framework.Tests.Core;
@@ -347,6 +345,75 @@ public class RxDriverTests {
         Assert.IsTrue(allHeaders.Contains("\"key\":\"key2\""));
         Assert.IsTrue(allHeaders.Contains("\"value\":\"value2\""));
         Assert.IsTrue(allHeaders.Contains("\"scope\":\"Persistent\""));
+    }
+
+    [TestMethod]
+    public async Task AddTriggerSetStateBatch_WithUpdateUrl_SetsUpdateUrlInHeaders() {
+        // Arrange
+        _httpContext.Request.Headers["rx-request"] = "";
+        var state = new Dictionary<string, string> {
+            ["filter"] = "active",
+            ["page"] = "2"
+        };
+        
+        // Act
+        await _rxDriver
+            .With(_httpContext)
+            .AddTriggerSetStateBatch(state, MetadataScope.Session, updateUrl: true)
+            .Render();
+
+        // Assert
+        Assert.IsTrue(_httpContext.Response.Headers.ContainsKey("rx-trigger-set-state"));
+        var triggerHeaders = _httpContext.Response.Headers["rx-trigger-set-state"];
+        Assert.AreEqual(2, triggerHeaders.Count);
+        
+        var allHeaders = string.Join(",", (IEnumerable<string>)triggerHeaders);
+        Assert.IsTrue(allHeaders.Contains("\"key\":\"filter\""));
+        Assert.IsTrue(allHeaders.Contains("\"value\":\"active\""));
+        Assert.IsTrue(allHeaders.Contains("\"key\":\"page\""));
+        Assert.IsTrue(allHeaders.Contains("\"value\":\"2\""));
+        Assert.IsTrue(allHeaders.Contains("\"scope\":\"Session\""));
+        Assert.IsTrue(allHeaders.Contains("\"updateUrl\":true"));
+    }
+
+    [TestMethod]
+    public async Task AddTriggerSetState_WithUpdateUrl_SetsUpdateUrlInHeaders() {
+        // Arrange
+        _httpContext.Request.Headers["rx-request"] = "";
+        
+        // Act
+        await _rxDriver
+            .With(_httpContext)
+            .AddTriggerSetState("theme", "dark", MetadataScope.Session, updateUrl: true)
+            .Render();
+
+        // Assert
+        Assert.IsTrue(_httpContext.Response.Headers.ContainsKey("rx-trigger-set-state"));
+        var triggerHeader = _httpContext.Response.Headers["rx-trigger-set-state"].ToString();
+        Assert.IsTrue(triggerHeader.Contains("\"key\":\"theme\""));
+        Assert.IsTrue(triggerHeader.Contains("\"value\":\"dark\""));
+        Assert.IsTrue(triggerHeader.Contains("\"scope\":\"Session\""));
+        Assert.IsTrue(triggerHeader.Contains("\"updateUrl\":true"));
+    }
+
+    [TestMethod]
+    public async Task AddTriggerSetState_WithoutUpdateUrl_DefaultsToFalse() {
+        // Arrange
+        _httpContext.Request.Headers["rx-request"] = "";
+        
+        // Act
+        await _rxDriver
+            .With(_httpContext)
+            .AddTriggerSetState("setting", "value", MetadataScope.Session)
+            .Render();
+
+        // Assert
+        Assert.IsTrue(_httpContext.Response.Headers.ContainsKey("rx-trigger-set-state"));
+        var triggerHeader = _httpContext.Response.Headers["rx-trigger-set-state"].ToString();
+        Assert.IsTrue(triggerHeader.Contains("\"key\":\"setting\""));
+        Assert.IsTrue(triggerHeader.Contains("\"value\":\"value\""));
+        Assert.IsTrue(triggerHeader.Contains("\"scope\":\"Session\""));
+        Assert.IsTrue(triggerHeader.Contains("\"updateUrl\":false"));
     }
 
     #endregion

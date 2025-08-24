@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest'
+import { describe, test, expect, vi, beforeEach, afterEach, beforeAll, type Mock } from 'vitest'
 import { razorx } from '../src/razorx'
 import type { 
   DocumentCallbacks, 
@@ -19,7 +19,7 @@ interface RxDocument {
   rxMutationObserver?: RxMutationObserver
 }
 
-interface ExtendedDocument extends Document {
+interface ExtendedDocument {
   rxMutationObserver?: MutationObserver
 }
 
@@ -30,6 +30,33 @@ declare global {
     MutationObserver: typeof MutationObserver
     IntersectionObserver: typeof IntersectionObserver
   }
+}
+
+// Helper functions for testing need to be at module level for proper hoisting
+function triggerDOMContentLoaded(): void {
+  document.dispatchEvent(new Event('DOMContentLoaded'))
+}
+
+function triggerMutationObserver(addedNodes: Node[] = [], removedNodes: Node[] = []): void {
+  const observer = (document as unknown as RxDocument).rxMutationObserver
+  if (observer && observer.callback) {
+    observer.callback([{
+      type: 'childList' as const,
+      addedNodes: addedNodes as unknown as NodeList,
+      removedNodes: removedNodes as unknown as NodeList,
+      target: document.body,
+      attributeName: null,
+      attributeNamespace: null,
+      nextSibling: null,
+      previousSibling: null,
+      oldValue: null
+    } as MutationRecord])
+  }
+}
+
+const processNewElements = function(): void {
+  // Manually trigger element processing for elements added after DOMContentLoaded
+  triggerMutationObserver([document.body])
 }
 
 /**
@@ -209,32 +236,6 @@ describe('RazorX Framework API Surface Tests', () => {
         setTimeout(resolve, 0)
       }, 0)
     })
-  }
-
-  function triggerDOMContentLoaded(): void {
-    document.dispatchEvent(new Event('DOMContentLoaded'))
-  }
-
-  function triggerMutationObserver(addedNodes: Node[] = [], removedNodes: Node[] = []): void {
-    const observer = (document as unknown as RxDocument).rxMutationObserver
-    if (observer && observer.callback) {
-      observer.callback([{
-        type: 'childList' as const,
-        addedNodes: addedNodes as unknown as NodeList,
-        removedNodes: removedNodes as unknown as NodeList,
-        target: document.body,
-        attributeName: null,
-        attributeNamespace: null,
-        nextSibling: null,
-        previousSibling: null,
-        oldValue: null
-      } as MutationRecord])
-    }
-  }
-
-  function processNewElements(): void {
-    // Manually trigger element processing for elements added after DOMContentLoaded
-    triggerMutationObserver([document.body])
   }
 
   describe('Core API - Initialization', () => {
@@ -876,6 +877,366 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Assert
       expect(sessionStorage.removeItem).toHaveBeenCalledWith('temp-data')
+    })
+
+    test('updates browser URL when updateUrl is true', async () => {
+      // Arrange
+      const btnId = getUniqueId('update-url-btn')
+      
+      document.body.innerHTML = `
+        <button id="${btnId}" data-rx-action="/set-state-with-url">Update</button>
+      `
+      // Manually trigger element processing
+      const observer = (document as unknown as RxDocument).rxMutationObserver
+      if (observer && observer.callback) {
+        observer.callback([{
+          type: 'childList' as const,
+          addedNodes: [document.body] as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+          target: document.body,
+          attributeName: null,
+          attributeNamespace: null,
+          nextSibling: null,
+          previousSibling: null,
+          oldValue: null
+        } as MutationRecord])
+      }
+
+      // Mock sessionStorage to return a value for our test
+      (sessionStorage.getItem as Mock).mockImplementation((key: string) => {
+        if (key === 'filter') return 'active'
+        return null
+      })
+
+      const stateTrigger: RxSetStateTrigger = {
+        scope: 'Session',
+        key: 'filter',
+        value: 'active',
+        updateUrl: true
+      }
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': JSON.stringify(stateTrigger)
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      const button = document.getElementById(btnId)!
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('filter', 'active')
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/?filter=active')
+    })
+
+    test('does not update browser URL when updateUrl is false', async () => {
+      // Arrange
+      const btnId = getUniqueId('no-update-url-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/set-state-no-url'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const stateTrigger: RxSetStateTrigger = {
+        scope: 'Session',
+        key: 'setting',
+        value: 'enabled',
+        updateUrl: false
+      }
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': JSON.stringify(stateTrigger)
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('setting', 'enabled')
+      expect(replaceStateSpy).not.toHaveBeenCalled()
+    })
+
+    test('does not update browser URL when updateUrl is not provided', async () => {
+      // Arrange
+      const btnId = getUniqueId('default-url-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/set-state-default'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const stateTrigger: RxSetStateTrigger = {
+        scope: 'Session',
+        key: 'data',
+        value: 'test'
+        // updateUrl not provided, should default to false
+      }
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': JSON.stringify(stateTrigger)
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('data', 'test')
+      expect(replaceStateSpy).not.toHaveBeenCalled()
+    })
+
+    test('updates browser URL with only keys that have updateUrl true', async () => {
+      // Arrange
+      const btnId = getUniqueId('mixed-updateUrl-btn')
+      
+      document.body.innerHTML = `
+        <button id="${btnId}" data-rx-action="/set-mixed-states">Update</button>
+      `
+      // Manually trigger element processing
+      const observer = (document as unknown as RxDocument).rxMutationObserver
+      if (observer && observer.callback) {
+        observer.callback([{
+          type: 'childList' as const,
+          addedNodes: [document.body] as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+          target: document.body,
+          attributeName: null,
+          attributeNamespace: null,
+          nextSibling: null,
+          previousSibling: null,
+          oldValue: null
+        } as MutationRecord])
+      }
+
+      // Mock sessionStorage to return values for our test
+      (sessionStorage.getItem as Mock).mockImplementation((key: string) => {
+        if (key === 'filter') return 'active'
+        if (key === 'page') return '2'
+        return null
+      })
+
+      const stateTriggers = [
+        {
+          scope: 'Session',
+          key: 'filter',
+          value: 'active',
+          updateUrl: false  // Should NOT appear in URL
+        },
+        {
+          scope: 'Session', 
+          key: 'page',
+          value: '2',
+          updateUrl: true   // Should appear in URL
+        }
+      ]
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': stateTriggers.map(t => JSON.stringify(t)).join(',')
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      const button = document.getElementById(btnId)!
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('filter', 'active')
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('page', '2')
+      // Should only include 'page' in URL since only page has updateUrl: true
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/?page=2')
+    })
+
+    test('does not update URL when all state keys have updateUrl false', async () => {
+      // Arrange
+      const btnId = getUniqueId('all-false-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/set-states-no-url'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const stateTriggers = [
+        {
+          scope: 'Session',
+          key: 'filter',
+          value: 'active',
+          updateUrl: false
+        },
+        {
+          scope: 'Persistent',
+          key: 'theme',
+          value: 'dark',
+          updateUrl: false
+        }
+      ]
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': stateTriggers.map(t => JSON.stringify(t)).join(',')
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('filter', 'active')
+      expect(localStorage.setItem).toHaveBeenCalledWith('theme', 'dark')
+      expect(replaceStateSpy).not.toHaveBeenCalled()
+    })
+
+    test('updates URL with multiple keys when multiple have updateUrl true', async () => {
+      // Arrange
+      const btnId = getUniqueId('multiple-true-btn')
+      
+      document.body.innerHTML = `
+        <button id="${btnId}" data-rx-action="/set-multiple-url-states">Update</button>
+      `
+      // Manually trigger element processing
+      const observer = (document as unknown as RxDocument).rxMutationObserver
+      if (observer && observer.callback) {
+        observer.callback([{
+          type: 'childList' as const,
+          addedNodes: [document.body] as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+          target: document.body,
+          attributeName: null,
+          attributeNamespace: null,
+          nextSibling: null,
+          previousSibling: null,
+          oldValue: null
+        } as MutationRecord])
+      }
+
+      // Mock storage to return values for our test
+      (sessionStorage.getItem as Mock).mockImplementation((key: string) => {
+        if (key === 'filter') return 'active'
+        if (key === 'sort') return 'name'
+        return null
+      });
+      (localStorage.getItem as Mock).mockImplementation((key: string) => {
+        if (key === 'theme') return 'dark'
+        return null
+      })
+
+      const stateTriggers = [
+        {
+          scope: 'Session',
+          key: 'filter',
+          value: 'active',
+          updateUrl: true
+        },
+        {
+          scope: 'Session',
+          key: 'sort', 
+          value: 'name',
+          updateUrl: true
+        },
+        {
+          scope: 'Persistent',
+          key: 'theme',
+          value: 'dark',
+          updateUrl: false  // Should not appear in URL
+        }
+      ]
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': stateTriggers.map(t => JSON.stringify(t)).join(',')
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      const button = document.getElementById(btnId)!
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('filter', 'active')
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('sort', 'name')
+      expect(localStorage.setItem).toHaveBeenCalledWith('theme', 'dark')
+      // Should only include filter and sort (both have updateUrl: true)
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/?filter=active&sort=name')
+    })
+
+    test('handles removed state values with URL updates', async () => {
+      // Arrange
+      const btnId = getUniqueId('remove-state-btn')
+      
+      document.body.innerHTML = `
+        <button id="${btnId}" data-rx-action="/clear-filter-state">Update</button>
+      `
+      // Manually trigger element processing
+      const observer = (document as unknown as RxDocument).rxMutationObserver
+      if (observer && observer.callback) {
+        observer.callback([{
+          type: 'childList' as const,
+          addedNodes: [document.body] as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+          target: document.body,
+          attributeName: null,
+          attributeNamespace: null,
+          nextSibling: null,
+          previousSibling: null,
+          oldValue: null
+        } as MutationRecord])
+      }
+
+      // Mock storage - filter will be removed, page will remain
+      (sessionStorage.getItem as Mock).mockImplementation((key: string) => {
+        if (key === 'page') return '2'
+        return null  // filter is removed
+      })
+
+      const stateTriggers = [
+        {
+          scope: 'Session',
+          key: 'filter',
+          value: '',  // Empty value removes from storage
+          updateUrl: true
+        },
+        {
+          scope: 'Session',
+          key: 'page',
+          value: '2',
+          updateUrl: true
+        }
+      ]
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': stateTriggers.map(t => JSON.stringify(t)).join(',')
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      const button = document.getElementById(btnId)!
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.removeItem).toHaveBeenCalledWith('filter')
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('page', '2')
+      // Should only include page since filter was removed from storage
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/?page=2')
     })
 
     test('processes rx-trigger-close-dialog header', async () => {
