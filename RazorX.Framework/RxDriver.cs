@@ -27,7 +27,7 @@ public enum MetadataScope {
 
 public record CloseDialogTrigger(string DialogId, string? OnCloseData, string? ResetFormId);
 public record FocusElementTrigger(string ElementId, bool PositionCursorEnd);
-public record SetStateTrigger(string Key, string Value, string Scope);
+public record SetStateTrigger(string Key, string Value, string Scope, bool UpdateUrl = false);
 
 public static class RxDriverServices {
     public static void AddRxDriver(this IServiceCollection services) {
@@ -90,9 +90,9 @@ public interface IRxResponseBuilder {
 
     IRxResponseBuilder AddTriggerFocusElement(string elementId, bool positionCursorEnd = false);
 
-    IRxResponseBuilder AddTriggerSetState(string key, string value, MetadataScope scope = MetadataScope.Session);
+    IRxResponseBuilder AddTriggerSetState(string key, string value, MetadataScope scope = MetadataScope.Session, bool updateUrl = false);
 
-    IRxResponseBuilder AddTriggerSetStateBatch(Dictionary<string, string> state, MetadataScope scope);
+    IRxResponseBuilder AddTriggerSetStateBatch(Dictionary<string, string> state, MetadataScope scope, bool updateUrl = false);
 
     Task<IResult> Render(
         bool ignoreActiveElementValueOnMorph = false,
@@ -313,18 +313,18 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         return this;
     }
 
-    public IRxResponseBuilder AddTriggerSetState(string key, string value, MetadataScope scope = MetadataScope.Session) {
+    public IRxResponseBuilder AddTriggerSetState(string key, string value, MetadataScope scope = MetadataScope.Session, bool updateUrl = false) {
         ThrowIfDisposed();
         CheckRenderingStatus();
         ValidateStateKey(key);
         if (!stateKeysInResponse.Add(key)) {
             throw new InvalidOperationException($"State key '{key}' has already been set in this response. Multiple state triggers with the same key are not allowed.");
         }
-        setStateTriggers.Add(new SetStateTrigger(key, value, scope.ToString()));
+        setStateTriggers.Add(new SetStateTrigger(key, value, scope.ToString(), updateUrl));
         return this;
     }
 
-    public IRxResponseBuilder AddTriggerSetStateBatch(Dictionary<string, string> state, MetadataScope scope) {
+    public IRxResponseBuilder AddTriggerSetStateBatch(Dictionary<string, string> state, MetadataScope scope, bool updateUrl = false) {
         ThrowIfDisposed();
         CheckRenderingStatus();
         foreach (var (key, value) in state) {
@@ -332,7 +332,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
             if (!stateKeysInResponse.Add(key)) {
                 throw new InvalidOperationException($"State key '{key}' has already been set in this response. Multiple state triggers with the same key are not allowed.");
             }
-            setStateTriggers.Add(new SetStateTrigger(key, value, scope.ToString()));
+            setStateTriggers.Add(new SetStateTrigger(key, value, scope.ToString(), updateUrl));
         }
         return this;
     }

@@ -4,6 +4,9 @@ set -e
 echo "Running all RazorX.Framework tests..."
 echo ""
 
+# Navigate to project root
+cd "$(dirname "$0")/.."
+
 # Build the project
 echo "========================================"
 echo "Building RazorX.Framework"

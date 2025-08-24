@@ -30,7 +30,7 @@ log_step() { echo -e "${CYAN}[STEP]${NC} $1"; }
 show_banner() {
     echo -e "${CYAN}"
     echo "╔════════════════════════════════════════════════╗"
-    echo "║     GitHub Packages Setup for RazorX.Framework    ║"
+    echo "║     GitHub Packages Setup for RazorX.Framework ║"
     echo "╚════════════════════════════════════════════════╝"
     echo -e "${NC}"
 }

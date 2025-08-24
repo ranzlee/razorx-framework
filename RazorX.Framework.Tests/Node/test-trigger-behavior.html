@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Trigger Behavior Test</title>
+    <script type="module">
+        // Test the new trigger parsing behavior
+        function parseTriggers(triggerAttr) {
+            if (!triggerAttr || triggerAttr.trim() === "") {
+                return [];
+            }
+            
+            const trimmed = triggerAttr.trim();
+            
+            // Try to parse as JSON array first
+            if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+                try {
+                    const parsed = JSON.parse(trimmed);
+                    if (Array.isArray(parsed)) {
+                        return parsed
+                            .filter(item => typeof item === "string" && item.trim() !== "")
+                            .map(item => item.trim());
+                    }
+                } catch {
+                    // JSON parsing failed, treat as invalid
+                    return [];
+                }
+            }
+            
+            // Single string trigger (no spaces allowed)
+            return [trimmed];
+        }
+
+        // Test cases
+        console.log("Single trigger:", parseTriggers("click")); // ["click"]
+        console.log("Array format:", parseTriggers('["click", "submit"]')); // ["click", "submit"]
+        console.log("Space in string (single trigger):", parseTriggers("click submit")); // ["click submit"] - treated as single trigger
+        console.log("Invalid JSON:", parseTriggers("[click submit")); // [] - empty array
+        console.log("Empty array:", parseTriggers("[]")); // []
+        console.log("Mixed array:", parseTriggers('["click", 123, "submit"]')); // ["click", "submit"]
+    </script>
+</head>
+<body>
+    <h1>Trigger Behavior Test</h1>
+    <p>Check the console for test results.</p>
+    
+    <p>Examples:</p>
+    <button data-rx-trigger="click">Single string trigger</button>
+    <button data-rx-trigger='["click", "mouseenter"]'>Array trigger</button>
+    <button data-rx-trigger="click submit">Space-containing single trigger (treated as one trigger)</button>
+    <button data-rx-trigger="[invalid json">Invalid JSON (no triggers)</button>
+</body>
+</html>

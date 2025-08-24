@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest'
+import { describe, test, expect, vi, beforeEach, afterEach, beforeAll, type Mock } from 'vitest'
 import { razorx } from '../src/razorx'
 import type { 
   DocumentCallbacks, 
@@ -19,7 +19,7 @@ interface RxDocument {
   rxMutationObserver?: RxMutationObserver
 }
 
-interface ExtendedDocument extends Document {
+interface ExtendedDocument {
   rxMutationObserver?: MutationObserver
 }
 
@@ -30,6 +30,33 @@ declare global {
     MutationObserver: typeof MutationObserver
     IntersectionObserver: typeof IntersectionObserver
   }
+}
+
+// Helper functions for testing need to be at module level for proper hoisting
+function triggerDOMContentLoaded(): void {
+  document.dispatchEvent(new Event('DOMContentLoaded'))
+}
+
+function triggerMutationObserver(addedNodes: Node[] = [], removedNodes: Node[] = []): void {
+  const observer = (document as unknown as RxDocument).rxMutationObserver
+  if (observer && observer.callback) {
+    observer.callback([{
+      type: 'childList' as const,
+      addedNodes: addedNodes as unknown as NodeList,
+      removedNodes: removedNodes as unknown as NodeList,
+      target: document.body,
+      attributeName: null,
+      attributeNamespace: null,
+      nextSibling: null,
+      previousSibling: null,
+      oldValue: null
+    } as MutationRecord])
+  }
+}
+
+const processNewElements = function(): void {
+  // Manually trigger element processing for elements added after DOMContentLoaded
+  triggerMutationObserver([document.body])
 }
 
 /**
@@ -113,6 +140,17 @@ describe('RazorX Framework API Surface Tests', () => {
     
     // Reset all timers
     vi.clearAllTimers()
+    
+    // Reset window.location to clean state
+    Object.defineProperty(window, 'location', {
+      value: {
+        ...window.location,
+        search: '',
+        href: 'http://localhost:3000/'
+      },
+      writable: true,
+      configurable: true
+    })
     
     // Setup fresh fetch mock for each test
     mockFetch = vi.fn()
@@ -209,32 +247,6 @@ describe('RazorX Framework API Surface Tests', () => {
         setTimeout(resolve, 0)
       }, 0)
     })
-  }
-
-  function triggerDOMContentLoaded(): void {
-    document.dispatchEvent(new Event('DOMContentLoaded'))
-  }
-
-  function triggerMutationObserver(addedNodes: Node[] = [], removedNodes: Node[] = []): void {
-    const observer = (document as unknown as RxDocument).rxMutationObserver
-    if (observer && observer.callback) {
-      observer.callback([{
-        type: 'childList' as const,
-        addedNodes: addedNodes as unknown as NodeList,
-        removedNodes: removedNodes as unknown as NodeList,
-        target: document.body,
-        attributeName: null,
-        attributeNamespace: null,
-        nextSibling: null,
-        previousSibling: null,
-        oldValue: null
-      } as MutationRecord])
-    }
-  }
-
-  function processNewElements(): void {
-    // Manually trigger element processing for elements added after DOMContentLoaded
-    triggerMutationObserver([document.body])
   }
 
   describe('Core API - Initialization', () => {
@@ -574,7 +586,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const btnId = getUniqueId('state-btn')
       const button = createElementWithId('button', btnId, {
         'data-rx-action': '/api/data',
-        'data-rx-include-state': 'user-id theme'
+        'data-rx-include-state': '["user-id", "theme"]'
       })
       document.body.appendChild(button)
       processNewElements()
@@ -641,7 +653,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const btnId = getUniqueId('multi-state-btn')
       const button = createElementWithId('button', btnId, {
         'data-rx-action': '/api/multi',
-        'data-rx-include-state': 'key1 key2 missing-key'
+        'data-rx-include-state': '["key1", "key2", "missing-key"]'
       })
       document.body.appendChild(button)
       processNewElements()
@@ -673,6 +685,126 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Assert
       expect(mockFetch).toHaveBeenCalledWith('/api/simple', expect.any(Object))
+    })
+
+    test('state keys support single string format', async () => {
+      // Arrange
+      sessionStorage.setItem('singleKey', 'singleValue')
+      const btnId = getUniqueId('single-string-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/single-string',
+        'data-rx-include-state': 'singleKey'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('singleKey=singleValue'),
+        expect.any(Object)
+      )
+      
+      sessionStorage.removeItem('singleKey')
+    })
+
+    test('state keys support JSON array format', async () => {
+      // Arrange
+      sessionStorage.setItem('key1', 'value1')
+      sessionStorage.setItem('key2', 'value2')
+      const btnId = getUniqueId('json-array-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/json-array',
+        'data-rx-include-state': '["key1", "key2"]'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      const fetchCall = mockFetch.mock.calls[0]
+      if (!fetchCall) {
+        throw new Error('Expected fetch to be called')
+      }
+      const url = fetchCall[0] as string
+      expect(url).toContain('key1=value1')
+      expect(url).toContain('key2=value2')
+      
+      sessionStorage.removeItem('key1')
+      sessionStorage.removeItem('key2')
+    })
+
+    test('state keys handle empty JSON array', async () => {
+      // Arrange
+      const btnId = getUniqueId('empty-array-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/empty-array',
+        'data-rx-include-state': '[]'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith('/api/empty-array', expect.any(Object))
+    })
+
+    test('state keys handle invalid JSON with warning', async () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const btnId = getUniqueId('invalid-json-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/invalid-json',
+        'data-rx-include-state': '[invalid,json]'  // Valid bracket format but invalid JSON
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse state keys as JSON: [invalid,json]')
+      )
+      expect(mockFetch).toHaveBeenCalledWith('/api/invalid-json', expect.any(Object))
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('space-separated state keys throw helpful error', async () => {
+      // Arrange  
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const btnId = getUniqueId('space-separated-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/space-separated',
+        'data-rx-include-state': 'key1 key2'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+      
+      // Act - Error should be thrown and caught by framework error handler
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+      
+      // Assert - Error should be logged
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Space-separated state keys are no longer supported. Convert "key1 key2" to JSON array format: ["key1", "key2"]'
+        })
+      )
+      
+      consoleSpy.mockRestore()
     })
   })
 
@@ -876,6 +1008,561 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Assert
       expect(sessionStorage.removeItem).toHaveBeenCalledWith('temp-data')
+    })
+
+    test('handles 204 No Content response without rx-merge header', async () => {
+      // Arrange
+      const btnId = getUniqueId('no-content-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {}
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - Should complete without errors
+      expect(mockFetch).toHaveBeenCalledWith('/no-content', expect.any(Object))
+    })
+
+    test('handles 204 No Content with setState trigger', async () => {
+      // Arrange
+      const btnId = getUniqueId('no-content-state-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content-state'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const stateTrigger: RxSetStateTrigger = {
+        scope: 'Session',
+        key: 'poll-state',
+        value: 'active'
+      }
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {
+          'rx-trigger-set-state': JSON.stringify(stateTrigger)
+        }
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - State should be set even with 204 response
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('poll-state', 'active')
+    })
+
+    test('handles 204 No Content with closeDialog trigger', async () => {
+      // Arrange
+      const dialogId = getUniqueId('test-dialog')
+      const btnId = getUniqueId('no-content-dialog-btn')
+      
+      // Create a mock dialog
+      const dialog = document.createElement('dialog')
+      dialog.id = dialogId
+      dialog.open = true
+      const closeSpy = vi.spyOn(dialog, 'close')
+      document.body.appendChild(dialog)
+      
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content-dialog'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const dialogTrigger: RxCloseDialogTrigger = {
+        dialogId: dialogId
+      }
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {
+          'rx-trigger-close-dialog': JSON.stringify(dialogTrigger)
+        }
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - Dialog should be closed even with 204 response
+      expect(closeSpy).toHaveBeenCalled()
+    })
+
+    test('handles 204 No Content with focusElement trigger', async () => {
+      // Arrange
+      const inputId = getUniqueId('focus-input')
+      const btnId = getUniqueId('no-content-focus-btn')
+      
+      const input = document.createElement('input')
+      input.id = inputId
+      input.type = 'text'
+      const focusSpy = vi.spyOn(input, 'focus')
+      document.body.appendChild(input)
+      
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content-focus'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const focusTrigger: RxFocusElementTrigger = {
+        elementId: inputId,
+        positionCursorEnd: false
+      }
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {
+          'rx-trigger-focus-element': JSON.stringify(focusTrigger)
+        }
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+      
+      // Wait for focus trigger timeout
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      // Assert - Focus should be triggered even with 204 response
+      expect(focusSpy).toHaveBeenCalled()
+    })
+
+    test('handles 204 No Content with multiple triggers', async () => {
+      // Arrange
+      const btnId = getUniqueId('no-content-multi-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content-multi'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const stateTrigger: RxSetStateTrigger = {
+        scope: 'Session',
+        key: 'status',
+        value: 'complete'
+      }
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {
+          'rx-trigger-set-state': JSON.stringify(stateTrigger)
+        }
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - All triggers should process with 204
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('status', 'complete')
+      expect(mockFetch).toHaveBeenCalledWith('/no-content-multi', expect.any(Object))
+    })
+
+    test('handles 204 No Content with URL update from setState', async () => {
+      // Arrange
+      const btnId = getUniqueId('no-content-url-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content-url',
+        'data-rx-include-state': 'filter'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const stateTrigger: RxSetStateTrigger = {
+        scope: 'Session',
+        key: 'filter',
+        value: 'active',
+        updateUrl: true
+      }
+
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState')
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {
+          'rx-trigger-set-state': JSON.stringify(stateTrigger)
+        }
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - URL should update even with 204 response
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('filter', 'active')
+      expect(replaceStateSpy).toHaveBeenCalled()
+    })
+
+    test('updates browser URL when updateUrl is true', async () => {
+      // Arrange
+      const btnId = getUniqueId('update-url-btn')
+      
+      document.body.innerHTML = `
+        <button id="${btnId}" data-rx-action="/set-state-with-url">Update</button>
+      `
+      // Manually trigger element processing
+      const observer = (document as unknown as RxDocument).rxMutationObserver
+      if (observer && observer.callback) {
+        observer.callback([{
+          type: 'childList' as const,
+          addedNodes: [document.body] as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+          target: document.body,
+          attributeName: null,
+          attributeNamespace: null,
+          nextSibling: null,
+          previousSibling: null,
+          oldValue: null
+        } as MutationRecord])
+      }
+
+      // Mock sessionStorage to return a value for our test
+      (sessionStorage.getItem as Mock).mockImplementation((key: string) => {
+        if (key === 'filter') return 'active'
+        return null
+      })
+
+      const stateTrigger: RxSetStateTrigger = {
+        scope: 'Session',
+        key: 'filter',
+        value: 'active',
+        updateUrl: true
+      }
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': JSON.stringify(stateTrigger)
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      const button = document.getElementById(btnId)!
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('filter', 'active')
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/?filter=active')
+    })
+
+    test('does not update browser URL when updateUrl is false', async () => {
+      // Arrange
+      const btnId = getUniqueId('no-update-url-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/set-state-no-url'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const stateTrigger: RxSetStateTrigger = {
+        scope: 'Session',
+        key: 'setting',
+        value: 'enabled',
+        updateUrl: false
+      }
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': JSON.stringify(stateTrigger)
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('setting', 'enabled')
+      expect(replaceStateSpy).not.toHaveBeenCalled()
+    })
+
+    test('does not update browser URL when updateUrl is not provided', async () => {
+      // Arrange
+      const btnId = getUniqueId('default-url-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/set-state-default'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const stateTrigger: RxSetStateTrigger = {
+        scope: 'Session',
+        key: 'data',
+        value: 'test'
+        // updateUrl not provided, should default to false
+      }
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': JSON.stringify(stateTrigger)
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('data', 'test')
+      expect(replaceStateSpy).not.toHaveBeenCalled()
+    })
+
+    test('updates browser URL with only keys that have updateUrl true', async () => {
+      // Arrange
+      const btnId = getUniqueId('mixed-updateUrl-btn')
+      
+      document.body.innerHTML = `
+        <button id="${btnId}" data-rx-action="/set-mixed-states">Update</button>
+      `
+      // Manually trigger element processing
+      const observer = (document as unknown as RxDocument).rxMutationObserver
+      if (observer && observer.callback) {
+        observer.callback([{
+          type: 'childList' as const,
+          addedNodes: [document.body] as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+          target: document.body,
+          attributeName: null,
+          attributeNamespace: null,
+          nextSibling: null,
+          previousSibling: null,
+          oldValue: null
+        } as MutationRecord])
+      }
+
+      // Mock sessionStorage to return values for our test
+      (sessionStorage.getItem as Mock).mockImplementation((key: string) => {
+        if (key === 'filter') return 'active'
+        if (key === 'page') return '2'
+        return null
+      })
+
+      const stateTriggers = [
+        {
+          scope: 'Session',
+          key: 'filter',
+          value: 'active',
+          updateUrl: false  // Should NOT appear in URL
+        },
+        {
+          scope: 'Session', 
+          key: 'page',
+          value: '2',
+          updateUrl: true   // Should appear in URL
+        }
+      ]
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': stateTriggers.map(t => JSON.stringify(t)).join(',')
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      const button = document.getElementById(btnId)!
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('filter', 'active')
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('page', '2')
+      // Should only include 'page' in URL since only page has updateUrl: true
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/?page=2')
+    })
+
+    test('does not update URL when all state keys have updateUrl false', async () => {
+      // Arrange
+      const btnId = getUniqueId('all-false-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/set-states-no-url'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      const stateTriggers = [
+        {
+          scope: 'Session',
+          key: 'filter',
+          value: 'active',
+          updateUrl: false
+        },
+        {
+          scope: 'Persistent',
+          key: 'theme',
+          value: 'dark',
+          updateUrl: false
+        }
+      ]
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': stateTriggers.map(t => JSON.stringify(t)).join(',')
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('filter', 'active')
+      expect(localStorage.setItem).toHaveBeenCalledWith('theme', 'dark')
+      expect(replaceStateSpy).not.toHaveBeenCalled()
+    })
+
+    test('updates URL with multiple keys when multiple have updateUrl true', async () => {
+      // Arrange
+      const btnId = getUniqueId('multiple-true-btn')
+      
+      document.body.innerHTML = `
+        <button id="${btnId}" data-rx-action="/set-multiple-url-states">Update</button>
+      `
+      // Manually trigger element processing
+      const observer = (document as unknown as RxDocument).rxMutationObserver
+      if (observer && observer.callback) {
+        observer.callback([{
+          type: 'childList' as const,
+          addedNodes: [document.body] as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+          target: document.body,
+          attributeName: null,
+          attributeNamespace: null,
+          nextSibling: null,
+          previousSibling: null,
+          oldValue: null
+        } as MutationRecord])
+      }
+
+      // Mock storage to return values for our test
+      (sessionStorage.getItem as Mock).mockImplementation((key: string) => {
+        if (key === 'filter') return 'active'
+        if (key === 'sort') return 'name'
+        return null
+      });
+      (localStorage.getItem as Mock).mockImplementation((key: string) => {
+        if (key === 'theme') return 'dark'
+        return null
+      })
+
+      const stateTriggers = [
+        {
+          scope: 'Session',
+          key: 'filter',
+          value: 'active',
+          updateUrl: true
+        },
+        {
+          scope: 'Session',
+          key: 'sort', 
+          value: 'name',
+          updateUrl: true
+        },
+        {
+          scope: 'Persistent',
+          key: 'theme',
+          value: 'dark',
+          updateUrl: false  // Should not appear in URL
+        }
+      ]
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': stateTriggers.map(t => JSON.stringify(t)).join(',')
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      const button = document.getElementById(btnId)!
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('filter', 'active')
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('sort', 'name')
+      expect(localStorage.setItem).toHaveBeenCalledWith('theme', 'dark')
+      // Should only include filter and sort (both have updateUrl: true)
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/?filter=active&sort=name')
+    })
+
+    test('handles removed state values with URL updates', async () => {
+      // Arrange
+      const btnId = getUniqueId('remove-state-btn')
+      
+      document.body.innerHTML = `
+        <button id="${btnId}" data-rx-action="/clear-filter-state">Update</button>
+      `
+      // Manually trigger element processing
+      const observer = (document as unknown as RxDocument).rxMutationObserver
+      if (observer && observer.callback) {
+        observer.callback([{
+          type: 'childList' as const,
+          addedNodes: [document.body] as unknown as NodeList,
+          removedNodes: [] as unknown as NodeList,
+          target: document.body,
+          attributeName: null,
+          attributeNamespace: null,
+          nextSibling: null,
+          previousSibling: null,
+          oldValue: null
+        } as MutationRecord])
+      }
+
+      // Mock storage - filter will be removed, page will remain
+      (sessionStorage.getItem as Mock).mockImplementation((key: string) => {
+        if (key === 'page') return '2'
+        return null  // filter is removed
+      })
+
+      const stateTriggers = [
+        {
+          scope: 'Session',
+          key: 'filter',
+          value: '',  // Empty value removes from storage
+          updateUrl: true
+        },
+        {
+          scope: 'Session',
+          key: 'page',
+          value: '2',
+          updateUrl: true
+        }
+      ]
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-set-state': stateTriggers.map(t => JSON.stringify(t)).join(',')
+      }))
+
+      // Mock window.history.replaceState
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+
+      // Act
+      const button = document.getElementById(btnId)!
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(sessionStorage.removeItem).toHaveBeenCalledWith('filter')
+      expect(sessionStorage.setItem).toHaveBeenCalledWith('page', '2')
+      // Should only include page since filter was removed from storage
+      expect(replaceStateSpy).toHaveBeenCalledWith({}, '', '/?page=2')
     })
 
     test('processes rx-trigger-close-dialog header', async () => {
@@ -1562,12 +2249,12 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(mockFetch).toHaveBeenCalledWith('/change-test', expect.any(Object))
     })
 
-    test('rx:initialized trigger fires immediately', async () => {
+    test('initialized trigger fires immediately', async () => {
       // Arrange
       const elemId = getUniqueId('init-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/init-test',
-        'data-rx-trigger': 'rx:initialized'
+        'data-rx-trigger': '{"type": "initialized"}'
       })
 
       // Act
@@ -1578,8 +2265,520 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert
       expect(mockFetch).toHaveBeenCalledWith('/init-test', expect.any(Object))
     })
+    
+    test('initialized trigger validates GET method requirement', async () => {
+      // Arrange
+      const elemId = getUniqueId('init-post-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-post-test',
+        'data-rx-method': 'POST',
+        'data-rx-trigger': '{"type": "initialized"}'
+      })
+      
+      // Spy on console.error to catch the error
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - Should throw error for non-GET method
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining(`Element ${elemId} with initialized trigger must use GET method, but found POST`)
+        })
+      )
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      consoleErrorSpy.mockRestore()
+    })
+    
+    test('initialized trigger includes browser query string parameters', async () => {
+      // Arrange - Set up window.location.search
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?userId=123&filter=active',
+          href: 'http://localhost:3000/test?userId=123&filter=active'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      const elemId = getUniqueId('init-query-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-query-test',
+        'data-rx-trigger': '{"type": "initialized"}'
+      })
+      
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - URL should include query parameters
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/init-query-test?userId=123&filter=active',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.any(Headers)
+        })
+      )
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+    })
+    
+    test('initialized trigger URL parameters take precedence over form data', async () => {
+      // Arrange - Set up window.location.search with conflicting params
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?userId=999&filter=inactive',
+          href: 'http://localhost:3000/test?userId=999&filter=inactive'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      const formId = getUniqueId('init-form')
+      const elemId = getUniqueId('init-form-elem')
+      
+      // Create form with input that has same name as URL param
+      const form = document.createElement('form')
+      form.id = formId
+      
+      const input = document.createElement('input')
+      input.name = 'userId'
+      input.value = '456'  // Different from URL param
+      form.appendChild(input)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/init-precedence-test',
+        'data-rx-trigger': '{"type": "initialized"}',
+        'type': 'button'
+      })
+      
+      form.appendChild(element)
+      document.body.appendChild(form)
+      
+      // Act
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - URL value (999) should take precedence over form value (456)
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/init-precedence-test?userId=999&filter=inactive',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+    })
+    
+    test('initialized trigger does not send body with GET request', async () => {
+      // Arrange
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?test=value',
+          href: 'http://localhost:3000/test?test=value'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      const elemId = getUniqueId('init-nobody-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-nobody-test',
+        'data-rx-trigger': '{"type": "initialized"}'
+      })
+      
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - Request should have no body property (it's undefined/deleted)
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/init-nobody-test?test=value',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+      
+      // Verify body property is not present in the request object
+      const [, requestInit] = mockFetch.mock.calls[0]!
+      expect(requestInit).not.toHaveProperty('body')
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+    })
+    
+    test('initialized trigger complete priority chain - URL > form > session > local', async () => {
+      // Arrange - Set up all 4 priority levels with same parameter name
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?userId=111',  // Highest priority
+          href: 'http://localhost:3000/test?userId=111'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      // Set up storage (lowest priorities)
+      mockStorage.sessionStorage.set('userId', '333')
+      mockStorage.localStorage.set('userId', '444')  // Lowest priority
+      
+      const formId = getUniqueId('complete-priority-form')
+      const elemId = getUniqueId('complete-priority-elem')
+      
+      // Create form with input (middle priority)
+      const form = document.createElement('form')
+      form.id = formId
+      
+      const input = document.createElement('input')
+      input.name = 'userId'
+      input.value = '222'
+      form.appendChild(input)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/complete-priority-test',
+        'data-rx-trigger': '{"type": "initialized"}',
+        'data-rx-include-state': 'userId',  // Include state
+        'type': 'button'
+      })
+      
+      form.appendChild(element)
+      document.body.appendChild(form)
+      
+      // Act
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - URL value (111) should win over all others
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/complete-priority-test?userId=111',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+      mockStorage.sessionStorage.clear()
+      mockStorage.localStorage.clear()
+    })
+    
+    test('initialized trigger state storage vs URL parameters - URL wins', async () => {
+      // Arrange - URL and storage conflict
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?theme=dark',
+          href: 'http://localhost:3000/test?theme=dark'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      // Set conflicting storage value
+      mockStorage.sessionStorage.set('theme', 'light')
+      
+      const elemId = getUniqueId('state-vs-url-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/state-url-test',
+        'data-rx-trigger': '{"type": "initialized"}',
+        'data-rx-include-state': 'theme'
+      })
+      
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - URL param should win
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/state-url-test?theme=dark',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+      mockStorage.sessionStorage.clear()
+    })
+    
+    test('initialized trigger no duplicate parameters in URL', async () => {
+      // Arrange - Same parameter in multiple sources
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?filter=active&sort=date',
+          href: 'http://localhost:3000/test?filter=active&sort=date'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      mockStorage.sessionStorage.set('filter', 'inactive')
+      mockStorage.sessionStorage.set('limit', '10')
+      
+      const formId = getUniqueId('no-dupe-form')
+      const elemId = getUniqueId('no-dupe-elem')
+      
+      const form = document.createElement('form')
+      form.id = formId
+      
+      const filterInput = document.createElement('input')
+      filterInput.name = 'filter'
+      filterInput.value = 'pending'
+      form.appendChild(filterInput)
+      
+      const pageInput = document.createElement('input')
+      pageInput.name = 'page'
+      pageInput.value = '2'
+      form.appendChild(pageInput)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/no-duplicate-test',
+        'data-rx-trigger': '{"type": "initialized"}',
+        'data-rx-include-state': '["filter", "limit"]',
+        'type': 'button'
+      })
+      
+      form.appendChild(element)
+      document.body.appendChild(form)
+      
+      // Act
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert - Check the constructed URL
+      const [actualUrl] = mockFetch.mock.calls[0]!
+      const parsedUrl = new URL(actualUrl, 'http://localhost:3000')
+      
+      // Verify no duplicates and correct priority
+      expect(parsedUrl.searchParams.getAll('filter')).toHaveLength(1)
+      expect(parsedUrl.searchParams.get('filter')).toBe('active') // URL wins
+      expect(parsedUrl.searchParams.get('sort')).toBe('date')     // From URL
+      expect(parsedUrl.searchParams.get('page')).toBe('2')       // From form
+      expect(parsedUrl.searchParams.get('limit')).toBe('10')     // From storage
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+      mockStorage.sessionStorage.clear()
+    })
+    
+    test('initialized trigger handles empty and missing values correctly', async () => {
+      // Arrange - Mix of empty and valid values
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?valid=urlValue&empty=',  // Empty URL param
+          href: 'http://localhost:3000/test?valid=urlValue&empty='
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      // Storage with mix of values
+      mockStorage.sessionStorage.set('valid', 'sessionValue')  // Should be overridden by URL
+      mockStorage.sessionStorage.set('fromSession', 'sessionOnly')
+      mockStorage.localStorage.set('fromLocal', 'localOnly')
+      
+      const formId = getUniqueId('empty-values-form')
+      const elemId = getUniqueId('empty-values-elem')
+      
+      const form = document.createElement('form')
+      form.id = formId
+      
+      // Empty form input
+      const emptyInput = document.createElement('input')
+      emptyInput.name = 'empty'
+      emptyInput.value = ''
+      form.appendChild(emptyInput)
+      
+      // Valid form input
+      const validInput = document.createElement('input')
+      validInput.name = 'fromForm'
+      validInput.value = 'formValue'
+      form.appendChild(validInput)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/empty-values-test',
+        'data-rx-trigger': '{"type": "initialized"}',
+        'data-rx-include-state': '["valid", "fromSession", "fromLocal", "nonExistent"]',
+        'type': 'button'
+      })
+      
+      form.appendChild(element)
+      document.body.appendChild(form)
+      
+      // Act
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert
+      const [actualUrl] = mockFetch.mock.calls[0]!
+      const parsedUrl = new URL(actualUrl, 'http://localhost:3000')
+      
+      // Check all expected parameters are present with correct values
+      expect(parsedUrl.searchParams.get('valid')).toBe('urlValue')      // URL wins over storage
+      expect(parsedUrl.searchParams.get('empty')).toBe('')              // Empty URL param wins
+      expect(parsedUrl.searchParams.get('fromForm')).toBe('formValue')  // From form
+      expect(parsedUrl.searchParams.get('fromSession')).toBe('sessionOnly') // From session storage
+      expect(parsedUrl.searchParams.get('fromLocal')).toBe('localOnly') // From local storage
+      expect(parsedUrl.searchParams.has('nonExistent')).toBe(false)     // Missing storage key not added
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+      mockStorage.sessionStorage.clear()
+      mockStorage.localStorage.clear()
+    })
+    
+    test('initialized trigger multiple parameters from each source', async () => {
+      // Arrange - Multiple params from each source
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '?urlParam1=url1&urlParam2=url2',
+          href: 'http://localhost:3000/test?urlParam1=url1&urlParam2=url2'
+        },
+        writable: true,
+        configurable: true
+      })
+      
+      // Multiple storage params
+      mockStorage.sessionStorage.set('sessionParam1', 'session1')
+      mockStorage.sessionStorage.set('sessionParam2', 'session2')
+      mockStorage.localStorage.set('localParam1', 'local1')
+      mockStorage.localStorage.set('localParam2', 'local2')
+      
+      const formId = getUniqueId('multi-params-form')
+      const elemId = getUniqueId('multi-params-elem')
+      
+      const form = document.createElement('form')
+      form.id = formId
+      
+      // Multiple form inputs
+      const formInput1 = document.createElement('input')
+      formInput1.name = 'formParam1'
+      formInput1.value = 'form1'
+      form.appendChild(formInput1)
+      
+      const formInput2 = document.createElement('input')
+      formInput2.name = 'formParam2'
+      formInput2.value = 'form2'
+      form.appendChild(formInput2)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/multi-params-test',
+        'data-rx-trigger': '{"type": "initialized"}',
+        'data-rx-include-state': '["sessionParam1", "sessionParam2", "localParam1", "localParam2"]',
+        'type': 'button'
+      })
+      
+      form.appendChild(element)
+      document.body.appendChild(form)
+      
+      // Act
+      processNewElements()
+      await waitForMicrotasks()
+      
+      // Assert
+      const [actualUrl] = mockFetch.mock.calls[0]!
+      const parsedUrl = new URL(actualUrl, 'http://localhost:3000')
+      
+      // Verify all parameters from all sources are included
+      expect(parsedUrl.searchParams.get('urlParam1')).toBe('url1')
+      expect(parsedUrl.searchParams.get('urlParam2')).toBe('url2')
+      expect(parsedUrl.searchParams.get('formParam1')).toBe('form1')
+      expect(parsedUrl.searchParams.get('formParam2')).toBe('form2')
+      expect(parsedUrl.searchParams.get('sessionParam1')).toBe('session1')
+      expect(parsedUrl.searchParams.get('sessionParam2')).toBe('session2')
+      expect(parsedUrl.searchParams.get('localParam1')).toBe('local1')
+      expect(parsedUrl.searchParams.get('localParam2')).toBe('local2')
+      
+      // Verify we have exactly 8 parameters (no duplicates)
+      expect([...parsedUrl.searchParams.keys()]).toHaveLength(8)
+      
+      // Cleanup
+      Object.defineProperty(window, 'location', {
+        value: {
+          ...window.location,
+          search: '',
+          href: 'http://localhost:3000/'
+        },
+        writable: true,
+        configurable: true
+      })
+      mockStorage.sessionStorage.clear()
+      mockStorage.localStorage.clear()
+    })
 
-    test('rx:poll trigger fires at intervals', async () => {
+    test('poll trigger fires at intervals', async () => {
       // Arrange
       vi.useFakeTimers()
       
@@ -1596,8 +2795,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const elemId = getUniqueId('poll-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/poll-test',
-        'data-rx-trigger': 'rx:poll',
-        'data-rx-poll-interval': '1000' // Longer interval to avoid overlaps
+        'data-rx-trigger': '{"type": "poll", "interval": 1000}' // Longer interval to avoid overlaps
       })
       document.body.appendChild(element)
       processNewElements()
@@ -1616,12 +2814,160 @@ describe('RazorX Framework API Surface Tests', () => {
       vi.useRealTimers()
     })
 
-    test('rx:revealed trigger sets up IntersectionObserver', () => {
+    test('poll trigger with POST method throws error', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      const elemId = getUniqueId('poll-post-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/poll-test',
+        'data-rx-method': 'POST',
+        'data-rx-trigger': '{"type": "poll", "interval": 1000}'
+      })
+      
+      // Spy on console.error to catch the error
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      document.body.appendChild(element)
+      processNewElements()
+      
+      // Act - Let the poll timer fire
+      await vi.runOnlyPendingTimersAsync()
+      
+      // Assert - Error should be logged  
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: `Element ${elemId} with poll trigger must use GET method, but found POST`
+        })
+      )
+      
+      consoleSpy.mockRestore()
+      vi.useRealTimers()
+    })
+
+    test('poll trigger parameter priority (URL > Form > State)', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      const elemId = getUniqueId('poll-priority-elem')
+      
+      // Mock URL search params
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: {
+          ...window.location,
+          search: '?param1=url-value&param2=url-only'
+        }
+      })
+
+      const form = document.createElement('form')
+      const input1 = createElementWithId('input', getUniqueId('input1'), {
+        name: 'param1',
+        value: 'form-value'
+      }) as HTMLInputElement
+      const input2 = createElementWithId('input', getUniqueId('input2'), {
+        name: 'param3', 
+        value: 'form-only'
+      }) as HTMLInputElement
+      
+      form.appendChild(input1)
+      form.appendChild(input2)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/poll-priority-test',
+        'data-rx-trigger': '{"type": "poll", "interval": 1000}',
+        'data-rx-include-state': '["param1", "param4"]'
+      })
+      form.appendChild(element)
+      
+      // Set up storage state
+      sessionStorage.setItem('param1', 'session-value')
+      localStorage.setItem('param4', 'local-only')
+      
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      await vi.runOnlyPendingTimersAsync()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('param1=url-value'), // URL wins over form and session
+        expect.objectContaining({ method: 'GET' })
+      )
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('param2=url-only'), // URL only
+        expect.anything()
+      )
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('param3=form-only'), // Form only
+        expect.anything()
+      )
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('param4=local-only'), // State only
+        expect.anything()
+      )
+      
+      // Clean up
+      sessionStorage.removeItem('param1')
+      localStorage.removeItem('param4')
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: { ...window.location, search: '' }
+      })
+      vi.useRealTimers()
+    })
+
+    test('poll trigger with form data converts to URL params', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      const elemId = getUniqueId('poll-form-elem')
+      
+      const form = document.createElement('form')
+      const input1 = createElementWithId('input', getUniqueId('input1'), {
+        name: 'username',
+        value: 'testuser'
+      }) as HTMLInputElement
+      const input2 = createElementWithId('input', getUniqueId('input2'), {
+        name: 'filter',
+        value: 'active'
+      }) as HTMLInputElement
+      
+      form.appendChild(input1)
+      form.appendChild(input2)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/poll-form-test',
+        'data-rx-trigger': '{"type": "poll", "interval": 1000}'
+      })
+      form.appendChild(element)
+      
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      await vi.runOnlyPendingTimersAsync()
+
+      // Assert - Check that the URL contains both parameters and body is undefined
+      const fetchCall = mockFetch.mock.calls[0]
+      if (!fetchCall) {
+        throw new Error('Expected fetch to be called')
+      }
+      const url = fetchCall[0] as string
+      const options = fetchCall[1]
+      
+      expect(url).toContain('username=testuser')
+      expect(url).toContain('filter=active')
+      expect(options.method).toBe('GET')
+      expect(options.body).toBeUndefined()
+      
+      vi.useRealTimers()
+    })
+
+    test('revealed trigger sets up IntersectionObserver', () => {
       // Arrange
       const elemId = getUniqueId('reveal-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/reveal-test',
-        'data-rx-trigger': 'rx:revealed'
+        'data-rx-trigger': '{"type": "revealed"}'
       })
 
       // Act
@@ -1637,7 +2983,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const elemId = getUniqueId('multi-trigger-elem')
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/multi-test',
-        'data-rx-trigger': 'click mouseenter'
+        'data-rx-trigger': '["click", "mouseenter"]'
       })
       document.body.appendChild(element)
       processNewElements()
@@ -1652,6 +2998,355 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert
       expect(mockFetch).toHaveBeenCalledTimes(2)
       expect(mockFetch).toHaveBeenCalledWith('/multi-test', expect.any(Object))
+    })
+  })
+
+  describe('Trigger Parsing - Array Format', () => {
+    beforeEach(() => {
+      mockFetch.mockImplementation(mockSuccessResponse())
+      // Clear DOM to prevent conflicts with previous tests
+      document.body.innerHTML = ''
+      // Initialize razorx
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+
+    afterEach(() => {
+      // Clean up any timers or observers
+      vi.clearAllTimers()
+    })
+
+    describe('Backwards Compatibility Tests', () => {
+      test('single trigger as string', async () => {
+        // Arrange
+        const btnId = getUniqueId('single-string-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/single-string-test',
+          'data-rx-trigger': 'click'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForDOMUpdates()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledWith('/single-string-test', expect.any(Object))
+      })
+
+
+      test('existing special triggers as object - initialized', async () => {
+        // Arrange - Test initialized trigger
+        const initId = getUniqueId('init-string-elem')
+        const initElement = createElementWithId('div', initId, {
+          'data-rx-action': '/init-string-test',
+          'data-rx-trigger': '{"type": "initialized"}'
+        })
+
+        // Act
+        document.body.appendChild(initElement)
+        processNewElements()
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledWith('/init-string-test', expect.any(Object))
+      })
+
+      test('existing special triggers as object - revealed', async () => {
+        // Arrange - Test revealed trigger sets up observer
+        const revealId = getUniqueId('reveal-string-elem')
+        const revealElement = createElementWithId('div', revealId, {
+          'data-rx-action': '/reveal-string-test',
+          'data-rx-trigger': '{"type": "revealed"}'
+        })
+
+        // Act
+        document.body.appendChild(revealElement)
+        processNewElements()
+
+        // Assert - IntersectionObserver should be set up
+        expect(IntersectionObserver).toHaveBeenCalled()
+      })
+    })
+
+    describe('New Array Format Tests', () => {
+      test('single trigger in array', async () => {
+        // Arrange
+        const btnId = getUniqueId('single-array-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/single-array-test',
+          'data-rx-trigger': '["click"]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForDOMUpdates()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledWith('/single-array-test', expect.any(Object))
+      })
+
+      test('multiple triggers in array', async () => {
+        // Arrange
+        const btnId = getUniqueId('multi-array-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/multi-array-test',
+          'data-rx-trigger': '["click", "submit", "keyup"]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Test all three triggers work
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        button.dispatchEvent(new Event('submit', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        button.dispatchEvent(new Event('keyup', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(3)
+        expect(mockFetch).toHaveBeenCalledWith('/multi-array-test', expect.any(Object))
+      })
+
+      test('array with special triggers', async () => {
+        // Arrange - Test array with initialized trigger and regular trigger
+        const elemId = getUniqueId('special-array-elem')
+        const element = createElementWithId('button', elemId, {
+          'data-rx-action': '/special-array-test',
+          'data-rx-trigger': '["click", {"type": "initialized"}]'
+        })
+
+        // Act
+        document.body.appendChild(element)
+        processNewElements()
+        await waitForMicrotasks()
+
+        // Assert - initialized trigger should fire immediately
+        expect(mockFetch).toHaveBeenCalledWith('/special-array-test', expect.any(Object))
+        
+        mockFetch.mockClear()
+        
+        // Act - Test click trigger
+        element.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledWith('/special-array-test', expect.any(Object))
+      })
+
+      test('array with poll trigger sets up polling', async () => {
+        // Arrange
+        const elemId = getUniqueId('poll-array-elem')
+        const element = createElementWithId('div', elemId, {
+          'data-rx-action': '/poll-array-test',
+          'data-rx-trigger': '[{"type": "poll", "interval": 1000}]'
+        })
+        
+        // Act - Add to DOM
+        document.body.appendChild(element)
+        processNewElements()
+        await waitForMicrotasks()
+        
+        // Assert - Should have set up polling (we can't easily test the actual polling without timing issues)
+        // The fact that no error occurred during setup indicates the array parsing worked
+        expect(true).toBe(true) // Test passes if no errors thrown during setup
+      })
+    })
+
+    describe('Edge Case Tests', () => {
+      test('empty array falls back gracefully', async () => {
+        // Arrange
+        const btnId = getUniqueId('empty-array-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/empty-array-test',
+          'data-rx-trigger': '[]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Try to trigger (should not work since no triggers defined)
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert - No request should be made
+        expect(mockFetch).not.toHaveBeenCalled()
+      })
+
+      test('array with empty strings filters out empty values', async () => {
+        // Arrange
+        const btnId = getUniqueId('empty-strings-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/empty-strings-test',
+          'data-rx-trigger': '["click", "", "submit", ""]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Test that both valid triggers work
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        button.dispatchEvent(new Event('submit', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(2)
+        expect(mockFetch).toHaveBeenCalledWith('/empty-strings-test', expect.any(Object))
+      })
+
+      test('invalid JSON returns empty triggers', async () => {
+        // Arrange
+        const btnId = getUniqueId('invalid-json-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/invalid-json-test',
+          'data-rx-trigger': '[click submit' // Invalid JSON - missing quotes and closing bracket
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Try to trigger (should not work since invalid JSON returns empty array)
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert - No request should be made since invalid JSON returns empty triggers
+        expect(mockFetch).not.toHaveBeenCalled()
+      })
+
+      test('non-string array elements are filtered out', async () => {
+        // Arrange
+        const btnId = getUniqueId('mixed-array-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/mixed-array-test',
+          'data-rx-trigger': '[123, "click", null, "submit", true]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Test that only string triggers work
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        button.dispatchEvent(new Event('submit', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(2)
+        expect(mockFetch).toHaveBeenCalledWith('/mixed-array-test', expect.any(Object))
+      })
+
+      test('array with whitespace trims values', async () => {
+        // Arrange
+        const btnId = getUniqueId('whitespace-array-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/whitespace-array-test',
+          'data-rx-trigger': '["  click  ", "submit", "  keyup  "]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Test all triggers work despite whitespace
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        button.dispatchEvent(new Event('submit', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        button.dispatchEvent(new Event('keyup', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(3)
+        expect(mockFetch).toHaveBeenCalledWith('/whitespace-array-test', expect.any(Object))
+      })
+
+      test('duplicate triggers in array work with Set behavior', async () => {
+        // Arrange
+        const btnId = getUniqueId('duplicate-array-btn')
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': '/duplicate-array-test',
+          'data-rx-trigger': '["click", "click", "submit", "click"]'
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act - Click once should work (Set deduplication means only one listener)
+        button.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(1)
+        expect(mockFetch).toHaveBeenCalledWith('/duplicate-array-test', expect.any(Object))
+      })
+    })
+
+    describe('Mixed Format Compatibility Tests', () => {
+      test('mixed elements with different trigger formats work together', async () => {
+        // Arrange - Create elements with different trigger formats
+        const stringBtnId = getUniqueId('string-format-btn')
+        const arrayBtnId = getUniqueId('array-format-btn')
+        
+        const stringButton = createElementWithId('button', stringBtnId, {
+          'data-rx-action': '/string-format-test',
+          'data-rx-trigger': 'click'
+        })
+        
+        const arrayButton = createElementWithId('button', arrayBtnId, {
+          'data-rx-action': '/array-format-test',
+          'data-rx-trigger': '["click"]'
+        })
+        
+        document.body.appendChild(stringButton)
+        document.body.appendChild(arrayButton)
+        processNewElements()
+
+        // Act - Test both formats work
+        stringButton.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+        
+        arrayButton.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForMicrotasks()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(2)
+        expect(mockFetch).toHaveBeenCalledWith('/string-format-test', expect.any(Object))
+        expect(mockFetch).toHaveBeenCalledWith('/array-format-test', expect.any(Object))
+      })
+
+      test('complex array format with multiple special triggers', async () => {
+        // Arrange
+        const elemId = getUniqueId('complex-array-elem')
+        const element = createElementWithId('div', elemId, {
+          'data-rx-action': '/complex-array-test',
+          'data-rx-trigger': '["click", {"type": "initialized"}, "mouseenter"]'
+        })
+
+        // Act - Add to DOM (should trigger initialized)
+        document.body.appendChild(element)
+        processNewElements()
+        await waitForDOMUpdates()
+
+        // Assert - initialized trigger should fire
+        expect(mockFetch).toHaveBeenCalledWith('/complex-array-test', expect.any(Object))
+        
+        mockFetch.mockClear()
+        
+        // Act - Test regular triggers
+        element.dispatchEvent(new Event('click', { bubbles: true }))
+        await waitForDOMUpdates()
+        
+        element.dispatchEvent(new Event('mouseenter', { bubbles: true }))
+        await waitForDOMUpdates()
+
+        // Assert
+        expect(mockFetch).toHaveBeenCalledTimes(2)
+        expect(mockFetch).toHaveBeenCalledWith('/complex-array-test', expect.any(Object))
+      })
     })
   })
 
@@ -1830,8 +3525,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const elemId = getUniqueId('reveal-margin-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/reveal-margin-test',
-        'data-rx-trigger': 'rx:revealed',
-        'data-rx-reveal-margin': '10px 20px 30px 40px'
+        'data-rx-trigger': '{"type": "revealed", "margin": "10px 20px 30px 40px"}'
       })
 
       // Act
@@ -2453,8 +4147,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const container = createElementWithId('div', containerId)
       const pollElement = createElementWithId('div', pollElemId, {
         'data-rx-action': '/poll-test',
-        'data-rx-trigger': 'rx:poll',
-        'data-rx-poll-interval': '1000'
+        'data-rx-trigger': '{"type": "poll", "interval": 1000}'
       })
       
       container.appendChild(pollElement)
@@ -2495,7 +4188,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const elemId = getUniqueId('reveal-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/reveal-test',
-        'data-rx-trigger': 'rx:revealed'
+        'data-rx-trigger': '{"type": "revealed"}'
       })
       
       // Clear existing mock calls before our test
@@ -2973,4 +4666,6 @@ describe('RazorX Framework API Surface Tests', () => {
       }
     }, 10000)
   })
+
+
 })

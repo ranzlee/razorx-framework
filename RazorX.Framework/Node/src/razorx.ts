@@ -15,11 +15,9 @@ declare global {
             rxAllowEventDefault?: string //data-rx-allow-default
             rxDisableInFlight?: string, //data-rx-disable-in-flight
             rxDebounce?: string //data-rx-debounce
-            rxPollInterval?: string //data-rx-poll-interval
             rxDisableQueueing?: string // data-rx-disable-queueing
             rxHoistTo?: string //data-rx-hoist-to transfer rx behaviors to another element
             rxIncludeState?: string //data-rx-include-state
-            rxRevealMargin?: string //data-rx-reveal-margin
             rxLoadingIndicator?: string //data-rx-loading-indicator
         },
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
@@ -100,7 +98,29 @@ export type RxResponseHeaders =
     "rx-trigger-focus-element" | 
     "rx-trigger-set-state";
 
-export type RxExtendedEvents = "rx:initialized" | "rx:poll" | "rx:revealed";
+export type SpecialTriggerType = 'initialized' | 'poll' | 'revealed';
+
+export type SpecialTriggerConfig = {
+    type: SpecialTriggerType;
+}
+
+export type InitializedTrigger = SpecialTriggerConfig & {
+    type: 'initialized';
+}
+
+export type PollTrigger = SpecialTriggerConfig & {
+    type: 'poll';
+    interval?: number; // Optional, default 1000ms
+}
+
+export type RevealedTrigger = SpecialTriggerConfig & {
+    type: 'revealed';
+    margin?: string; // Optional, default "0px"
+}
+
+export type SpecialTrigger = InitializedTrigger | PollTrigger | RevealedTrigger;
+
+export type TriggerDefinition = string | SpecialTrigger;
 
 export type RxCloseDialogTrigger = {
     dialogId: string,
@@ -117,13 +137,12 @@ export type RxSetStateTrigger = {
     scope: "Session" | "Persistent"
     key: string,
     value?: string | null,
+    updateUrl?: boolean,
 }
-
-export const RxRequestHeader = "rx-request";
 
 type ElementTriggerState = {
     triggers: Set<string>;
-    intervalId?: number;
+    intervalId?: ReturnType<typeof setInterval>;
     observer?: IntersectionObserver;
 }
 
@@ -134,6 +153,8 @@ type ParsedRxHeaders = {
     focusElement?: RxFocusElementTrigger;
     morphIgnoreActive?: boolean;
 };
+
+const RxRequestHeader = "rx-request";
 
 const _processedScriptTag = "data-rx-script-processed";
 
@@ -255,7 +276,66 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     // configuration functions
 
-    // Element cache helper functions
+    function parseTriggers(triggerAttr: string | undefined): TriggerDefinition[] {
+        if (!triggerAttr || triggerAttr.trim() === "") {
+            return [];
+        }    
+        const trimmed = triggerAttr.trim();
+        if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (!Array.isArray(parsed) && typeof parsed === 'object' && parsed && parsed.type) {
+                    return [parsed as SpecialTrigger];
+                }
+                if (Array.isArray(parsed)) {
+                    return parsed
+                        .filter((item): boolean => {
+                            return (typeof item === "string" && item.trim() !== "") ||
+                                   (typeof item === "object" && item && item.type);
+                        })
+                        .map((item): TriggerDefinition => {
+                            if (typeof item === "string") {
+                                return item.trim();
+                            }
+                            return item as SpecialTrigger;
+                        });
+                }
+            } catch {
+                console.error(`Failed to parse triggers as JSON: ${trimmed}`);
+                return [];
+            }
+        }
+        if (trimmed.includes(" ")) {
+            throw new Error(`Space-separated triggers are not supported. Convert "${trimmed}" to JSON array format`);
+        }
+        return [trimmed];
+    }
+
+    function parseStateKeys(stateAttr: string | undefined): string[] {
+        if (!stateAttr || stateAttr.trim() === "") {
+            return [];
+        }
+        const trimmed = stateAttr.trim();
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) {
+                    return parsed
+                        .filter((item): boolean => typeof item === "string" && item.trim() !== "")
+                        .map((item): string => item.trim());
+                }
+            } catch {
+                console.warn(`Failed to parse state keys as JSON: ${trimmed}`);
+                return [];
+            }
+        }
+        if (trimmed.includes(" ")) {
+            const jsonArray = `["${trimmed.split(' ').join('", "')}"]`;
+            throw new Error(`Space-separated state keys are no longer supported. Convert "${trimmed}" to JSON array format: ${jsonArray}`);
+        }
+        return [trimmed];
+    }
+
     function getCachedElement(id: string): HTMLElement | null {
         if (_elementCache.has(id)) {
             return _elementCache.get(id)!;
@@ -306,6 +386,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
+
     function setTriggers(ele: HTMLElement): void {
         if (ele.dataset.rxAction && (!ele.id || ele.id.trim() === "")) {
             throw new Error(`Element with "data-rx-action" must have a unique ID.`);
@@ -320,114 +401,103 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 : ele.matches("input:not([type=button]),select,textarea") ? "change" : "click";
             ele.setAttribute("data-rx-trigger", rxTrigger);
         }
-        const triggers = ele.dataset.rxTrigger!.split(/\s+/);
-        // Validate that special triggers are not combined with hoist
+        const triggers = parseTriggers(ele.dataset.rxTrigger);
         if (ele.dataset.rxHoistTo) {
-            const specialTriggers = ["rx:initialized", "rx:poll", "rx:revealed"];
             const hasSpecialTrigger = triggers.some((trigger) => 
-                specialTriggers.includes(trigger.trim().toLowerCase())
+                typeof trigger === 'object' && 'type' in trigger
             );
-            
             if (hasSpecialTrigger) {
                 throw new Error(
-                    `Element ${ele.id} cannot use special triggers (rx:initialized, rx:poll, rx:revealed) ` +
+                    `Element ${ele.id} cannot use special triggers ` +
                     `with data-rx-hoist-to. Special triggers have their own lifecycle and cannot be hoisted to another element.`
                 );
             }
             const triggerState = _elementTriggerState.get(ele) || { triggers: new Set() };
             triggers.forEach((trigger): void => {
-                // Check if already added to prevent duplicates
-                if (!triggerState.triggers.has(trigger)) {
-                    ele.addEventListener(trigger, elementHoistEventHandler);
-                    triggerState.triggers.add(trigger);
+                if (typeof trigger === 'string') {
+                    // Check if already added to prevent duplicates
+                    if (!triggerState.triggers.has(trigger)) {
+                        ele.addEventListener(trigger, elementHoistEventHandler);
+                        triggerState.triggers.add(trigger);
+                    }
                 }
             });
             _elementTriggerState.set(ele, triggerState);
         } else {
-            const rxInitialized: RxExtendedEvents = "rx:initialized";
-            const rxPoll: RxExtendedEvents = "rx:poll";
-            const rxRevealed: RxExtendedEvents = "rx:revealed";
-            // Get or create trigger state for tracking
             const triggerState = _elementTriggerState.get(ele) || { triggers: new Set() };
             triggers.forEach((trigger): void => {
-                const trimmedTrigger = trigger.trim().toLowerCase();
-                if (trimmedTrigger === rxInitialized) {
-                    initializedTrigger(ele, rxInitialized);
-                } else if (trimmedTrigger === rxPoll) {
-                    pollTrigger(ele, rxPoll);
-                    triggerState.triggers.add(rxPoll);
-                } else if (trimmedTrigger === rxRevealed) {
-                    revealedTrigger(ele, rxRevealed);
-                    triggerState.triggers.add(rxRevealed);
-                } else {
-                    if (triggerState.triggers.has(trigger)) {
-                        return;
+                if (typeof trigger === 'object' && trigger.type) {
+                    // Handle special triggers
+                    switch (trigger.type) {
+                        case 'initialized':
+                            initializedTrigger(ele);
+                            triggerState.triggers.add('initialized');
+                            break;
+                        case 'poll':
+                            pollTrigger(ele, trigger.interval);
+                            triggerState.triggers.add('poll:' + (trigger.interval || 1000));
+                            break;
+                        case 'revealed':
+                            revealedTrigger(ele, trigger.margin);
+                            triggerState.triggers.add('revealed:' + (trigger.margin || '0px'));
+                            break;
+                        default:
+                            console.warn(`Unknown special trigger type: ${(trigger as any).type}`);
                     }
-                    ele.addEventListener(trigger, elementTriggerEventHandler);
-                    triggerState.triggers.add(trigger);
+                } else if (typeof trigger === 'string') {
+                    // Handle regular string triggers
+                    if (!triggerState.triggers.has(trigger)) {
+                        ele.addEventListener(trigger, elementTriggerEventHandler);
+                        triggerState.triggers.add(trigger);
+                    }
                 }
             });
             _elementTriggerState.set(ele, triggerState);
         }
     }
 
-    function initializedTrigger(ele: HTMLElement, rxInitialized: string): void {
-        const evt = new CustomEvent(rxInitialized)
+    function initializedTrigger(ele: HTMLElement): void {
+        const evt = new CustomEvent('initialized', { detail: { type: 'initialized' } });
         elementTriggerProcessor(ele, evt);
     }
 
-    function pollTrigger(ele: HTMLElement, rxPoll: string): void {
+    function pollTrigger(ele: HTMLElement, interval?: number): void {
         const existingState = _elementTriggerState.get(ele);
         if (existingState?.intervalId) {
             console.warn(`Polling already active for element ${ele.id}`);
             return;
         }
-        let interval = 1000;
-        const intervalSetting = ele.dataset.rxPollInterval?.trim().toLowerCase();
-        if (intervalSetting === undefined) {
-            console.warn(`The data-rx-poll-interval attribute on element ${ele.id} was not found. Default value of 1000 ms used.`);
-        } else {
-            interval = parseInt(intervalSetting, 10);
-            if (Number.isNaN(interval) || interval <= 0) {
-                interval = 1000;
-                console.warn(`The data-rx-poll-interval attribute on element ${ele.id} is invalid. Default value of 1000 ms used.`);
-            }    
+        const pollInterval = interval || 1000;
+        if (pollInterval <= 0) {
+            console.warn(`Invalid poll interval ${pollInterval} for element ${ele.id}. Using default 1000ms.`);
         }
-        const evt = new CustomEvent(rxPoll)
+        const evt = new CustomEvent('poll', { detail: { type: 'poll', interval: pollInterval } });
         const intervalId = setInterval(() => {
             elementTriggerProcessor(ele, evt);
-        }, interval);
+        }, pollInterval);
         const state = _elementTriggerState.get(ele) || { triggers: new Set() };
         state.intervalId = intervalId;
         _elementTriggerState.set(ele, state);
     }
 
-    function revealedTrigger(ele: HTMLElement, rxRevealed: string): void {
+    function revealedTrigger(ele: HTMLElement, margin?: string): void {
         const existingState = _elementTriggerState.get(ele);
         if (existingState?.observer) {
             console.warn(`Observer already active for element ${ele.id}`);
             return;
         }
-        let rootMargin = "0px";
-        const revealMarginSetting = ele.dataset.rxRevealMargin?.trim();
-        if (revealMarginSetting !== undefined) {
-            if (revealMarginSetting === "") {
-                console.warn(`The data-rx-reveal-margin attribute on element ${ele.id} is empty. Default value of "0px" used.`);
-            } else {
-                // Basic validation for CSS margin format
-                const marginPattern = /^-?\d+px(\s+-?\d+px)*$/;
-                if (marginPattern.test(revealMarginSetting)) {
-                    rootMargin = revealMarginSetting;
-                } else {
-                    console.warn(`The data-rx-reveal-margin attribute on element ${ele.id} has invalid format "${revealMarginSetting}". Must be CSS margin format (e.g., "200px", "100px 0px"). Default value of "0px" used.`);
-                }
-            }
+        const rootMargin = margin || "0px";
+        const marginPattern = /^-?\d+px(\s+-?\d+px)*$/;
+        if (!marginPattern.test(rootMargin)) {
+            console.warn(`Invalid margin format "${rootMargin}" for element ${ele.id}. Must be CSS margin format (e.g., "200px", "100px 0px"). Using default "0px".`);
         }
         const observer = new IntersectionObserver(
             (entries) => {
                 entries.forEach((entry) => {
                     if (entry.isIntersecting && entry.target === ele) {
-                        const evt = new CustomEvent(rxRevealed);
+                        const evt = new CustomEvent('revealed', { 
+                            detail: { type: 'revealed', margin: rootMargin } 
+                        });
                         elementTriggerProcessor(ele, evt);
                         observer.disconnect();
                         const state = _elementTriggerState.get(ele);
@@ -619,7 +689,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function debounce(ele: HTMLElement, evt: Event, delay: number): (() => Promise<void>) & { _cleanup?: () => void } {
-        let timeoutId: number | null = null;
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
         let pending: Array<{ 
             resolve: (value: void) => void; 
             reject: (reason?: unknown) => void 
@@ -701,11 +771,32 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     addCookieToRequest(request, options.addCookieToRequestHeader);
                 }
             }
-            if (/GET|DELETE/.test(request.method!)) {
+            if (evt instanceof CustomEvent && (evt.detail?.type === 'initialized' || evt.detail?.type === 'poll')) {
+                if (request.method !== "GET") {
+                    const triggerType = evt.detail?.type;
+                    throw new Error(`Element ${ele.id} with ${triggerType} trigger must use GET method, but found ${request.method}`);
+                }
+                const finalParams = new URLSearchParams();
+                const formParams = request.body instanceof FormData 
+                    ? new URLSearchParams(request.body as unknown as Record<string, string>)
+                    : new URLSearchParams(request.body);
+                formParams.forEach((value, key) => {
+                    finalParams.set(key, value);  // Use set() not append() to avoid duplicates
+                });
+                const currentUrlParams = new URLSearchParams(window.location.search);
+                currentUrlParams.forEach((value, key) => {
+                    finalParams.set(key, value);  // Overrides form data if same key exists
+                });
+                if (finalParams.size > 0) {
+                    const url = new URL(request.action!, window.location.href);
+                    finalParams.forEach((value, key) => url.searchParams.set(key, value));
+                    request.action = url.pathname + url.search;
+                }
+                delete request.body;
+            } else if (/GET|DELETE/.test(request.method!)) {
                 const params = request.body instanceof FormData 
                     ? new URLSearchParams(request.body! as unknown as Record<string, string>)
                     : new URLSearchParams(request.body);
-                //const params = new URLSearchParams(request.body.toString());
                 if (params.size) {
                     const url = new URL(request.action!, window.location.href);
                     params.forEach((value, key) => url.searchParams.append(key, value));
@@ -721,7 +812,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (Object.keys(state).length > 0) {
                 const url = new URL(request.action!, window.location.href);
                 const stateParams = new URLSearchParams(state);
-                stateParams.forEach((value, key) => url.searchParams.append(key, value));
+                stateParams.forEach((value, key) => {
+                    if (!url.searchParams.has(key)) {
+                        url.searchParams.set(key, value);
+                    }
+                });
                 request.action = url.pathname + url.search;
             }
             const config: RequestConfiguration = {
@@ -774,10 +869,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function collectState(ele: HTMLElement): Record<string, string> {
-        if (!ele.dataset.rxIncludeState) {
-            return {};
-        }
-        const stateKeys = ele.dataset.rxIncludeState!.split(/\s+/);
+        const stateKeys = parseStateKeys(ele.dataset.rxIncludeState);
         if (stateKeys.length === 0) {
             return {};
         }
@@ -898,7 +990,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             return;
         }
         const parsedHeaders = parseRxHeaders(response);
-        processSetStateTrigger(ele, parsedHeaders?.setState);
+        const stateResult = processSetStateTrigger(ele, parsedHeaders?.setState);
+        // Update browser URL immediately after state persistence
+        if (stateResult.shouldUpdateUrl && stateResult.stateKeys.length > 0) {
+            updateBrowserUrl(stateResult.stateKeys);
+        }
         if (response.status === 202) {
             //used to issue a follow-up GET request for rendering
             const location = response.headers.get("location");
@@ -908,24 +1004,25 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             return; 
         }
         processCloseDialogTrigger(ele, parsedHeaders?.closeDialog);
+        // Handle 204 No Content - no merge processing required
+        if (response.status === 204) {
+            // Skip merge processing but still handle callbacks and triggers
+            if (ele._rxCallbacks!.afterDocumentUpdate) {
+                ele._rxCallbacks!.afterDocumentUpdate();
+            }
+            if (_callbacks.afterDocumentUpdate) {
+                _callbacks.afterDocumentUpdate(ele);
+            }
+            processFocusElementTrigger(ele, parsedHeaders?.focusElement);
+            return;
+        }
         if (!parsedHeaders?.merge) {
             throw new Error(`Expected a "rx-merge" header object.`);
         }
-        if (response.status === 204) {
-            const removals = parsedHeaders.merge.filter((s: MergeStrategy): boolean => s.strategy === "remove");
-            if (removals.length > 0) {
-                if (document.startViewTransition !== undefined) {
-                    await document.startViewTransition(async () => removeElements(ele, removals)).finished;
-                } else {
-                    removeElements(ele, removals);
-                }
-            }
+        if (document.startViewTransition !== undefined) {
+            await document.startViewTransition(() => mergeFragments(ele, response, parsedHeaders.merge!, parsedHeaders.morphIgnoreActive)).finished;
         } else {
-            if (document.startViewTransition !== undefined) {
-                await document.startViewTransition(() => mergeFragments(ele, response, parsedHeaders.merge!, parsedHeaders.morphIgnoreActive)).finished;
-            } else {
-                await mergeFragments(ele, response, parsedHeaders.merge, parsedHeaders.morphIgnoreActive);
-            }
+            await mergeFragments(ele, response, parsedHeaders.merge, parsedHeaders.morphIgnoreActive);
         }
         if (ele._rxCallbacks!.afterDocumentUpdate) {
             ele._rxCallbacks!.afterDocumentUpdate();
@@ -936,9 +1033,43 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         processFocusElementTrigger(ele, parsedHeaders?.focusElement);
     }
 
-    function processSetStateTrigger(ele: HTMLElement, setStateTriggers?: RxSetStateTrigger[]): void {
+    function updateBrowserUrl(stateKeys: string[]): void {
+        try {
+            const currentUrl = new URL(window.location.href);
+            const newParams = new URLSearchParams(currentUrl.search);
+            stateKeys.forEach((key): void => {
+                let value: string | null = null;
+                try {
+                    value = sessionStorage.getItem(key);
+                } catch (sessionError) {
+                    console.warn(`Failed to read sessionStorage key '${key}':`, sessionError instanceof Error ? sessionError.message : String(sessionError));
+                }
+                if (!value) {
+                    try {
+                        value = localStorage.getItem(key);
+                    } catch (localError) {
+                        console.warn(`Failed to read localStorage key '${key}':`, localError instanceof Error ? localError.message : String(localError));
+                    }
+                }
+                if (value) {
+                    newParams.set(key, value);
+                } else {
+                    newParams.delete(key);
+                }
+            });
+            const newUrl = newParams.size === 0 
+                ? currentUrl.pathname 
+                : `${currentUrl.pathname}?${newParams.toString()}${currentUrl.hash}`;
+            window.history.replaceState({}, '', newUrl);
+        } catch (error) {
+            console.warn('Failed to update browser URL:', error instanceof Error ? error.message : String(error));
+        }
+    }
+
+    function processSetStateTrigger(ele: HTMLElement, setStateTriggers?: RxSetStateTrigger[]): { shouldUpdateUrl: boolean, stateKeys: string[] } {
+        const result = { shouldUpdateUrl: false, stateKeys: [] as string[] };
         if (!setStateTriggers) {
-            return;
+            return result;
         }
         for (let i = 0; i < setStateTriggers.length; i++) {
             const setStateTrigger = setStateTriggers[i]!;
@@ -961,6 +1092,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     } else {
                         sessionStorage.setItem(setStateTrigger.key, setStateTrigger.value);
                     }
+                    if (setStateTrigger.updateUrl) {
+                        result.stateKeys.push(setStateTrigger.key);
+                        result.shouldUpdateUrl = true;
+                    }
                 } catch (storageError) {
                     const errorMsg = `Failed to ${!setStateTrigger.value ? 'remove' : 'set'} sessionStorage key '${setStateTrigger.key}': ${storageError instanceof Error ? storageError.message : String(storageError)}`;
                     console.warn(errorMsg, { key: setStateTrigger.key, value: setStateTrigger.value, error: storageError });
@@ -981,6 +1116,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     } else {
                         localStorage.setItem(setStateTrigger.key, setStateTrigger.value);
                     }
+                    if (setStateTrigger.updateUrl) {
+                        result.stateKeys.push(setStateTrigger.key);
+                        result.shouldUpdateUrl = true;
+                    }
                 } catch (storageError) {
                     const errorMsg = `Failed to ${!setStateTrigger.value ? 'remove' : 'set'} localStorage key '${setStateTrigger.key}': ${storageError instanceof Error ? storageError.message : String(storageError)}`;
                     console.warn(errorMsg, { key: setStateTrigger.key, value: setStateTrigger.value, error: storageError });
@@ -994,6 +1133,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 }
             }
         }
+        return result;
     }
 
     function processCloseDialogTrigger(ele: HTMLElement, closeDialogTrigger?: RxCloseDialogTrigger): void {

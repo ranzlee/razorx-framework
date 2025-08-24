@@ -7,7 +7,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PACKAGE_OUTPUT_DIR="$PROJECT_DIR/packages"
+PACKAGE_OUTPUT_DIR="$PROJECT_DIR/artifacts"
 VALIDATION_DIR="$PROJECT_DIR/temp-validation"
 
 # Colors for output

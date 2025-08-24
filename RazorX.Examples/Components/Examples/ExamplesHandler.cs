@@ -23,11 +23,12 @@ public class ExamplesHandler : RequestHandler {
         router.MapGet("/todo/next/{id:int}", NextTodos);
         router.MapDelete("/todo/{id:int}", DeleteTodo);
         router.MapGet("/search-todos", SearchTodos);
+        router.MapGet("/poll-test", PollTest);
     }
 
     private static readonly List<TodoModel> Todos = [];
 
-    public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver) {
+    public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver, string filter = "") {
         return await rxDriver
             .With(context)
             .AddPage<App, ExamplesHead, ExamplesPage, ExampleModel>(new ExampleModel([], 0, 0), "RazorX - Examples")
@@ -52,11 +53,15 @@ public class ExamplesHandler : RequestHandler {
             .Take(5);
         return await rxDriver
             .With(context)
-            .AddTriggerSetState("filter", filter)
+            .AddTriggerSetState("filter", filter, MetadataScope.Session, true)
             .AddFragment<TodoSearch, string>(filter, "search-todos", FragmentMergeStrategyType.Morph)
             .AddFragment<TodoList, IEnumerable<TodoModel>>(page, "todo-list", FragmentMergeStrategyType.SwapInner)
             .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)
             .Render();
+    }
+
+    public static IResult PollTest() {
+        return TypedResults.NoContent();
     }
 
     public static async Task<IResult> NewTodo(HttpContext context, IRxDriver rxDriver, TodoFormModel model) {
