@@ -758,9 +758,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     addCookieToRequest(request, options.addCookieToRequestHeader);
                 }
             }
-            if (evt instanceof CustomEvent && evt.detail?.type === 'initialized') {
+            if (evt instanceof CustomEvent && (evt.detail?.type === 'initialized' || evt.detail?.type === 'poll')) {
                 if (request.method !== "GET") {
-                    throw new Error(`Element ${ele.id} with initialized trigger must use GET method, but found ${request.method}`);
+                    const triggerType = evt.detail?.type;
+                    throw new Error(`Element ${ele.id} with ${triggerType} trigger must use GET method, but found ${request.method}`);
                 }
                 const finalParams = new URLSearchParams();
                 const formParams = request.body instanceof FormData 

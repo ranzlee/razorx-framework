@@ -2499,6 +2499,151 @@ describe('RazorX Framework API Surface Tests', () => {
       vi.useRealTimers()
     })
 
+    test('poll trigger with POST method throws error', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      const elemId = getUniqueId('poll-post-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/poll-test',
+        'data-rx-method': 'POST',
+        'data-rx-trigger': '{"type": "poll", "interval": 1000}'
+      })
+      
+      // Spy on console.error to catch the error
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      document.body.appendChild(element)
+      processNewElements()
+      
+      // Act - Let the poll timer fire
+      await vi.runOnlyPendingTimersAsync()
+      
+      // Assert - Error should be logged  
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: `Element ${elemId} with poll trigger must use GET method, but found POST`
+        })
+      )
+      
+      consoleSpy.mockRestore()
+      vi.useRealTimers()
+    })
+
+    test('poll trigger parameter priority (URL > Form > State)', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      const elemId = getUniqueId('poll-priority-elem')
+      
+      // Mock URL search params
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: {
+          ...window.location,
+          search: '?param1=url-value&param2=url-only'
+        }
+      })
+
+      const form = document.createElement('form')
+      const input1 = createElementWithId('input', getUniqueId('input1'), {
+        name: 'param1',
+        value: 'form-value'
+      }) as HTMLInputElement
+      const input2 = createElementWithId('input', getUniqueId('input2'), {
+        name: 'param3', 
+        value: 'form-only'
+      }) as HTMLInputElement
+      
+      form.appendChild(input1)
+      form.appendChild(input2)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/poll-priority-test',
+        'data-rx-trigger': '{"type": "poll", "interval": 1000}',
+        'data-rx-include-state': 'param1 param4'
+      })
+      form.appendChild(element)
+      
+      // Set up storage state
+      sessionStorage.setItem('param1', 'session-value')
+      localStorage.setItem('param4', 'local-only')
+      
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      await vi.runOnlyPendingTimersAsync()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('param1=url-value'), // URL wins over form and session
+        expect.objectContaining({ method: 'GET' })
+      )
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('param2=url-only'), // URL only
+        expect.anything()
+      )
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('param3=form-only'), // Form only
+        expect.anything()
+      )
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('param4=local-only'), // State only
+        expect.anything()
+      )
+      
+      // Clean up
+      sessionStorage.removeItem('param1')
+      localStorage.removeItem('param4')
+      Object.defineProperty(window, 'location', {
+        writable: true,
+        value: { ...window.location, search: '' }
+      })
+      vi.useRealTimers()
+    })
+
+    test('poll trigger with form data converts to URL params', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      const elemId = getUniqueId('poll-form-elem')
+      
+      const form = document.createElement('form')
+      const input1 = createElementWithId('input', getUniqueId('input1'), {
+        name: 'username',
+        value: 'testuser'
+      }) as HTMLInputElement
+      const input2 = createElementWithId('input', getUniqueId('input2'), {
+        name: 'filter',
+        value: 'active'
+      }) as HTMLInputElement
+      
+      form.appendChild(input1)
+      form.appendChild(input2)
+      
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/poll-form-test',
+        'data-rx-trigger': '{"type": "poll", "interval": 1000}'
+      })
+      form.appendChild(element)
+      
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      await vi.runOnlyPendingTimersAsync()
+
+      // Assert - Check that the URL contains both parameters and body is undefined
+      const fetchCall = mockFetch.mock.calls[0]
+      const url = fetchCall[0] as string
+      const options = fetchCall[1]
+      
+      expect(url).toContain('username=testuser')
+      expect(url).toContain('filter=active')
+      expect(options.method).toBe('GET')
+      expect(options.body).toBeUndefined()
+      
+      vi.useRealTimers()
+    })
+
     test('revealed trigger sets up IntersectionObserver', () => {
       // Arrange
       const elemId = getUniqueId('reveal-elem')
