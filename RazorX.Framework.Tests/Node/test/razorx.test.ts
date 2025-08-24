@@ -1934,12 +1934,12 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(mockFetch).toHaveBeenCalledWith('/change-test', expect.any(Object))
     })
 
-    test('rx:initialized trigger fires immediately', async () => {
+    test('initialized trigger fires immediately', async () => {
       // Arrange
       const elemId = getUniqueId('init-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/init-test',
-        'data-rx-trigger': 'rx:initialized'
+        'data-rx-trigger': '{"type": "initialized"}'
       })
 
       // Act
@@ -1951,13 +1951,13 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(mockFetch).toHaveBeenCalledWith('/init-test', expect.any(Object))
     })
     
-    test('rx:initialized trigger validates GET method requirement', async () => {
+    test('initialized trigger validates GET method requirement', async () => {
       // Arrange
       const elemId = getUniqueId('init-post-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/init-post-test',
         'data-rx-method': 'POST',
-        'data-rx-trigger': 'rx:initialized'
+        'data-rx-trigger': '{"type": "initialized"}'
       })
       
       // Spy on console.error to catch the error
@@ -1971,7 +1971,7 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert - Should throw error for non-GET method
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: expect.stringContaining(`Element ${elemId} with rx:initialized trigger must use GET method, but found POST`)
+          message: expect.stringContaining(`Element ${elemId} with initialized trigger must use GET method, but found POST`)
         })
       )
       expect(mockFetch).not.toHaveBeenCalled()
@@ -1979,7 +1979,7 @@ describe('RazorX Framework API Surface Tests', () => {
       consoleErrorSpy.mockRestore()
     })
     
-    test('rx:initialized includes browser query string parameters', async () => {
+    test('initialized trigger includes browser query string parameters', async () => {
       // Arrange - Set up window.location.search
       Object.defineProperty(window, 'location', {
         value: {
@@ -1994,7 +1994,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const elemId = getUniqueId('init-query-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/init-query-test',
-        'data-rx-trigger': 'rx:initialized'
+        'data-rx-trigger': '{"type": "initialized"}'
       })
       
       // Act
@@ -2023,7 +2023,7 @@ describe('RazorX Framework API Surface Tests', () => {
       })
     })
     
-    test('rx:initialized URL parameters take precedence over form data', async () => {
+    test('initialized trigger URL parameters take precedence over form data', async () => {
       // Arrange - Set up window.location.search with conflicting params
       Object.defineProperty(window, 'location', {
         value: {
@@ -2049,7 +2049,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/init-precedence-test',
-        'data-rx-trigger': 'rx:initialized',
+        'data-rx-trigger': '{"type": "initialized"}',
         'type': 'button'
       })
       
@@ -2080,7 +2080,7 @@ describe('RazorX Framework API Surface Tests', () => {
       })
     })
     
-    test('rx:initialized does not send body with GET request', async () => {
+    test('initialized trigger does not send body with GET request', async () => {
       // Arrange
       Object.defineProperty(window, 'location', {
         value: {
@@ -2095,7 +2095,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const elemId = getUniqueId('init-nobody-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/init-nobody-test',
-        'data-rx-trigger': 'rx:initialized'
+        'data-rx-trigger': '{"type": "initialized"}'
       })
       
       // Act
@@ -2127,7 +2127,7 @@ describe('RazorX Framework API Surface Tests', () => {
       })
     })
     
-    test('rx:initialized complete priority chain - URL > form > session > local', async () => {
+    test('initialized trigger complete priority chain - URL > form > session > local', async () => {
       // Arrange - Set up all 4 priority levels with same parameter name
       Object.defineProperty(window, 'location', {
         value: {
@@ -2157,7 +2157,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/complete-priority-test',
-        'data-rx-trigger': 'rx:initialized',
+        'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': 'userId',  // Include state
         'type': 'button'
       })
@@ -2191,7 +2191,7 @@ describe('RazorX Framework API Surface Tests', () => {
       mockStorage.localStorage.clear()
     })
     
-    test('rx:initialized state storage vs URL parameters - URL wins', async () => {
+    test('initialized trigger state storage vs URL parameters - URL wins', async () => {
       // Arrange - URL and storage conflict
       Object.defineProperty(window, 'location', {
         value: {
@@ -2209,7 +2209,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const elemId = getUniqueId('state-vs-url-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/state-url-test',
-        'data-rx-trigger': 'rx:initialized',
+        'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': 'theme'
       })
       
@@ -2239,7 +2239,7 @@ describe('RazorX Framework API Surface Tests', () => {
       mockStorage.sessionStorage.clear()
     })
     
-    test('rx:initialized no duplicate parameters in URL', async () => {
+    test('initialized trigger no duplicate parameters in URL', async () => {
       // Arrange - Same parameter in multiple sources
       Object.defineProperty(window, 'location', {
         value: {
@@ -2272,7 +2272,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/no-duplicate-test',
-        'data-rx-trigger': 'rx:initialized',
+        'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': 'filter limit',
         'type': 'button'
       })
@@ -2308,7 +2308,7 @@ describe('RazorX Framework API Surface Tests', () => {
       mockStorage.sessionStorage.clear()
     })
     
-    test('rx:initialized handles empty and missing values correctly', async () => {
+    test('initialized trigger handles empty and missing values correctly', async () => {
       // Arrange - Mix of empty and valid values
       Object.defineProperty(window, 'location', {
         value: {
@@ -2345,7 +2345,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/empty-values-test',
-        'data-rx-trigger': 'rx:initialized',
+        'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': 'valid fromSession fromLocal nonExistent',
         'type': 'button'
       })
@@ -2383,7 +2383,7 @@ describe('RazorX Framework API Surface Tests', () => {
       mockStorage.localStorage.clear()
     })
     
-    test('rx:initialized multiple parameters from each source', async () => {
+    test('initialized trigger multiple parameters from each source', async () => {
       // Arrange - Multiple params from each source
       Object.defineProperty(window, 'location', {
         value: {
@@ -2420,7 +2420,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/multi-params-test',
-        'data-rx-trigger': 'rx:initialized',
+        'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': 'sessionParam1 sessionParam2 localParam1 localParam2',
         'type': 'button'
       })
@@ -2463,7 +2463,7 @@ describe('RazorX Framework API Surface Tests', () => {
       mockStorage.localStorage.clear()
     })
 
-    test('rx:poll trigger fires at intervals', async () => {
+    test('poll trigger fires at intervals', async () => {
       // Arrange
       vi.useFakeTimers()
       
@@ -2480,8 +2480,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const elemId = getUniqueId('poll-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/poll-test',
-        'data-rx-trigger': 'rx:poll',
-        'data-rx-poll-interval': '1000' // Longer interval to avoid overlaps
+        'data-rx-trigger': '{"type": "poll", "interval": 1000}' // Longer interval to avoid overlaps
       })
       document.body.appendChild(element)
       processNewElements()
@@ -2500,12 +2499,12 @@ describe('RazorX Framework API Surface Tests', () => {
       vi.useRealTimers()
     })
 
-    test('rx:revealed trigger sets up IntersectionObserver', () => {
+    test('revealed trigger sets up IntersectionObserver', () => {
       // Arrange
       const elemId = getUniqueId('reveal-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/reveal-test',
-        'data-rx-trigger': 'rx:revealed'
+        'data-rx-trigger': '{"type": "revealed"}'
       })
 
       // Act
@@ -2574,12 +2573,12 @@ describe('RazorX Framework API Surface Tests', () => {
       })
 
 
-      test('existing special triggers as string - rx:initialized', async () => {
-        // Arrange - Test rx:initialized
+      test('existing special triggers as object - initialized', async () => {
+        // Arrange - Test initialized trigger
         const initId = getUniqueId('init-string-elem')
         const initElement = createElementWithId('div', initId, {
           'data-rx-action': '/init-string-test',
-          'data-rx-trigger': 'rx:initialized'
+          'data-rx-trigger': '{"type": "initialized"}'
         })
 
         // Act
@@ -2591,12 +2590,12 @@ describe('RazorX Framework API Surface Tests', () => {
         expect(mockFetch).toHaveBeenCalledWith('/init-string-test', expect.any(Object))
       })
 
-      test('existing special triggers as string - rx:revealed', async () => {
-        // Arrange - Test rx:revealed sets up observer
+      test('existing special triggers as object - revealed', async () => {
+        // Arrange - Test revealed trigger sets up observer
         const revealId = getUniqueId('reveal-string-elem')
         const revealElement = createElementWithId('div', revealId, {
           'data-rx-action': '/reveal-string-test',
-          'data-rx-trigger': 'rx:revealed'
+          'data-rx-trigger': '{"type": "revealed"}'
         })
 
         // Act
@@ -2653,11 +2652,11 @@ describe('RazorX Framework API Surface Tests', () => {
       })
 
       test('array with special triggers', async () => {
-        // Arrange - Test array with rx:initialized and regular trigger
+        // Arrange - Test array with initialized trigger and regular trigger
         const elemId = getUniqueId('special-array-elem')
         const element = createElementWithId('button', elemId, {
           'data-rx-action': '/special-array-test',
-          'data-rx-trigger': '["click", "rx:initialized"]'
+          'data-rx-trigger': '["click", {"type": "initialized"}]'
         })
 
         // Act
@@ -2665,7 +2664,7 @@ describe('RazorX Framework API Surface Tests', () => {
         processNewElements()
         await waitForMicrotasks()
 
-        // Assert - rx:initialized should fire immediately
+        // Assert - initialized trigger should fire immediately
         expect(mockFetch).toHaveBeenCalledWith('/special-array-test', expect.any(Object))
         
         mockFetch.mockClear()
@@ -2678,13 +2677,12 @@ describe('RazorX Framework API Surface Tests', () => {
         expect(mockFetch).toHaveBeenCalledWith('/special-array-test', expect.any(Object))
       })
 
-      test('array with rx:poll trigger sets up polling', async () => {
+      test('array with poll trigger sets up polling', async () => {
         // Arrange
         const elemId = getUniqueId('poll-array-elem')
         const element = createElementWithId('div', elemId, {
           'data-rx-action': '/poll-array-test',
-          'data-rx-trigger': '["rx:poll"]',
-          'data-rx-poll-interval': '1000'
+          'data-rx-trigger': '[{"type": "poll", "interval": 1000}]'
         })
         
         // Act - Add to DOM
@@ -2862,15 +2860,15 @@ describe('RazorX Framework API Surface Tests', () => {
         const elemId = getUniqueId('complex-array-elem')
         const element = createElementWithId('div', elemId, {
           'data-rx-action': '/complex-array-test',
-          'data-rx-trigger': '["click", "rx:initialized", "mouseenter"]'
+          'data-rx-trigger': '["click", {"type": "initialized"}, "mouseenter"]'
         })
 
-        // Act - Add to DOM (should trigger rx:initialized)
+        // Act - Add to DOM (should trigger initialized)
         document.body.appendChild(element)
         processNewElements()
         await waitForDOMUpdates()
 
-        // Assert - rx:initialized should fire
+        // Assert - initialized trigger should fire
         expect(mockFetch).toHaveBeenCalledWith('/complex-array-test', expect.any(Object))
         
         mockFetch.mockClear()
@@ -3064,8 +3062,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const elemId = getUniqueId('reveal-margin-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/reveal-margin-test',
-        'data-rx-trigger': 'rx:revealed',
-        'data-rx-reveal-margin': '10px 20px 30px 40px'
+        'data-rx-trigger': '{"type": "revealed", "margin": "10px 20px 30px 40px"}'
       })
 
       // Act
@@ -3687,8 +3684,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const container = createElementWithId('div', containerId)
       const pollElement = createElementWithId('div', pollElemId, {
         'data-rx-action': '/poll-test',
-        'data-rx-trigger': 'rx:poll',
-        'data-rx-poll-interval': '1000'
+        'data-rx-trigger': '{"type": "poll", "interval": 1000}'
       })
       
       container.appendChild(pollElement)
@@ -3729,7 +3725,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const elemId = getUniqueId('reveal-elem')
       const element = createElementWithId('div', elemId, {
         'data-rx-action': '/reveal-test',
-        'data-rx-trigger': 'rx:revealed'
+        'data-rx-trigger': '{"type": "revealed"}'
       })
       
       // Clear existing mock calls before our test
@@ -4207,4 +4203,6 @@ describe('RazorX Framework API Surface Tests', () => {
       }
     }, 10000)
   })
+
+
 })

@@ -2,8 +2,7 @@
 
 <article id="todo-item-@(Model.Id)"
     data-rx-action="@(SetRevealedTrigger ? $"/todo/next/{Model.Id}" : false)"
-    data-rx-trigger="@(SetRevealedTrigger ? "rx:revealed" : false)"
-    data-rx-reveal-margin="@(SetRevealedTrigger ? "0px 0px 300px 0px" : false)">
+    data-rx-trigger="@(SetRevealedTrigger ? "{ \"type\": \"revealed\", \"margin\": \"0px 0px 300px 0px\" }" : false)">
     <button
         id="edit-todo-modal-trigger-@(Model.Id)"
         data-rx-action="/todo/@(Model.Id)"
