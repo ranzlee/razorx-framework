@@ -586,7 +586,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const btnId = getUniqueId('state-btn')
       const button = createElementWithId('button', btnId, {
         'data-rx-action': '/api/data',
-        'data-rx-include-state': 'user-id theme'
+        'data-rx-include-state': '["user-id", "theme"]'
       })
       document.body.appendChild(button)
       processNewElements()
@@ -653,7 +653,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const btnId = getUniqueId('multi-state-btn')
       const button = createElementWithId('button', btnId, {
         'data-rx-action': '/api/multi',
-        'data-rx-include-state': 'key1 key2 missing-key'
+        'data-rx-include-state': '["key1", "key2", "missing-key"]'
       })
       document.body.appendChild(button)
       processNewElements()
@@ -685,6 +685,123 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Assert
       expect(mockFetch).toHaveBeenCalledWith('/api/simple', expect.any(Object))
+    })
+
+    test('state keys support single string format', async () => {
+      // Arrange
+      sessionStorage.setItem('singleKey', 'singleValue')
+      const btnId = getUniqueId('single-string-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/single-string',
+        'data-rx-include-state': 'singleKey'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('singleKey=singleValue'),
+        expect.any(Object)
+      )
+      
+      sessionStorage.removeItem('singleKey')
+    })
+
+    test('state keys support JSON array format', async () => {
+      // Arrange
+      sessionStorage.setItem('key1', 'value1')
+      sessionStorage.setItem('key2', 'value2')
+      const btnId = getUniqueId('json-array-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/json-array',
+        'data-rx-include-state': '["key1", "key2"]'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      const fetchCall = mockFetch.mock.calls[0]
+      const url = fetchCall[0] as string
+      expect(url).toContain('key1=value1')
+      expect(url).toContain('key2=value2')
+      
+      sessionStorage.removeItem('key1')
+      sessionStorage.removeItem('key2')
+    })
+
+    test('state keys handle empty JSON array', async () => {
+      // Arrange
+      const btnId = getUniqueId('empty-array-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/empty-array',
+        'data-rx-include-state': '[]'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith('/api/empty-array', expect.any(Object))
+    })
+
+    test('state keys handle invalid JSON with warning', async () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const btnId = getUniqueId('invalid-json-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/invalid-json',
+        'data-rx-include-state': '[invalid,json]'  // Valid bracket format but invalid JSON
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse state keys as JSON: [invalid,json]')
+      )
+      expect(mockFetch).toHaveBeenCalledWith('/api/invalid-json', expect.any(Object))
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('space-separated state keys throw helpful error', async () => {
+      // Arrange  
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const btnId = getUniqueId('space-separated-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/space-separated',
+        'data-rx-include-state': 'key1 key2'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+      
+      // Act - Error should be thrown and caught by framework error handler
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+      
+      // Assert - Error should be logged
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Space-separated state keys are no longer supported. Convert "key1 key2" to JSON array format: ["key1", "key2"]'
+        })
+      )
+      
+      consoleSpy.mockRestore()
     })
   })
 
@@ -2273,7 +2390,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/no-duplicate-test',
         'data-rx-trigger': '{"type": "initialized"}',
-        'data-rx-include-state': 'filter limit',
+        'data-rx-include-state': '["filter", "limit"]',
         'type': 'button'
       })
       
@@ -2346,7 +2463,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/empty-values-test',
         'data-rx-trigger': '{"type": "initialized"}',
-        'data-rx-include-state': 'valid fromSession fromLocal nonExistent',
+        'data-rx-include-state': '["valid", "fromSession", "fromLocal", "nonExistent"]',
         'type': 'button'
       })
       
@@ -2421,7 +2538,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/multi-params-test',
         'data-rx-trigger': '{"type": "initialized"}',
-        'data-rx-include-state': 'sessionParam1 sessionParam2 localParam1 localParam2',
+        'data-rx-include-state': '["sessionParam1", "sessionParam2", "localParam1", "localParam2"]',
         'type': 'button'
       })
       
@@ -2559,7 +2676,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/poll-priority-test',
         'data-rx-trigger': '{"type": "poll", "interval": 1000}',
-        'data-rx-include-state': 'param1 param4'
+        'data-rx-include-state': '["param1", "param4"]'
       })
       form.appendChild(element)
       

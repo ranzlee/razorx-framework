@@ -281,8 +281,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             return [];
         }    
         const trimmed = triggerAttr.trim();
-        if ((trimmed.startsWith("[") && trimmed.endsWith("]")) || 
-            (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+        if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
             try {
                 const parsed = JSON.parse(trimmed);
                 if (!Array.isArray(parsed) && typeof parsed === 'object' && parsed && parsed.type) {
@@ -301,24 +300,38 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                             return item as SpecialTrigger;
                         });
                 }
-            } catch(jsonError) {
-                console.error("Error parsing JSON trigger:", jsonError);
+            } catch {
+                console.error(`Failed to parse triggers as JSON: ${trimmed}`);
                 return [];
             }
         }
-        if (trimmed.startsWith('rx:')) {
-            const oldFormat = trimmed;
-            let newFormat = '';
-            if (oldFormat === 'rx:initialized') {
-                newFormat = '{"type": "initialized"}';
-            } else if (oldFormat === 'rx:poll') {
-                newFormat = '{"type": "poll", "interval": 5000}';
-            } else if (oldFormat === 'rx:revealed') {
-                newFormat = '{"type": "revealed", "margin": "0px"}';
-            } else {
-                newFormat = '{"type": "' + oldFormat.substring(3) + '"}';
+        if (trimmed.includes(" ")) {
+            throw new Error(`Space-separated triggers are not supported. Convert "${trimmed}" to JSON array format`);
+        }
+        return [trimmed];
+    }
+
+    function parseStateKeys(stateAttr: string | undefined): string[] {
+        if (!stateAttr || stateAttr.trim() === "") {
+            return [];
+        }
+        const trimmed = stateAttr.trim();
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) {
+                    return parsed
+                        .filter((item): boolean => typeof item === "string" && item.trim() !== "")
+                        .map((item): string => item.trim());
+                }
+            } catch {
+                console.warn(`Failed to parse state keys as JSON: ${trimmed}`);
+                return [];
             }
-            throw new Error(`The trigger format '${oldFormat}' is no longer supported. Please use the new object format: ${newFormat}`);
+        }
+        if (trimmed.includes(" ")) {
+            const jsonArray = `["${trimmed.split(' ').join('", "')}"]`;
+            throw new Error(`Space-separated state keys are no longer supported. Convert "${trimmed}" to JSON array format: ${jsonArray}`);
         }
         return [trimmed];
     }
@@ -856,10 +869,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function collectState(ele: HTMLElement): Record<string, string> {
-        if (!ele.dataset.rxIncludeState) {
-            return {};
-        }
-        const stateKeys = ele.dataset.rxIncludeState!.split(/\s+/);
+        const stateKeys = parseStateKeys(ele.dataset.rxIncludeState);
         if (stateKeys.length === 0) {
             return {};
         }
