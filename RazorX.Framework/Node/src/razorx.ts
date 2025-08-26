@@ -403,6 +403,25 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             ele.setAttribute("data-rx-trigger", rxTrigger);
         }
         const triggers = parseTriggers(ele.dataset.rxTrigger);
+        const hasOnlySpecialTriggers = triggers.length > 0 && triggers.every((trigger) => 
+            typeof trigger === 'object' && 'type' in trigger
+        );
+        if (hasOnlySpecialTriggers) {
+            if (ele.dataset.rxDebounce !== undefined) {
+                console.warn(
+                    `Element ${ele.id} has data-rx-debounce="${ele.dataset.rxDebounce}" but only contains special triggers (initialized, poll, revealed). ` +
+                    `The debounce attribute has no effect on special triggers. ` +
+                    `For the initialized trigger, use the 'delay' property instead.`
+                );
+            }
+            if (ele.dataset.rxDisableQueueing !== undefined) {
+                console.warn(
+                    `Element ${ele.id} has data-rx-disable-queueing="${ele.dataset.rxDisableQueueing}" but only contains special triggers (initialized, poll, revealed). ` +
+                    `The disable-queueing attribute has no effect on special triggers.`
+                );
+            }
+        }
+        
         if (ele.dataset.rxHoistTo) {
             const hasSpecialTrigger = triggers.some((trigger) => 
                 typeof trigger === 'object' && 'type' in trigger

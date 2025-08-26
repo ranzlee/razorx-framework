@@ -3508,6 +3508,178 @@ describe('RazorX Framework API Surface Tests', () => {
     })
   })
 
+  describe('Warning Tests for Special Triggers', () => {
+    beforeEach(() => {
+      mockFetch.mockImplementation(mockSuccessResponse())
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+
+    test('warns when data-rx-debounce is used with only special triggers', () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      const elemId = getUniqueId('debounce-special-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/debounce-special-test',
+        'data-rx-trigger': '{"type": "initialized"}',
+        'data-rx-debounce': '500'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Element ${elemId} has data-rx-debounce="500" but only contains special triggers`)
+      )
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`The debounce attribute has no effect on special triggers`)
+      )
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('warns when data-rx-disable-queueing is used with only special triggers', () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      const elemId = getUniqueId('queue-special-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/queue-special-test',
+        'data-rx-trigger': '{"type": "poll", "interval": 1000}',
+        'data-rx-disable-queueing': 'true'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Element ${elemId} has data-rx-disable-queueing="true" but only contains special triggers`)
+      )
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`The disable-queueing attribute has no effect on special triggers`)
+      )
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('warns for both attributes when used with array of only special triggers', () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      const elemId = getUniqueId('both-attrs-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/both-attrs-test',
+        'data-rx-trigger': '[{"type": "initialized", "delay": 100}, {"type": "revealed"}]',
+        'data-rx-debounce': '300',
+        'data-rx-disable-queueing': 'true'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Element ${elemId} has data-rx-debounce="300" but only contains special triggers`)
+      )
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Element ${elemId} has data-rx-disable-queueing="true" but only contains special triggers`)
+      )
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('no warning when debounce/disable-queueing used with mixed triggers', () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      const elemId = getUniqueId('mixed-triggers-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/mixed-triggers-test',
+        'data-rx-trigger': '["click", {"type": "initialized"}]',
+        'data-rx-debounce': '500',
+        'data-rx-disable-queueing': 'true'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert - No warnings should be called for the attributes
+      const calls = consoleSpy.mock.calls.map(call => call[0])
+      const hasDebounceWarning = calls.some(msg => 
+        msg.includes('data-rx-debounce') && msg.includes('only contains special triggers')
+      )
+      const hasQueueingWarning = calls.some(msg => 
+        msg.includes('data-rx-disable-queueing') && msg.includes('only contains special triggers')
+      )
+      
+      expect(hasDebounceWarning).toBe(false)
+      expect(hasQueueingWarning).toBe(false)
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('no warning when debounce/disable-queueing used with only regular triggers', () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      const elemId = getUniqueId('regular-triggers-elem')
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/regular-triggers-test',
+        'data-rx-trigger': '["click", "focus"]',
+        'data-rx-debounce': '500',
+        'data-rx-disable-queueing': 'true'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert - No warnings should be called for the attributes
+      const calls = consoleSpy.mock.calls.map(call => call[0])
+      const hasDebounceWarning = calls.some(msg => 
+        msg.includes('data-rx-debounce') && msg.includes('only contains special triggers')
+      )
+      const hasQueueingWarning = calls.some(msg => 
+        msg.includes('data-rx-disable-queueing') && msg.includes('only contains special triggers')
+      )
+      
+      expect(hasDebounceWarning).toBe(false)
+      expect(hasQueueingWarning).toBe(false)
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('warning message suggests using delay property for initialized trigger', () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      const elemId = getUniqueId('suggest-delay-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/suggest-delay-test',
+        'data-rx-trigger': '{"type": "initialized"}',
+        'data-rx-debounce': '500'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`For the initialized trigger, use the 'delay' property instead`)
+      )
+      
+      consoleSpy.mockRestore()
+    })
+  })
+
   describe('Advanced Features', () => {
     beforeEach(() => {
       mockFetch.mockImplementation(mockSuccessResponse())
