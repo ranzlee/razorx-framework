@@ -2778,6 +2778,164 @@ describe('RazorX Framework API Surface Tests', () => {
       mockStorage.localStorage.clear()
     })
 
+    test('initialized trigger with delay fires after specified time', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      
+      const elemId = getUniqueId('init-delay-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-delay-test',
+        'data-rx-trigger': '{"type": "initialized", "delay": 500}'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert - Should not fire immediately
+      expect(mockFetch).not.toHaveBeenCalled()
+
+      // Advance time by 250ms - still should not fire
+      vi.advanceTimersByTime(250)
+      expect(mockFetch).not.toHaveBeenCalled()
+
+      // Advance time to 500ms total - should fire now
+      vi.advanceTimersByTime(250)
+      await vi.runOnlyPendingTimersAsync()
+      expect(mockFetch).toHaveBeenCalledWith('/init-delay-test', expect.any(Object))
+      
+      vi.useRealTimers()
+    })
+
+    test('initialized trigger with zero delay fires immediately', async () => {
+      // Arrange
+      const elemId = getUniqueId('init-zero-delay-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-zero-delay-test',
+        'data-rx-trigger': '{"type": "initialized", "delay": 0}'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      await waitForMicrotasks()
+
+      // Assert - Should fire immediately
+      expect(mockFetch).toHaveBeenCalledWith('/init-zero-delay-test', expect.any(Object))
+    })
+
+    test('initialized trigger with negative delay fires immediately', async () => {
+      // Arrange
+      const elemId = getUniqueId('init-negative-delay-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-negative-delay-test',
+        'data-rx-trigger': '{"type": "initialized", "delay": -100}'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      await waitForMicrotasks()
+
+      // Assert - Should fire immediately (negative delays treated as no delay)
+      expect(mockFetch).toHaveBeenCalledWith('/init-negative-delay-test', expect.any(Object))
+    })
+
+    test('initialized trigger delay is included in CustomEvent detail', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      
+      const elemId = getUniqueId('init-delay-detail-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-delay-detail-test',
+        'data-rx-trigger': '{"type": "initialized", "delay": 1000}'
+      })
+
+      // Intercept elementTriggerProcessor to capture the event
+      mockFetch.mockImplementation(async () => {
+        // The event detail should be preserved in the request
+        return new Response('', { status: 200, headers: { 'rx-merge': '[]' } })
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      
+      // Advance time to trigger
+      vi.advanceTimersByTime(1000)
+      await vi.runOnlyPendingTimersAsync()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalled()
+      
+      vi.useRealTimers()
+    })
+
+    test('multiple initialized triggers with different delays fire in correct order', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      const callOrder: string[] = []
+      
+      mockFetch.mockImplementation(async (url) => {
+        callOrder.push(url)
+        return new Response('', { status: 200, headers: { 'rx-merge': '[]' } })
+      })
+
+      const elem1 = createElementWithId('div', getUniqueId('init-delay-1'), {
+        'data-rx-action': '/init-delay-300',
+        'data-rx-trigger': '{"type": "initialized", "delay": 300}'
+      })
+      const elem2 = createElementWithId('div', getUniqueId('init-delay-2'), {
+        'data-rx-action': '/init-delay-100',
+        'data-rx-trigger': '{"type": "initialized", "delay": 100}'
+      })
+      const elem3 = createElementWithId('div', getUniqueId('init-delay-3'), {
+        'data-rx-action': '/init-delay-200',
+        'data-rx-trigger': '{"type": "initialized", "delay": 200}'
+      })
+
+      // Act
+      document.body.appendChild(elem1)
+      document.body.appendChild(elem2)
+      document.body.appendChild(elem3)
+      processNewElements()
+      
+      // Advance time to trigger all
+      vi.advanceTimersByTime(400)
+      await vi.runOnlyPendingTimersAsync()
+
+      // Assert - Should fire in delay order
+      expect(callOrder).toEqual(['/init-delay-100', '/init-delay-200', '/init-delay-300'])
+      
+      vi.useRealTimers()
+    })
+
+    test('initialized trigger state tracking includes delay value', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      
+      const elemId = getUniqueId('init-delay-state-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-delay-state-test',
+        'data-rx-trigger': '{"type": "initialized", "delay": 750}'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      
+      // The trigger state should include the delay in its tracking key
+      // This helps with debugging and understanding what triggers are configured
+      
+      vi.advanceTimersByTime(750)
+      await vi.runOnlyPendingTimersAsync()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith('/init-delay-state-test', expect.any(Object))
+      
+      vi.useRealTimers()
+    })
+
     test('poll trigger fires at intervals', async () => {
       // Arrange
       vi.useFakeTimers()

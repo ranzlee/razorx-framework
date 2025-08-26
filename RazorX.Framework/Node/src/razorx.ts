@@ -106,6 +106,7 @@ export type SpecialTriggerConfig = {
 
 export type InitializedTrigger = SpecialTriggerConfig & {
     type: 'initialized';
+    delay?: number; // Optional delay in milliseconds before triggering
 }
 
 export type PollTrigger = SpecialTriggerConfig & {
@@ -430,8 +431,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     // Handle special triggers
                     switch (trigger.type) {
                         case 'initialized':
-                            initializedTrigger(ele);
-                            triggerState.triggers.add('initialized');
+                            initializedTrigger(ele, trigger.delay);
+                            triggerState.triggers.add('initialized' + (trigger.delay ? ':' + trigger.delay : ''));
                             break;
                         case 'poll':
                             pollTrigger(ele, trigger.interval);
@@ -456,9 +457,15 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
-    function initializedTrigger(ele: HTMLElement): void {
-        const evt = new CustomEvent('initialized', { detail: { type: 'initialized' } });
-        elementTriggerProcessor(ele, evt);
+    function initializedTrigger(ele: HTMLElement, delay?: number): void {
+        const evt = new CustomEvent('initialized', { detail: { type: 'initialized', delay: delay } });
+        if (delay && delay > 0) {
+            setTimeout(() => {
+                elementTriggerProcessor(ele, evt);
+            }, delay);
+        } else {
+            elementTriggerProcessor(ele, evt);
+        }
     }
 
     function pollTrigger(ele: HTMLElement, interval?: number): void {
