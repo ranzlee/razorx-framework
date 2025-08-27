@@ -420,6 +420,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     `The disable-queueing attribute has no effect on special triggers.`
                 );
             }
+            if (ele.dataset.rxAllowEventDefault !== undefined) {
+                console.warn(
+                    `Element ${ele.id} has data-rx-allow-event-default="${ele.dataset.rxAllowEventDefault}" but only contains special triggers (initialized, poll, revealed). ` +
+                    `The allow-event-default attribute has no effect on special triggers as they use CustomEvents, not DOM events.`
+                );
+            }
         }
         
         if (ele.dataset.rxHoistTo) {
