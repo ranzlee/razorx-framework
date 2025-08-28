@@ -147,6 +147,13 @@ type ElementTriggerState = {
     observer?: IntersectionObserver;
 }
 
+type HoistedConfig = {
+    action: string;
+    method: string;
+    sourceId: string;
+    timestamp: number;
+}
+
 type ParsedRxHeaders = {
     merge?: MergeStrategy[];
     setState?: RxSetStateTrigger[];
@@ -166,6 +173,8 @@ const _debouncedRequests: Map<string, (() => Promise<void>) & { _cleanup?: () =>
 const _elementCache: Map<string, HTMLElement> = new Map();
 
 const _elementTriggerState: WeakMap<HTMLElement, ElementTriggerState> = new WeakMap();
+
+const _hoistedConfigs: WeakMap<HTMLElement, HoistedConfig> = new WeakMap();
 
 const _activeLoadingIndicators: Map<string, Set<string>> = new Map();
 
@@ -596,12 +605,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 ele.removeEventListener(trigger, elementHoistEventHandler);
             });
         }
-        // Clean up debounced requests
         const debouncedRequest = _debouncedRequests.get(ele.id);
         if (debouncedRequest) {
             debouncedRequest._cleanup?.();
             _debouncedRequests.delete(ele.id);
         }
+        _hoistedConfigs.delete(ele);
         const children = ele.children;
         if (children?.length <= 0) {
             return;
@@ -662,17 +671,41 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             const err = `Element ${this.id} with "data-rx-hoist-to" ${this.dataset.rxHoistTo} does not reference a valid DOM element.`;
             throw new Error(err);
         }
-        Array.from(this.attributes).forEach((attr: Attr): void => {
-            if (attr.name === "data-rx-action" || attr.name === "data-rx-method") {
-                hoistTarget.setAttribute(attr.name, attr.value);
-            }
+        _hoistedConfigs.set(hoistTarget, {
+            action: this.dataset.rxAction ?? "",
+            method: this.dataset.rxMethod ?? "GET",
+            sourceId: this.id,
+            timestamp: Date.now()
         });
-        if (!hoistTarget.addRxCallbacks) {
-            configureElement(hoistTarget);
-            setTriggers(hoistTarget);
-        } 
-        if (_callbacks.afterInitializeElement) {
-            _callbacks.afterInitializeElement(hoistTarget);
+        if (!hoistTarget.dataset.rxTrigger) {
+            hoistTarget.addEventListener('click', hoistedTargetClickHandler, { once: true });
+            hoistTarget.setAttribute('data-rx-trigger', 'hoist-one-shot');
+        }
+    }
+    
+    async function hoistedTargetClickHandler(this: HTMLElement, evt: Event): Promise<void> {
+        evt.preventDefault();
+        const config = _hoistedConfigs.get(this);
+        if (!config) {
+            console.warn(`No hoisted configuration found for element ${this.id}. The hoisting may have expired.`);
+            this.removeAttribute('data-rx-trigger'); // Clean up the temporary marker
+            return;
+        }
+        _hoistedConfigs.delete(this);
+        this.removeAttribute('data-rx-trigger'); // Clean up the temporary marker
+        const syntheticElement = document.createElement('div');
+        syntheticElement.id = `hoist-synthetic-${config.sourceId}-${Date.now()}`;
+        syntheticElement.dataset.rxAction = config.action;
+        syntheticElement.dataset.rxMethod = config.method;
+        if (this.dataset.rxIncludeState) {
+            syntheticElement.dataset.rxIncludeState = this.dataset.rxIncludeState;
+        }
+        configureElement(syntheticElement);
+        try {
+            await elementTriggerProcessor(syntheticElement, evt);
+        } catch (error) {
+            console.error(`Failed to process hoisted request from ${config.sourceId}:`, error);
+            sendError(this, error);
         }
     }
 
