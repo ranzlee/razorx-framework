@@ -136,7 +136,7 @@ public class ExamplesHandler : RequestHandler {
         if (todos.Count == 0) {
             driver.AddTriggerFocusElement("new-todo-modal-trigger", true);
         } else {
-            var nextFocus = todos.FirstOrDefault(x => x.Id > id) ?? todos.FirstOrDefault(x => x.Id < id);
+            var nextFocus = todos.OrderByDescending(x => x.Id).FirstOrDefault(x => x.Id < id) ?? todos.FirstOrDefault(x => x.Id > id);
             var nextFocusId = nextFocus?.Id ?? todos.First().Id;
             driver.AddTriggerFocusElement($"edit-todo-modal-trigger-{nextFocusId}");
         }

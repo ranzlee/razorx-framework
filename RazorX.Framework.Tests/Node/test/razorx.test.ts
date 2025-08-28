@@ -3809,46 +3809,6 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(mockFetch).toHaveBeenCalledWith('/hoisted', expect.any(Object))
     })
 
-    test('data-rx-ignore prevents element processing', () => {
-      // Arrange
-      const ignoredId = getUniqueId('ignored-elem')
-      const processedId = getUniqueId('processed-elem')
-      
-      document.body.innerHTML = `
-        <div data-rx-ignore="true">
-          <button id="${ignoredId}" data-rx-action="/ignored">Ignored</button>
-        </div>
-        <button id="${processedId}" data-rx-action="/processed">Processed</button>
-      `
-
-      const processedButton = document.getElementById(processedId)!
-      const ignoredButton = document.getElementById(ignoredId)!
-
-      // Act & Assert
-      processedButton.click() // Should work
-      expect(() => ignoredButton.click()).not.toThrow() // Should not cause errors
-    })
-
-    test('data-rx-ignore="false" allows processing in ignored containers', () => {
-      // Arrange
-      const allowedId = getUniqueId('allowed-elem')
-      
-      document.body.innerHTML = `
-        <div data-rx-ignore="true">
-          <div data-rx-ignore="false">
-            <button id="${allowedId}" data-rx-action="/allowed">Allowed</button>
-          </div>
-        </div>
-      `
-
-      const allowedButton = document.getElementById(allowedId)!
-
-      // Act
-      allowedButton.click()
-
-      // Assert - Should not throw error
-      expect(() => allowedButton.click()).not.toThrow()
-    })
 
     test('reveal margin configuration for IntersectionObserver', () => {
       // Arrange

@@ -8,7 +8,6 @@ declare global {
     interface HTMLElement {
         dataset: {
             // all dataset props must be strings
-            rxIgnore?: string, //data-rx-ignore
             rxAction?: string, //data-rx-action
             rxMethod?: string, //data-rx-method
             rxTrigger?: string, //data-rx-trigger
@@ -557,16 +556,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function addTriggers(ele: HTMLElement): void {
-        const firstIgnore = ele.closest("[data-rx-ignore]");
-        if (firstIgnore && firstIgnore instanceof HTMLElement) { 
-            const ignore = firstIgnore.dataset.rxIgnore?.trim().toLowerCase();
-            if (ignore !== "" && ignore !== "true" && ignore !== "false") {
-                console.warn(`The data-rx-ignore attribute on element ${firstIgnore.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
-            }
-            if (ignore !== "false") {
-                return;
-            }  
-        }
         if (ele.dataset.rxAction && (!_callbacks.beforeInitializeElement || _callbacks.beforeInitializeElement(ele))) {
             configureElement(ele);
             setTriggers(ele);
