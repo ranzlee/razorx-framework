@@ -29,10 +29,7 @@ public class ExamplesHandler : RequestHandler {
     private static readonly List<TodoModel> Todos = [];
 
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver, string filter = "") {
-        return await rxDriver
-            .With(context)
-            .AddPage<App, ExamplesHead, ExamplesPage, ExampleModel>(new ExampleModel([], 0, 0), "RazorX - Examples")
-            .Render();
+        return await rxDriver.RenderPage<App, ExamplesHead, ExamplesPage, ExampleModel>(context, new ExampleModel([], 0, 0), "RazorX - Examples");
     }
 
     public static async Task<IResult> NextTodos(HttpContext context, IRxDriver rxDriver, int id, string filter = "") {
