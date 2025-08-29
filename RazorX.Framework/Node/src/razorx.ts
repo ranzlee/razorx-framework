@@ -662,7 +662,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
         _hoistedConfigs.set(hoistTarget, {
             action: this.dataset.rxAction ?? "",
-            method: this.dataset.rxMethod ?? "GET",
+            method: this.dataset.rxMethod ?? ((this.tagName === "FORM" || this.closest("form")) ? "POST" : "GET"),
             sourceId: this.id,
             timestamp: Date.now()
         });
@@ -1254,6 +1254,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         const m = ele.dataset.rxMethod?.trim().toUpperCase() ?? "";
         switch (m) {
             case "":
+                // Default to POST for form elements, GET for everything else
+                return (ele.tagName === "FORM" || ele.closest("form")) ? "POST" : "GET";
             case "GET":
                 return "GET";
             case "POST": 

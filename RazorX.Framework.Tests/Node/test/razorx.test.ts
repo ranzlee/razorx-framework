@@ -460,6 +460,256 @@ describe('RazorX Framework API Surface Tests', () => {
     })
   })
 
+  describe('Request Generation - Method Default Behavior and Validation', () => {
+    beforeEach(() => {
+      mockFetch.mockImplementation(mockSuccessResponse())
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+
+    test('defaults to GET for non-form elements without explicit method', async () => {
+      // Arrange
+      const btnId = getUniqueId('default-get-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/test',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+    })
+
+    test('defaults to POST for form elements without explicit method', async () => {
+      // Arrange
+      const formId = getUniqueId('default-post-form')
+      const form = createElementWithId('form', formId, {
+        'data-rx-action': '/api/submit'
+      })
+      form.innerHTML = '<input name="test" value="data" />'
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      form.dispatchEvent(new Event('submit', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/submit',
+        expect.objectContaining({
+          method: 'POST'
+        })
+      )
+    })
+
+    test('defaults to POST for elements inside forms without explicit method', async () => {
+      // Arrange
+      const formId = getUniqueId('parent-form')
+      const btnId = getUniqueId('form-btn')
+      const form = createElementWithId('form', formId)
+      form.innerHTML = `
+        <input name="test" value="data" />
+        <button id="${btnId}" data-rx-action="/api/form-submit" type="button">Submit</button>
+      `
+      document.body.appendChild(form)
+      processNewElements()
+
+      const button = document.getElementById(btnId)!
+      
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/form-submit',
+        expect.objectContaining({
+          method: 'POST'
+        })
+      )
+    })
+
+    test('respects explicit method over default for form elements', async () => {
+      // Arrange
+      const formId = getUniqueId('explicit-get-form')
+      const form = createElementWithId('form', formId, {
+        'data-rx-action': '/api/search',
+        'data-rx-method': 'GET'
+      })
+      form.innerHTML = '<input name="query" value="test" />'
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      form.dispatchEvent(new Event('submit', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - GET forms append data to URL
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/search?query=test',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+    })
+
+    test('handles case-insensitive method values', async () => {
+      // Arrange
+      const btnId = getUniqueId('mixed-case-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test',
+        'data-rx-method': 'PoSt'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/test',
+        expect.objectContaining({
+          method: 'POST'
+        })
+      )
+    })
+
+    test('handles method values with whitespace', async () => {
+      // Arrange
+      const btnId = getUniqueId('whitespace-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test',
+        'data-rx-method': '  DELETE  '
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/test',
+        expect.objectContaining({
+          method: 'DELETE'
+        })
+      )
+    })
+
+    test('throws error for invalid HTTP method', async () => {
+      // Arrange
+      const btnId = getUniqueId('invalid-method-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test',
+        'data-rx-method': 'INVALID'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+      
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+      
+      // Assert - error should be logged, not thrown
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'INVALID is not a valid HTTP method.'
+        })
+      )
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('throws error for unsupported HTTP methods', async () => {
+      // Arrange
+      const btnId = getUniqueId('head-method-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test',
+        'data-rx-method': 'HEAD'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+      
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+      
+      // Assert - error should be logged, not thrown
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'HEAD is not a valid HTTP method.'
+        })
+      )
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('handles empty string method attribute', async () => {
+      // Arrange - non-form element with empty method
+      const btnId = getUniqueId('empty-method-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test',
+        'data-rx-method': ''
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - should default to GET for non-form
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/test',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+    })
+
+    test('handles whitespace-only method attribute', async () => {
+      // Arrange - form element with whitespace-only method
+      const formId = getUniqueId('whitespace-only-form')
+      const form = createElementWithId('form', formId, {
+        'data-rx-action': '/api/test',
+        'data-rx-method': '   '
+      })
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      form.dispatchEvent(new Event('submit', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - should default to POST for form
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/test',
+        expect.objectContaining({
+          method: 'POST'
+        })
+      )
+    })
+  })
+
   describe('Request Generation - Form Data Collection', () => {
     beforeEach(() => {
       mockFetch.mockImplementation(mockSuccessResponse())
@@ -2364,6 +2614,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/init-precedence-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "initialized"}',
         'type': 'button'
       })
@@ -2472,6 +2723,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/complete-priority-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': 'userId',  // Include state
         'type': 'button'
@@ -2587,6 +2839,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/no-duplicate-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': '["filter", "limit"]',
         'type': 'button'
@@ -2660,6 +2913,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/empty-values-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': '["valid", "fromSession", "fromLocal", "nonExistent"]',
         'type': 'button'
@@ -2735,6 +2989,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/multi-params-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': '["sessionParam1", "sessionParam2", "localParam1", "localParam2"]',
         'type': 'button'
@@ -3031,6 +3286,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/poll-priority-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "poll", "interval": 1000}',
         'data-rx-include-state': '["param1", "param4"]'
       })
@@ -3094,6 +3350,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/poll-form-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "poll", "interval": 1000}'
       })
       form.appendChild(element)
