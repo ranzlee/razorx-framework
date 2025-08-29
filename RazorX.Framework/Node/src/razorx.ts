@@ -476,7 +476,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                             triggerState.triggers.add('revealed:' + (trigger.margin || '0px'));
                             break;
                         default:
-                            console.warn(`Unknown special trigger type: ${(trigger as any).type}`);
+                            console.warn(`Unknown special trigger type: ${(trigger as SpecialTriggerConfig).type}`);
                     }
                 } else if (typeof trigger === 'string') {
                     // Handle regular string triggers
