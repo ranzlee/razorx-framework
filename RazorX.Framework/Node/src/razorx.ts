@@ -11,7 +11,7 @@ declare global {
             rxAction?: string, //data-rx-action
             rxMethod?: string, //data-rx-method
             rxTrigger?: string, //data-rx-trigger
-            rxAllowEventDefault?: string //data-rx-allow-default
+            rxAllowEventDefault?: string //data-rx-allow-event-default
             rxDisableInFlight?: string, //data-rx-disable-in-flight
             rxDebounce?: string //data-rx-debounce
             rxDisableQueueing?: string // data-rx-disable-queueing
@@ -701,7 +701,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     function elementTriggerEventHandler(this: HTMLElement, evt: Event): void {
         const allowEventDefault = this.dataset.rxAllowEventDefault?.trim().toLowerCase();
         if (allowEventDefault !== undefined && allowEventDefault !== "" && allowEventDefault !== "true" && allowEventDefault !== "false") {
-            console.warn(`The data-rx-allow-event-default attribute on element ${this.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
+            console.warn(`The data-rx-allow-event-default attribute on element ${this.id} has an invalid value "${allowEventDefault}". Valid values are: no value (empty), "true", or "false"`);
         }
         if (allowEventDefault === undefined || allowEventDefault === "false") {
             evt.preventDefault();

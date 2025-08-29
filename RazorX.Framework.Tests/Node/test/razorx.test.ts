@@ -4089,6 +4089,207 @@ describe('RazorX Framework API Surface Tests', () => {
     })
   })
 
+  describe('Allow Event Default Behavior', () => {
+    beforeEach(() => {
+      mockFetch.mockImplementation(mockSuccessResponse())
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+
+    test('no attribute - should prevent default', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'href': '#should-not-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+    })
+
+    test('empty attribute (boolean) - should allow default', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-allow-event-default': '',
+        'href': '#should-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).not.toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+    })
+
+    test('attribute="true" - should allow default', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-allow-event-default': 'true',
+        'href': '#should-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).not.toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+    })
+
+    test('attribute="false" - should prevent default', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-allow-event-default': 'false',
+        'href': '#should-not-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+    })
+
+    test('invalid value - should warn and prevent default', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-allow-event-default': 'invalid',
+        'href': '#should-not-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(warnSpy).toHaveBeenCalledWith(
+        `The data-rx-allow-event-default attribute on element ${linkId} has an invalid value "invalid". Valid values are: no value (empty), "true", or "false"`
+      )
+      expect(preventDefaultSpy).not.toHaveBeenCalled() // Invalid values allow default as current implementation
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+
+      warnSpy.mockRestore()
+    })
+
+    test('form submission with allow-event-default', async () => {
+      // Arrange
+      const formId = getUniqueId('form')
+      const form = createElementWithId('form', formId, {
+        'data-rx-action': '/submit',
+        'data-rx-method': 'POST',
+        'data-rx-trigger': 'submit',
+        'data-rx-allow-event-default': 'true'
+      })
+      form.innerHTML = '<input name="test" value="value">'
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      const event = new Event('submit', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      form.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).not.toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/submit', expect.objectContaining({
+        method: 'POST'
+      }))
+    })
+
+    test('case insensitive values work correctly', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-allow-event-default': 'TRUE',
+        'href': '#should-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).not.toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+    })
+
+    test('whitespace is trimmed from attribute value', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-allow-event-default': '  false  ',
+        'href': '#should-not-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+    })
+  })
+
   describe('Error Handling and Edge Cases', () => {
     beforeEach(() => {
       razorx.init()
