@@ -661,7 +661,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             throw new Error(err);
         }
         _hoistedConfigs.set(hoistTarget, {
-            action: this.dataset.rxAction ?? "",
+            action: this.dataset.rxAction!,  // Always exists - only elements with rxAction get here
             method: this.dataset.rxMethod ?? ((this.tagName === "FORM" || this.closest("form")) ? "POST" : "GET"),
             sourceId: this.id,
             timestamp: Date.now()
@@ -809,7 +809,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             headers.set(RxRequestHeader, "");
             const ac = new AbortController();
             const request: RequestDetail = {
-                action: ele.dataset.rxAction ?? "", 
+                action: ele.dataset.rxAction!,  // Always exists - only elements with rxAction get here
                 method: getMethod(ele),
                 redirect: _fetchRedirect,
                 body,
