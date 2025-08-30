@@ -51,6 +51,7 @@ public class ExamplesHandler : RequestHandler {
         return await rxDriver
             .With(context)
             .AddTriggerSetState("filter", filter, MetadataScope.Session, true)
+            //.AddTriggerSetState("test", "test", MetadataScope.Session, true)
             .AddFragment<TodoSearch, string>(filter, "search-todos", FragmentMergeStrategyType.Morph)
             .AddFragment<TodoList, IEnumerable<TodoModel>>(page, "todo-list", FragmentMergeStrategyType.SwapInner)
             .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)

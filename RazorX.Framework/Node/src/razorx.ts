@@ -931,39 +931,30 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (stateKeys.length === 0) {
             return {};
         }
-        const sessionValues = new Map<string, string | null>();
-        const localValues = new Map<string, string | null>();
+        const state: Record<string, string> = {};
         try {
             stateKeys.forEach((k): void => {
+                let value: string | null = null;
                 try {
-                    sessionValues.set(k, sessionStorage.getItem(k));
+                    value = sessionStorage.getItem(k);
                 } catch (storageError) {
                     console.warn(`Failed to read sessionStorage key '${k}':`, storageError instanceof Error ? storageError.message : String(storageError));
-                    sessionValues.set(k, null);
                 }
-            });
-            stateKeys.forEach((k): void => {
-                try {
-                    localValues.set(k, localStorage.getItem(k));
-                } catch (storageError) {
-                    console.warn(`Failed to read localStorage key '${k}':`, storageError instanceof Error ? storageError.message : String(storageError));
-                    localValues.set(k, null);
+                if (!value) {
+                    try {
+                        value = localStorage.getItem(k);
+                    } catch (storageError) {
+                        console.warn(`Failed to read localStorage key '${k}':`, storageError instanceof Error ? storageError.message : String(storageError));
+                    }
+                }
+                if (value) {
+                    state[k] = value;
                 }
             });
         } catch (globalError) {
             console.warn('Failed to access browser storage:', globalError instanceof Error ? globalError.message : String(globalError));
             return {};
         }
-        const state: Record<string, string> = {};
-        stateKeys.forEach((k): void => {
-            let v = sessionValues.get(k);
-            if (!v) {
-                v = localValues.get(k);
-            }
-            if (v) {
-                state[k] = v;
-            }
-        });
         return state;
     }
 
