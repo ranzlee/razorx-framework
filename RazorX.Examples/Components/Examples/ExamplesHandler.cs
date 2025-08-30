@@ -29,10 +29,7 @@ public class ExamplesHandler : RequestHandler {
     private static readonly List<TodoModel> Todos = [];
 
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver, string filter = "") {
-        return await rxDriver
-            .With(context)
-            .AddPage<App, ExamplesHead, ExamplesPage, ExampleModel>(new ExampleModel([], 0, 0), "RazorX - Examples")
-            .Render();
+        return await rxDriver.RenderPage<App, ExamplesHead, ExamplesPage, ExampleModel>(context, new ExampleModel([], 0, 0), "RazorX - Examples");
     }
 
     public static async Task<IResult> NextTodos(HttpContext context, IRxDriver rxDriver, int id, string filter = "") {
@@ -54,6 +51,7 @@ public class ExamplesHandler : RequestHandler {
         return await rxDriver
             .With(context)
             .AddTriggerSetState("filter", filter, MetadataScope.Session, true)
+            //.AddTriggerSetState("test", "test", MetadataScope.Session, true)
             .AddFragment<TodoSearch, string>(filter, "search-todos", FragmentMergeStrategyType.Morph)
             .AddFragment<TodoList, IEnumerable<TodoModel>>(page, "todo-list", FragmentMergeStrategyType.SwapInner)
             .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)
@@ -82,7 +80,7 @@ public class ExamplesHandler : RequestHandler {
     }
 
     public static async Task<IResult> SaveTodo(HttpContext context, IRxDriver rxDriver, TodoFormModel model, int id) {
-        await Task.Delay(1000);
+        await Task.Delay(700);
         model = model with { Id = id };
         var validationResult = ValidateTodo(context, rxDriver, true, model);
         if (validationResult != null) {
@@ -136,7 +134,7 @@ public class ExamplesHandler : RequestHandler {
         if (todos.Count == 0) {
             driver.AddTriggerFocusElement("new-todo-modal-trigger", true);
         } else {
-            var nextFocus = todos.FirstOrDefault(x => x.Id > id) ?? todos.FirstOrDefault(x => x.Id < id);
+            var nextFocus = todos.OrderByDescending(x => x.Id).FirstOrDefault(x => x.Id < id) ?? todos.FirstOrDefault(x => x.Id > id);
             var nextFocusId = nextFocus?.Id ?? todos.First().Id;
             driver.AddTriggerFocusElement($"edit-todo-modal-trigger-{nextFocusId}");
         }
@@ -144,7 +142,7 @@ public class ExamplesHandler : RequestHandler {
     }
 
     public static async Task<IResult> EditTodo(HttpContext context, IRxDriver rxDriver, int id) {
-        await Task.Delay(1000);
+        await Task.Delay(500);
         var todo = Todos.FirstOrDefault(x => x.Id == id);
         if (todo == null) {
             return TypedResults.Accepted("/error?code=404");
