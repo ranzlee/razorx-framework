@@ -369,11 +369,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (!indicatorId) {
             return;
         }
-        if (!_activeLoadingIndicators.has(indicatorId)) {
-            _activeLoadingIndicators.set(indicatorId, new Set());
-        }
-        const activeElements = _activeLoadingIndicators.get(indicatorId)!;
         if (show) {
+            if (!_activeLoadingIndicators.has(indicatorId)) {
+                _activeLoadingIndicators.set(indicatorId, new Set());
+            }
+            const activeElements = _activeLoadingIndicators.get(indicatorId)!;
             activeElements.add(ele.id);
             const indicator = getCachedElement(indicatorId);
             if (indicator) {
@@ -383,6 +383,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 console.warn(`Loading indicator element '${indicatorId}' not found`);
             }
         } else {
+            const activeElements = _activeLoadingIndicators.get(indicatorId);
+            if (!activeElements) {
+                return;
+            }
             activeElements.delete(ele.id);
             // Only hide if no other elements are using it
             if (activeElements.size === 0) {
@@ -391,6 +395,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     indicator.classList.remove(_loadingClasses.visible);
                     indicator.classList.add(_loadingClasses.hidden);
                 }
+                _activeLoadingIndicators.delete(indicatorId);
             }
         }
     }
@@ -600,6 +605,21 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             _debouncedRequests.delete(ele.id);
         }
         _hoistedConfigs.delete(ele);
+        if (ele.dataset.rxLoadingIndicator && ele.id) {
+            const indicatorId = ele.dataset.rxLoadingIndicator;
+            const activeElements = _activeLoadingIndicators.get(indicatorId);
+            if (activeElements) {
+                activeElements.delete(ele.id);
+                if (activeElements.size === 0) {
+                    const indicator = getCachedElement(indicatorId);
+                    if (indicator) {
+                        indicator.classList.remove(_loadingClasses.visible);
+                        indicator.classList.add(_loadingClasses.hidden);
+                    }
+                    _activeLoadingIndicators.delete(indicatorId);
+                }
+            }
+        }
         const children = ele.children;
         if (children?.length <= 0) {
             return;

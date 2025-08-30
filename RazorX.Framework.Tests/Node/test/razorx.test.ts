@@ -6265,7 +6265,7 @@ describe('RazorX Framework API Surface Tests', () => {
 
     test('data-rx-loading-indicator hides indicator when request completes', async () => {
       // Arrange
-      const requestPromise = Promise.resolve(mockSuccessResponse())
+      const requestPromise = Promise.resolve(mockSuccessResponse()())
       mockFetch.mockReturnValue(requestPromise)
 
       const btnId = getUniqueId('loading-btn')
@@ -6520,7 +6520,7 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(indicator.classList.contains('rx-loading-visible')).toBe(false)
       
       // But verify that the loading indicator works when triggered
-      const requestPromise = Promise.resolve(mockSuccessResponse())
+      const requestPromise = Promise.resolve(mockSuccessResponse()())
       mockFetch.mockReturnValue(requestPromise)
       
       button.dispatchEvent(new Event('click', { bubbles: true }))
@@ -6583,6 +6583,165 @@ describe('RazorX Framework API Surface Tests', () => {
         vi.useRealTimers()
       }
     }, 10000)
+
+    test('element removed while request in-flight cleans up loading indicator tracking', async () => {
+      // Arrange
+      mockFetch.mockClear()
+      let resolveRequest: (() => void) | null = null
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+      mockFetch.mockReturnValue(requestPromise)
+
+      const btnId = getUniqueId('remove-while-loading-btn')
+      const indicatorId = getUniqueId('remove-while-loading-indicator')
+      
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/remove-test',
+        'data-rx-loading-indicator': indicatorId
+      })
+      
+      const indicator = createElementWithId('div', indicatorId, {
+        class: 'rx-loading-hidden'
+      })
+      
+      document.body.appendChild(button)
+      document.body.appendChild(indicator)
+      processNewElements()
+
+      // Act - start request (indicator shows)
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+      
+      // Verify indicator is showing
+      expect(indicator.classList.contains('rx-loading-visible')).toBe(true)
+      expect(indicator.classList.contains('rx-loading-hidden')).toBe(false)
+      
+      // Remove button from DOM while request is in-flight
+      button.remove()
+      
+      // Manually trigger the MutationObserver callback since JSDOM doesn't always fire it
+      type ExtendedMutationObserver = MutationObserver & { callback?: MutationCallback }
+      const observer = document.rxMutationObserver as ExtendedMutationObserver
+      if (observer?.callback) {
+        const records: MutationRecord[] = [{
+          type: 'childList',
+          target: document.body,
+          addedNodes: [] as unknown as NodeList,
+          removedNodes: [button] as unknown as NodeList,
+          previousSibling: null,
+          nextSibling: null,
+          attributeName: null,
+          attributeNamespace: null,
+          oldValue: null
+        }]
+        observer.callback(records, observer)
+      }
+      
+      await waitForDOMUpdates()
+      
+      // Assert - indicator should be hidden after element removal
+      expect(indicator.classList.contains('rx-loading-hidden')).toBe(true)
+      expect(indicator.classList.contains('rx-loading-visible')).toBe(false)
+      
+      // Complete the request to clean up
+      resolveRequest!()
+      await requestPromise
+      await waitForDOMUpdates()
+    })
+
+    test('multiple elements sharing indicator - one removed mid-request', async () => {
+      // Arrange
+      mockFetch.mockClear()
+      let resolveRequest1: (() => void) | null = null
+      let resolveRequest2: (() => void) | null = null
+      let requestCount = 0
+      
+      mockFetch.mockImplementation(() => {
+        requestCount++
+        if (requestCount === 1) {
+          return new Promise<Response>(resolve => {
+            resolveRequest1 = () => resolve(mockSuccessResponse()())
+          })
+        } else {
+          return new Promise<Response>(resolve => {
+            resolveRequest2 = () => resolve(mockSuccessResponse()())
+          })
+        }
+      })
+
+      const btn1Id = getUniqueId('shared-remove-btn1')
+      const btn2Id = getUniqueId('shared-remove-btn2')
+      const indicatorId = getUniqueId('shared-remove-indicator')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/shared-test1',
+        'data-rx-loading-indicator': indicatorId,
+        'data-rx-disable-queueing': 'true'  // Allow concurrent requests
+      })
+      
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/shared-test2',
+        'data-rx-loading-indicator': indicatorId,
+        'data-rx-disable-queueing': 'true'  // Allow concurrent requests
+      })
+      
+      const indicator = createElementWithId('div', indicatorId, {
+        class: 'rx-loading-hidden'
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      document.body.appendChild(indicator)
+      processNewElements()
+
+      // Act - start both requests
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+      
+      // Verify indicator is showing
+      expect(indicator.classList.contains('rx-loading-visible')).toBe(true)
+      
+      // Remove button1 while both requests are in-flight
+      button1.remove()
+      
+      // Manually trigger the MutationObserver callback
+      type ExtendedMutationObserver = MutationObserver & { callback?: MutationCallback }
+      const observer = document.rxMutationObserver as ExtendedMutationObserver
+      if (observer?.callback) {
+        const records: MutationRecord[] = [{
+          type: 'childList',
+          target: document.body,
+          addedNodes: [] as unknown as NodeList,
+          removedNodes: [button1] as unknown as NodeList,
+          previousSibling: null,
+          nextSibling: null,
+          attributeName: null,
+          attributeNamespace: null,
+          oldValue: null
+        }]
+        observer.callback(records, observer)
+      }
+      
+      await waitForDOMUpdates()
+      
+      // Assert - indicator should still be visible (button2 still active)
+      expect(indicator.classList.contains('rx-loading-visible')).toBe(true)
+      expect(indicator.classList.contains('rx-loading-hidden')).toBe(false)
+      
+      // Complete button2's request
+      resolveRequest2!()
+      await waitForDOMUpdates()
+      
+      // Now indicator should be hidden
+      expect(indicator.classList.contains('rx-loading-hidden')).toBe(true)
+      expect(indicator.classList.contains('rx-loading-visible')).toBe(false)
+      
+      // Complete button1's request to clean up (even though element is gone)
+      resolveRequest1!()
+      await waitForDOMUpdates()
+    })
   })
 
 
