@@ -18,7 +18,7 @@
       <TodoFormLoading />
     </div>
     <footer>
-      <button id="edit-todo-modal-close" type="button" class="secondary" data-rx-method="GET" data-rx-action="/edit-todo-reset">Cancel</button>
+      <button id="edit-todo-modal-close" type="button" form="edit-todo-form" class="secondary" data-rx-method="GET" data-rx-action="/edit-todo-reset">Cancel</button>
       <button id="edit-todo-save" form="edit-todo-form">
         Save
         <span id="edit-loading" aria-busy="true" class="rx-loading-hidden"></span>
@@ -41,15 +41,14 @@
 <div
   id="poll-test"
   data-rx-action="/poll-test" 
-  data-rx-trigger="@(value: "{ \"type\": \"poll\", \"interval\": 4000 }")" 
-  data-rx-disable-queueing>
+  data-rx-trigger="@(value: "{ \"type\": \"poll\", \"interval\": 4000 }")" >
 </div>
 
 <div
   id="content"
   data-rx-method="get"
   data-rx-action="/search-todos" 
-  data-rx-trigger="@(value: "{ \"type\": \"initialized\" }")"
+  data-rx-trigger="@(value: "{ \"type\": \"initialized\", \"delay\": 100 }")"
   data-rx-include-state="filter"
   class="grid">
   <div>

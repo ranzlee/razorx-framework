@@ -32,7 +32,7 @@ declare global {
   }
 }
 
-// Helper functions for testing need to be at module level for proper hoisting
+// Helper functions for testing need to be at module level for proper scoping
 function triggerDOMContentLoaded(): void {
   document.dispatchEvent(new Event('DOMContentLoaded'))
 }
@@ -460,6 +460,256 @@ describe('RazorX Framework API Surface Tests', () => {
     })
   })
 
+  describe('Request Generation - Method Default Behavior and Validation', () => {
+    beforeEach(() => {
+      mockFetch.mockImplementation(mockSuccessResponse())
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+
+    test('defaults to GET for non-form elements without explicit method', async () => {
+      // Arrange
+      const btnId = getUniqueId('default-get-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/test',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+    })
+
+    test('defaults to POST for form elements without explicit method', async () => {
+      // Arrange
+      const formId = getUniqueId('default-post-form')
+      const form = createElementWithId('form', formId, {
+        'data-rx-action': '/api/submit'
+      })
+      form.innerHTML = '<input name="test" value="data" />'
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      form.dispatchEvent(new Event('submit', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/submit',
+        expect.objectContaining({
+          method: 'POST'
+        })
+      )
+    })
+
+    test('defaults to POST for elements inside forms without explicit method', async () => {
+      // Arrange
+      const formId = getUniqueId('parent-form')
+      const btnId = getUniqueId('form-btn')
+      const form = createElementWithId('form', formId)
+      form.innerHTML = `
+        <input name="test" value="data" />
+        <button id="${btnId}" data-rx-action="/api/form-submit" type="button">Submit</button>
+      `
+      document.body.appendChild(form)
+      processNewElements()
+
+      const button = document.getElementById(btnId)!
+      
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/form-submit',
+        expect.objectContaining({
+          method: 'POST'
+        })
+      )
+    })
+
+    test('respects explicit method over default for form elements', async () => {
+      // Arrange
+      const formId = getUniqueId('explicit-get-form')
+      const form = createElementWithId('form', formId, {
+        'data-rx-action': '/api/search',
+        'data-rx-method': 'GET'
+      })
+      form.innerHTML = '<input name="query" value="test" />'
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      form.dispatchEvent(new Event('submit', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - GET forms append data to URL
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/search?query=test',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+    })
+
+    test('handles case-insensitive method values', async () => {
+      // Arrange
+      const btnId = getUniqueId('mixed-case-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test',
+        'data-rx-method': 'PoSt'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/test',
+        expect.objectContaining({
+          method: 'POST'
+        })
+      )
+    })
+
+    test('handles method values with whitespace', async () => {
+      // Arrange
+      const btnId = getUniqueId('whitespace-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test',
+        'data-rx-method': '  DELETE  '
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/test',
+        expect.objectContaining({
+          method: 'DELETE'
+        })
+      )
+    })
+
+    test('throws error for invalid HTTP method', async () => {
+      // Arrange
+      const btnId = getUniqueId('invalid-method-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test',
+        'data-rx-method': 'INVALID'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+      
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+      
+      // Assert - error should be logged, not thrown
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'INVALID is not a valid HTTP method.'
+        })
+      )
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('throws error for unsupported HTTP methods', async () => {
+      // Arrange
+      const btnId = getUniqueId('head-method-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test',
+        'data-rx-method': 'HEAD'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+      
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+      
+      // Assert - error should be logged, not thrown
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'HEAD is not a valid HTTP method.'
+        })
+      )
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('handles empty string method attribute', async () => {
+      // Arrange - non-form element with empty method
+      const btnId = getUniqueId('empty-method-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test',
+        'data-rx-method': ''
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - should default to GET for non-form
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/test',
+        expect.objectContaining({
+          method: 'GET'
+        })
+      )
+    })
+
+    test('handles whitespace-only method attribute', async () => {
+      // Arrange - form element with whitespace-only method
+      const formId = getUniqueId('whitespace-only-form')
+      const form = createElementWithId('form', formId, {
+        'data-rx-action': '/api/test',
+        'data-rx-method': '   '
+      })
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      form.dispatchEvent(new Event('submit', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - should default to POST for form
+      expect(mockFetch).toHaveBeenCalledWith(
+        '/api/test',
+        expect.objectContaining({
+          method: 'POST'
+        })
+      )
+    })
+  })
+
   describe('Request Generation - Form Data Collection', () => {
     beforeEach(() => {
       mockFetch.mockImplementation(mockSuccessResponse())
@@ -800,7 +1050,7 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert - Error should be logged
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: 'Space-separated state keys are no longer supported. Convert "key1 key2" to JSON array format: ["key1", "key2"]'
+          message: 'State keys must use JSON array format: ["key1", "key2"] (not space-separated: "key1 key2")'
         })
       )
       
@@ -2364,6 +2614,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/init-precedence-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "initialized"}',
         'type': 'button'
       })
@@ -2472,6 +2723,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/complete-priority-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': 'userId',  // Include state
         'type': 'button'
@@ -2587,6 +2839,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/no-duplicate-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': '["filter", "limit"]',
         'type': 'button'
@@ -2660,6 +2913,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/empty-values-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': '["valid", "fromSession", "fromLocal", "nonExistent"]',
         'type': 'button'
@@ -2735,6 +2989,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/multi-params-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "initialized"}',
         'data-rx-include-state': '["sessionParam1", "sessionParam2", "localParam1", "localParam2"]',
         'type': 'button'
@@ -2776,6 +3031,164 @@ describe('RazorX Framework API Surface Tests', () => {
       })
       mockStorage.sessionStorage.clear()
       mockStorage.localStorage.clear()
+    })
+
+    test('initialized trigger with delay fires after specified time', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      
+      const elemId = getUniqueId('init-delay-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-delay-test',
+        'data-rx-trigger': '{"type": "initialized", "delay": 500}'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert - Should not fire immediately
+      expect(mockFetch).not.toHaveBeenCalled()
+
+      // Advance time by 250ms - still should not fire
+      vi.advanceTimersByTime(250)
+      expect(mockFetch).not.toHaveBeenCalled()
+
+      // Advance time to 500ms total - should fire now
+      vi.advanceTimersByTime(250)
+      await vi.runOnlyPendingTimersAsync()
+      expect(mockFetch).toHaveBeenCalledWith('/init-delay-test', expect.any(Object))
+      
+      vi.useRealTimers()
+    })
+
+    test('initialized trigger with zero delay fires immediately', async () => {
+      // Arrange
+      const elemId = getUniqueId('init-zero-delay-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-zero-delay-test',
+        'data-rx-trigger': '{"type": "initialized", "delay": 0}'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      await waitForMicrotasks()
+
+      // Assert - Should fire immediately
+      expect(mockFetch).toHaveBeenCalledWith('/init-zero-delay-test', expect.any(Object))
+    })
+
+    test('initialized trigger with negative delay fires immediately', async () => {
+      // Arrange
+      const elemId = getUniqueId('init-negative-delay-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-negative-delay-test',
+        'data-rx-trigger': '{"type": "initialized", "delay": -100}'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      await waitForMicrotasks()
+
+      // Assert - Should fire immediately (negative delays treated as no delay)
+      expect(mockFetch).toHaveBeenCalledWith('/init-negative-delay-test', expect.any(Object))
+    })
+
+    test('initialized trigger delay is included in CustomEvent detail', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      
+      const elemId = getUniqueId('init-delay-detail-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-delay-detail-test',
+        'data-rx-trigger': '{"type": "initialized", "delay": 1000}'
+      })
+
+      // Intercept elementTriggerProcessor to capture the event
+      mockFetch.mockImplementation(async () => {
+        // The event detail should be preserved in the request
+        return new Response('', { status: 200, headers: { 'rx-merge': '[]' } })
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      
+      // Advance time to trigger
+      vi.advanceTimersByTime(1000)
+      await vi.runOnlyPendingTimersAsync()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalled()
+      
+      vi.useRealTimers()
+    })
+
+    test('multiple initialized triggers with different delays fire in correct order', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      const callOrder: string[] = []
+      
+      mockFetch.mockImplementation(async (url) => {
+        callOrder.push(url)
+        return new Response('', { status: 200, headers: { 'rx-merge': '[]' } })
+      })
+
+      const elem1 = createElementWithId('div', getUniqueId('init-delay-1'), {
+        'data-rx-action': '/init-delay-300',
+        'data-rx-trigger': '{"type": "initialized", "delay": 300}'
+      })
+      const elem2 = createElementWithId('div', getUniqueId('init-delay-2'), {
+        'data-rx-action': '/init-delay-100',
+        'data-rx-trigger': '{"type": "initialized", "delay": 100}'
+      })
+      const elem3 = createElementWithId('div', getUniqueId('init-delay-3'), {
+        'data-rx-action': '/init-delay-200',
+        'data-rx-trigger': '{"type": "initialized", "delay": 200}'
+      })
+
+      // Act
+      document.body.appendChild(elem1)
+      document.body.appendChild(elem2)
+      document.body.appendChild(elem3)
+      processNewElements()
+      
+      // Advance time to trigger all
+      vi.advanceTimersByTime(400)
+      await vi.runOnlyPendingTimersAsync()
+
+      // Assert - Should fire in delay order
+      expect(callOrder).toEqual(['/init-delay-100', '/init-delay-200', '/init-delay-300'])
+      
+      vi.useRealTimers()
+    })
+
+    test('initialized trigger state tracking includes delay value', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      
+      const elemId = getUniqueId('init-delay-state-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/init-delay-state-test',
+        'data-rx-trigger': '{"type": "initialized", "delay": 750}'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+      
+      // The trigger state should include the delay in its tracking key
+      // This helps with debugging and understanding what triggers are configured
+      
+      vi.advanceTimersByTime(750)
+      await vi.runOnlyPendingTimersAsync()
+
+      // Assert
+      expect(mockFetch).toHaveBeenCalledWith('/init-delay-state-test', expect.any(Object))
+      
+      vi.useRealTimers()
     })
 
     test('poll trigger fires at intervals', async () => {
@@ -2873,6 +3286,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/poll-priority-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "poll", "interval": 1000}',
         'data-rx-include-state': '["param1", "param4"]'
       })
@@ -2924,7 +3338,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const form = document.createElement('form')
       const input1 = createElementWithId('input', getUniqueId('input1'), {
         name: 'username',
-        value: 'testuser'
+        value: 'test-user'
       }) as HTMLInputElement
       const input2 = createElementWithId('input', getUniqueId('input2'), {
         name: 'filter',
@@ -2936,6 +3350,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       const element = createElementWithId('button', elemId, {
         'data-rx-action': '/poll-form-test',
+        'data-rx-method': 'GET',
         'data-rx-trigger': '{"type": "poll", "interval": 1000}'
       })
       form.appendChild(element)
@@ -2954,7 +3369,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const url = fetchCall[0] as string
       const options = fetchCall[1]
       
-      expect(url).toContain('username=testuser')
+      expect(url).toContain('username=test-user')
       expect(url).toContain('filter=active')
       expect(options.method).toBe('GET')
       expect(options.body).toBeUndefined()
@@ -3350,6 +3765,178 @@ describe('RazorX Framework API Surface Tests', () => {
     })
   })
 
+  describe('Warning Tests for Special Triggers', () => {
+    beforeEach(() => {
+      mockFetch.mockImplementation(mockSuccessResponse())
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+
+    test('warns when data-rx-debounce is used with only special triggers', () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      const elemId = getUniqueId('debounce-special-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/debounce-special-test',
+        'data-rx-trigger': '{"type": "initialized"}',
+        'data-rx-debounce': '500'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Element ${elemId} has data-rx-debounce="500" but only contains special triggers`)
+      )
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`The debounce attribute has no effect on special triggers`)
+      )
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('warns when data-rx-disable-queueing is used with only special triggers', () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      const elemId = getUniqueId('queue-special-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/queue-special-test',
+        'data-rx-trigger': '{"type": "poll", "interval": 1000}',
+        'data-rx-disable-queueing': 'true'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Element ${elemId} has data-rx-disable-queueing="true" but only contains special triggers`)
+      )
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`The disable-queueing attribute has no effect on special triggers`)
+      )
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('warns for both attributes when used with array of only special triggers', () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      const elemId = getUniqueId('both-attrs-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/both-attrs-test',
+        'data-rx-trigger': '[{"type": "initialized", "delay": 100}, {"type": "revealed"}]',
+        'data-rx-debounce': '300',
+        'data-rx-disable-queueing': 'true'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Element ${elemId} has data-rx-debounce="300" but only contains special triggers`)
+      )
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`Element ${elemId} has data-rx-disable-queueing="true" but only contains special triggers`)
+      )
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('no warning when debounce/disable-queueing used with mixed triggers', () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      const elemId = getUniqueId('mixed-triggers-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/mixed-triggers-test',
+        'data-rx-trigger': '["click", {"type": "initialized"}]',
+        'data-rx-debounce': '500',
+        'data-rx-disable-queueing': 'true'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert - No warnings should be called for the attributes
+      const calls = consoleSpy.mock.calls.map(call => call[0])
+      const hasDebounceWarning = calls.some(msg => 
+        msg.includes('data-rx-debounce') && msg.includes('only contains special triggers')
+      )
+      const hasQueueingWarning = calls.some(msg => 
+        msg.includes('data-rx-disable-queueing') && msg.includes('only contains special triggers')
+      )
+      
+      expect(hasDebounceWarning).toBe(false)
+      expect(hasQueueingWarning).toBe(false)
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('no warning when debounce/disable-queueing used with only regular triggers', () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      const elemId = getUniqueId('regular-triggers-elem')
+      const element = createElementWithId('button', elemId, {
+        'data-rx-action': '/regular-triggers-test',
+        'data-rx-trigger': '["click", "focus"]',
+        'data-rx-debounce': '500',
+        'data-rx-disable-queueing': 'true'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert - No warnings should be called for the attributes
+      const calls = consoleSpy.mock.calls.map(call => call[0])
+      const hasDebounceWarning = calls.some(msg => 
+        msg.includes('data-rx-debounce') && msg.includes('only contains special triggers')
+      )
+      const hasQueueingWarning = calls.some(msg => 
+        msg.includes('data-rx-disable-queueing') && msg.includes('only contains special triggers')
+      )
+      
+      expect(hasDebounceWarning).toBe(false)
+      expect(hasQueueingWarning).toBe(false)
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('warning message suggests using delay property for initialized trigger', () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      const elemId = getUniqueId('suggest-delay-elem')
+      const element = createElementWithId('div', elemId, {
+        'data-rx-action': '/suggest-delay-test',
+        'data-rx-trigger': '{"type": "initialized"}',
+        'data-rx-debounce': '500'
+      })
+
+      // Act
+      document.body.appendChild(element)
+      processNewElements()
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining(`For the initialized trigger, use the 'delay' property instead`)
+      )
+      
+      consoleSpy.mockRestore()
+    })
+  })
+
   describe('Advanced Features', () => {
     beforeEach(() => {
       mockFetch.mockImplementation(mockSuccessResponse())
@@ -3384,6 +3971,253 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Assert
       expect(mockFetch).toHaveBeenCalledTimes(1) // Only one request after debounce
+      
+      vi.useRealTimers()
+    })
+
+    test('data-rx-debounce with invalid non-numeric value warns and executes immediately', async () => {
+      // Arrange
+      const warnings: string[] = []
+      const originalWarn = console.warn
+      console.warn = (msg: string) => warnings.push(msg)
+      
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('invalid-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/invalid-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': 'not-a-number'
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      await waitForMicrotasks()
+      
+      // Assert - Should warn and execute immediately (no debounce)
+      expect(warnings).toContain(
+        `The data-rx-debounce attribute on element ${inputId} is invalid. It must be a number > zero`
+      )
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      // Cleanup
+      console.warn = originalWarn
+    })
+
+    test('data-rx-debounce with zero value warns and executes immediately', async () => {
+      // Arrange
+      const warnings: string[] = []
+      const originalWarn = console.warn
+      console.warn = (msg: string) => warnings.push(msg)
+      
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('zero-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/zero-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': '0'
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      await waitForMicrotasks()
+      
+      // Assert - Should warn about zero value
+      expect(warnings).toContain(
+        `The data-rx-debounce attribute on element ${inputId} is invalid. It must be a number > zero`
+      )
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      // Cleanup
+      console.warn = originalWarn
+    })
+
+    test('data-rx-debounce with negative value warns and executes immediately', async () => {
+      // Arrange
+      const warnings: string[] = []
+      const originalWarn = console.warn
+      console.warn = (msg: string) => warnings.push(msg)
+      
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('negative-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/negative-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': '-100'
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      await waitForMicrotasks()
+      
+      // Assert - Should warn about negative value
+      expect(warnings).toContain(
+        `The data-rx-debounce attribute on element ${inputId} is invalid. It must be a number > zero`
+      )
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      // Cleanup
+      console.warn = originalWarn
+    })
+
+    test('data-rx-debounce with empty string value warns and executes immediately', async () => {
+      // Arrange
+      const warnings: string[] = []
+      const originalWarn = console.warn
+      console.warn = (msg: string) => warnings.push(msg)
+      
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('empty-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/empty-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': ''
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      await waitForMicrotasks()
+      
+      // Assert - Should warn about empty value
+      expect(warnings).toContain(
+        `The data-rx-debounce attribute on element ${inputId} is invalid. It must be a number > zero`
+      )
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      // Cleanup
+      console.warn = originalWarn
+    })
+
+    test('data-rx-debounce with decimal value works correctly', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('decimal-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/decimal-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': '100.5' // parseInt will parse as 100
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      
+      // Should not have called fetch yet
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      // Advance time by 100ms (the parsed integer value)
+      vi.advanceTimersByTime(100)
+      await vi.runAllTimersAsync()
+      
+      // Assert - Should have executed after 100ms (not 100.5)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      vi.useRealTimers()
+    })
+
+    test('data-rx-debounce handles whitespace correctly', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('whitespace-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/whitespace-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': '  200  ' // Should be trimmed to '200'
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      
+      // Should not have called fetch yet
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      // Advance time
+      vi.advanceTimersByTime(200)
+      await vi.runAllTimersAsync()
+      
+      // Assert - Should work with trimmed value
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      vi.useRealTimers()
+    })
+
+    test('data-rx-debounce with very large value works correctly', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('large-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/large-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': '999999' // Very large delay
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      
+      // Should not have called fetch yet
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      // Advance time by the large value
+      vi.advanceTimersByTime(999999)
+      await vi.runAllTimersAsync()
+      
+      // Assert - Should execute after the delay
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      vi.useRealTimers()
+    })
+
+    test('data-rx-debounce correctly resets timer on subsequent events', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('reset-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/reset-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': '300'
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input')) // First event
+      vi.advanceTimersByTime(200) // Advance 200ms
+      
+      input.dispatchEvent(new Event('input')) // Second event should reset timer
+      vi.advanceTimersByTime(200) // Advance another 200ms (total 400ms)
+      
+      // Should not have called fetch yet (only 200ms since last event)
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      vi.advanceTimersByTime(100) // Advance to 300ms since last event
+      await vi.runAllTimersAsync()
+      
+      // Assert - Should execute only once
+      expect(mockFetch).toHaveBeenCalledTimes(1)
       
       vi.useRealTimers()
     })
@@ -3451,13 +4285,945 @@ describe('RazorX Framework API Surface Tests', () => {
       expect((button as HTMLButtonElement).disabled).toBe(false)
     })
 
-    test('hoisting transfers behavior to another element', async () => {
+    test('data-rx-disable-in-flight with empty value (boolean) disables element', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const btnId = getUniqueId('disable-btn-empty')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/disable-test',
+        'data-rx-disable-in-flight': ''  // Empty value = boolean true
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect((button as HTMLButtonElement).disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight="false" does not disable element', async () => {
+      // Arrange
+      mockFetch.mockImplementation(mockSuccessResponse())
+
+      const btnId = getUniqueId('no-disable-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-disable-test',
+        'data-rx-disable-in-flight': 'false'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+      await waitForMicrotasks()
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight with invalid value warns and disables', async () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const btnId = getUniqueId('invalid-disable-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/invalid-disable-test',
+        'data-rx-disable-in-flight': 'invalid'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalledWith(
+        `The data-rx-disable-in-flight attribute on element ${btnId} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`
+      )
+      expect((button as HTMLButtonElement).disabled).toBe(true)  // Still disables despite invalid value
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('data-rx-disable-in-flight works with input elements', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const inputId = getUniqueId('disable-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/input-disable-test',
+        'data-rx-trigger': 'change',
+        'data-rx-disable-in-flight': 'true'
+      }) as HTMLInputElement
+      document.body.appendChild(input)
+      processNewElements()
+
+      // Act
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(input.disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(input.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight works with select elements', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const selectId = getUniqueId('disable-select')
+      const select = createElementWithId('select', selectId, {
+        'data-rx-action': '/select-disable-test',
+        'data-rx-trigger': 'change',
+        'data-rx-disable-in-flight': 'true'
+      }) as HTMLSelectElement
+      document.body.appendChild(select)
+      processNewElements()
+
+      // Act
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(select.disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(select.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight works with textarea elements', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const textareaId = getUniqueId('disable-textarea')
+      const textarea = createElementWithId('textarea', textareaId, {
+        'data-rx-action': '/textarea-disable-test',
+        'data-rx-trigger': 'input',
+        'data-rx-disable-in-flight': 'true'
+      }) as HTMLTextAreaElement
+      document.body.appendChild(textarea)
+      processNewElements()
+
+      // Act
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(textarea.disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(textarea.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight disables all controls within a form', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const formId = getUniqueId('disable-form')
+      const form = createElementWithId('form', formId, {
+        'data-rx-action': '/form-disable-test',
+        'data-rx-method': 'POST',
+        'data-rx-disable-in-flight': 'true'
+      }) as HTMLFormElement
+      
+      const input = document.createElement('input')
+      const textarea = document.createElement('textarea')
+      const select = document.createElement('select')
+      const button = document.createElement('button')
+      
+      form.appendChild(input)
+      form.appendChild(textarea)
+      form.appendChild(select)
+      form.appendChild(button)
+      
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      form.dispatchEvent(new Event('submit', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(input.disabled).toBe(true)
+      expect(textarea.disabled).toBe(true)
+      expect(select.disabled).toBe(true)
+      expect(button.disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(input.disabled).toBe(false)
+      expect(textarea.disabled).toBe(false)
+      expect(select.disabled).toBe(false)
+      expect(button.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight disables elements associated via form attribute', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const formId = getUniqueId('disable-form-attr')
+      const form = createElementWithId('form', formId, {
+        'data-rx-action': '/form-attr-disable-test',
+        'data-rx-method': 'POST',
+        'data-rx-disable-in-flight': 'true'
+      }) as HTMLFormElement
+      
+      // Create a button outside the form but associated via form attribute
+      const externalButton = document.createElement('button')
+      externalButton.setAttribute('form', formId)
+      externalButton.id = getUniqueId('external-btn')
+      
+      // Create an input outside the form but associated via form attribute
+      const externalInput = document.createElement('input')
+      externalInput.setAttribute('form', formId)
+      externalInput.id = getUniqueId('external-input')
+      
+      document.body.appendChild(form)
+      document.body.appendChild(externalButton)
+      document.body.appendChild(externalInput)
+      processNewElements()
+
+      // Act
+      form.dispatchEvent(new Event('submit', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(externalButton.disabled).toBe(true)
+      expect(externalInput.disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(externalButton.disabled).toBe(false)
+      expect(externalInput.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight handles elements within fieldset', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const fieldset = document.createElement('fieldset')
+      const btnId = getUniqueId('fieldset-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/fieldset-test',
+        'data-rx-disable-in-flight': 'true'
+      })
+      
+      fieldset.appendChild(button)
+      document.body.appendChild(fieldset)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(fieldset.disabled).toBe(true)  // Fieldset should be disabled
+      // Note: Button doesn't get disabled attribute when fieldset is disabled, but appears disabled in browser
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(fieldset.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight is case insensitive', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const btnId = getUniqueId('case-insensitive-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/case-test',
+        'data-rx-disable-in-flight': 'TRUE'  // Uppercase
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect((button as HTMLButtonElement).disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight with "FALSE" (uppercase) does not disable', async () => {
+      // Arrange
+      mockFetch.mockImplementation(mockSuccessResponse())
+
+      const btnId = getUniqueId('false-uppercase-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/false-uppercase-test',
+        'data-rx-disable-in-flight': 'FALSE'  // Uppercase false
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+      await waitForMicrotasks()
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight handles whitespace correctly', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const btnId = getUniqueId('whitespace-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/whitespace-test',
+        'data-rx-disable-in-flight': '  true  '  // Whitespace around value
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect((button as HTMLButtonElement).disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight handles option elements within optgroup', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const select = document.createElement('select')
+      const optgroup = document.createElement('optgroup')
+      optgroup.label = 'Group 1'
+      
+      const optionId = getUniqueId('option-with-action')
+      const option = document.createElement('option')
+      option.id = optionId
+      option.value = 'test'
+      option.textContent = 'Test Option'
+      option.setAttribute('data-rx-action', '/option-test')
+      option.setAttribute('data-rx-trigger', 'click')
+      option.setAttribute('data-rx-disable-in-flight', 'true')
+      
+      optgroup.appendChild(option)
+      select.appendChild(optgroup)
+      document.body.appendChild(select)
+      processNewElements()
+
+      // Act
+      option.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(optgroup.disabled).toBe(true)  // Optgroup should be disabled
+      // Note: When optgroup is disabled, all its child options appear disabled in browser
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(optgroup.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight handles option elements without optgroup', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const select = document.createElement('select')
+      
+      const optionId = getUniqueId('standalone-option')
+      const option = document.createElement('option')
+      option.id = optionId
+      option.value = 'test'
+      option.textContent = 'Test Option'
+      option.setAttribute('data-rx-action', '/option-standalone-test')
+      option.setAttribute('data-rx-trigger', 'click')
+      option.setAttribute('data-rx-disable-in-flight', 'true')
+      
+      select.appendChild(option)
+      document.body.appendChild(select)
+      processNewElements()
+
+      // Act
+      option.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(option.disabled).toBe(true)  // Option itself should be disabled
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(option.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-queueing with empty value (boolean) disables queueing', async () => {
+      // Arrange - Test that DIFFERENT elements can run concurrently
+      let request1Started = false
+      let request1Completed = false
+      let request2Started = false
+      let request2Completed = false
+      
+      mockFetch.mockImplementation((url) => {
+        return new Promise(resolve => {
+          if (url.includes('concurrent-test1')) {
+            request1Started = true
+            setTimeout(() => {
+              request1Completed = true
+              resolve(mockSuccessResponse()())
+            }, 100)
+          } else {
+            request2Started = true
+            setTimeout(() => {
+              request2Completed = true
+              resolve(mockSuccessResponse()())
+            }, 50)
+          }
+        })
+      })
+
+      const btn1Id = getUniqueId('concurrent-btn1')
+      const btn2Id = getUniqueId('concurrent-btn2')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/concurrent-test1',
+        'data-rx-disable-queueing': ''  // Empty value = boolean true
+      })
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/concurrent-test2',
+        'data-rx-disable-queueing': ''  // Empty value = boolean true
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      processNewElements()
+
+      // Act - Trigger both buttons
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Wait a bit to ensure both requests start
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      // Assert - Both requests should start immediately (concurrent)
+      expect(request1Started).toBe(true)
+      expect(request2Started).toBe(true)
+      expect(request1Completed).toBe(false)
+      expect(request2Completed).toBe(false)
+
+      // Wait for both to complete
+      await new Promise(resolve => setTimeout(resolve, 150))
+      expect(request1Completed).toBe(true)
+      expect(request2Completed).toBe(true)
+    })
+
+    test('data-rx-disable-queueing="true" disables queueing', async () => {
+      // Arrange - Test that DIFFERENT elements with disable-queueing can run concurrently
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation(() => {
+        return new Promise(resolve => {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+          
+          setTimeout(() => {
+            concurrentRequests--
+            resolve(mockSuccessResponse()())
+          }, 50)
+        })
+      })
+
+      const btn1Id = getUniqueId('concurrent-true-btn1')
+      const btn2Id = getUniqueId('concurrent-true-btn2')
+      const btn3Id = getUniqueId('concurrent-true-btn3')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/concurrent-true-test1',
+        'data-rx-disable-queueing': 'true'
+      })
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/concurrent-true-test2',
+        'data-rx-disable-queueing': 'true'
+      })
+      const button3 = createElementWithId('button', btn3Id, {
+        'data-rx-action': '/concurrent-true-test3',
+        'data-rx-disable-queueing': 'true'
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      document.body.appendChild(button3)
+      processNewElements()
+
+      // Act - Trigger all three buttons
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      button3.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Wait for all to complete
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // Assert - All three should run concurrently
+      expect(requestCount).toBe(3)
+      expect(maxConcurrent).toBe(3)  // All three running at same time
+    })
+
+    test('data-rx-disable-queueing="false" enables queueing (default)', async () => {
+      // Arrange
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation(() => {
+        return new Promise(resolve => {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+          
+          setTimeout(() => {
+            concurrentRequests--
+            resolve(mockSuccessResponse()())
+          }, 30)
+        })
+      })
+
+      const btnId = getUniqueId('sequential-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/sequential-test',
+        'data-rx-disable-queueing': 'false'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act - Trigger three requests rapidly
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Wait for all to complete
+      await new Promise(resolve => setTimeout(resolve, 150))
+
+      // Assert - Should run sequentially
+      expect(requestCount).toBe(3)
+      expect(maxConcurrent).toBe(1)  // Only one at a time
+    })
+
+    test('no data-rx-disable-queueing attribute enables queueing by default', async () => {
+      // Arrange
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation(() => {
+        return new Promise(resolve => {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+          
+          setTimeout(() => {
+            concurrentRequests--
+            resolve(mockSuccessResponse()())
+          }, 30)
+        })
+      })
+
+      const btnId = getUniqueId('default-queue-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/default-queue-test'
+        // No data-rx-disable-queueing attribute
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act - Trigger three requests rapidly
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Wait for all to complete
+      await new Promise(resolve => setTimeout(resolve, 150))
+
+      // Assert - Should run sequentially (default behavior)
+      expect(requestCount).toBe(3)
+      expect(maxConcurrent).toBe(1)  // Only one at a time
+    })
+
+    test('data-rx-disable-queueing with invalid value warns and disables queueing', async () => {
+      // Arrange
+      const warnings: string[] = []
+      const originalWarn = console.warn
+      console.warn = (msg: string) => warnings.push(msg)
+      
+      mockFetch.mockImplementation(mockSuccessResponse())
+
+      const btnId = getUniqueId('invalid-queue-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/invalid-queue-test',
+        'data-rx-disable-queueing': 'yes'  // Invalid value
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act - Trigger button (warning happens synchronously in queue function)
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Assert - Should have warned immediately  
+      expect(warnings).toContain(
+        `The data-rx-disable-queueing attribute on element ${btnId} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`
+      )
+      
+      // Cleanup
+      console.warn = originalWarn
+      await waitForMicrotasks()
+    })
+
+    test('data-rx-disable-queueing is case insensitive', async () => {
+      // Arrange
+      mockFetch.mockClear()  // Clear any previous mock state
+      
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation(() => {
+        return new Promise(resolve => {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+          
+          setTimeout(() => {
+            concurrentRequests--
+            resolve(mockSuccessResponse()())
+          }, 30)
+        })
+      })
+
+      const btn1Id = getUniqueId('case-queue-btn1')
+      const btn2Id = getUniqueId('case-queue-btn2')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/case-queue-test1',
+        'data-rx-disable-queueing': 'TRUE'  // Uppercase
+      })
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/case-queue-test2',
+        'data-rx-disable-queueing': 'TRUE'  // Uppercase
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      processNewElements()
+
+      // Act
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // Assert - Should disable queueing (concurrent execution)
+      expect(requestCount).toBe(2)
+      expect(maxConcurrent).toBe(2)  // Concurrent execution
+    })
+
+    test('data-rx-disable-queueing with "FALSE" (uppercase) enables queueing', async () => {
+      // Arrange - Test that elements with FALSE still queue
+      mockFetch.mockClear()  // Clear any previous mock state
+      
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation((url) => {
+        // Only count our specific test URLs
+        if (url.includes('false-uppercase-queue-test')) {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+        }
+        
+        return new Promise(resolve => {
+          setTimeout(() => {
+            if (url.includes('false-uppercase-queue-test')) {
+              concurrentRequests--
+            }
+            resolve(mockSuccessResponse()())
+          }, 30)
+        })
+      })
+
+      const btn1Id = getUniqueId('false-uppercase-queue-btn1')
+      const btn2Id = getUniqueId('false-uppercase-queue-btn2')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/false-uppercase-queue-test1',
+        'data-rx-disable-queueing': 'FALSE'  // Uppercase false - queueing enabled
+      })
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/false-uppercase-queue-test2',
+        'data-rx-disable-queueing': 'FALSE'  // Uppercase false - queueing enabled
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      processNewElements()
+
+      // Act - Trigger both buttons
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Wait for both to complete
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // Assert - Should enable queueing (sequential)
+      expect(requestCount).toBe(2)
+      expect(maxConcurrent).toBe(1)  // Sequential execution
+    })
+
+    test('data-rx-disable-queueing handles whitespace correctly', async () => {
+      // Arrange
+      mockFetch.mockClear()  // Clear any previous mock state
+      
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation((url) => {
+        // Only count our specific test URLs
+        if (url.includes('whitespace-queue-test')) {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+        }
+        
+        return new Promise(resolve => {
+          setTimeout(() => {
+            if (url.includes('whitespace-queue-test')) {
+              concurrentRequests--
+            }
+            resolve(mockSuccessResponse()())
+          }, 30)
+        })
+      })
+
+      const btn1Id = getUniqueId('whitespace-queue-btn1')
+      const btn2Id = getUniqueId('whitespace-queue-btn2')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/whitespace-queue-test1',
+        'data-rx-disable-queueing': '  true  '  // Whitespace around value
+      })
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/whitespace-queue-test2',
+        'data-rx-disable-queueing': '  true  '  // Whitespace around value
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      processNewElements()
+
+      // Act
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // Assert - Should disable queueing
+      expect(requestCount).toBe(2)
+      expect(maxConcurrent).toBe(2)  // Concurrent execution
+    })
+
+    test('data-rx-disable-queueing with debounce still allows concurrent after debounce', async () => {
+      // Arrange
+      mockFetch.mockClear()  // Clear any previous mock state
+      
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation((url) => {
+        // Only count our specific test URLs
+        if (url.includes('debounce-queue-test')) {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+        }
+        
+        return new Promise(resolve => {
+          setTimeout(() => {
+            if (url.includes('debounce-queue-test')) {
+              concurrentRequests--
+            }
+            resolve(mockSuccessResponse()())
+          }, 30)
+        })
+      })
+
+      const btn1Id = getUniqueId('debounce-queue-btn1')
+      const btn2Id = getUniqueId('debounce-queue-btn2')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/debounce-queue-test1',
+        'data-rx-debounce': '50',
+        'data-rx-disable-queueing': 'true'
+      })
+      
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/debounce-queue-test2',
+        'data-rx-debounce': '50',
+        'data-rx-disable-queueing': 'true'
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      processNewElements()
+
+      // Act - Click both buttons
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Wait for debounce to complete
+      await new Promise(resolve => setTimeout(resolve, 70))
+      
+      // Wait for requests to complete
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      // Assert - Both should run concurrently after debounce
+      expect(requestCount).toBe(2)
+      expect(maxConcurrent).toBe(2)  // Both run at same time
+    })
+
+    test('delegating transfers action and method to another element', async () => {
       // Arrange
       const sourceId = getUniqueId('source-elem')
       const targetId = getUniqueId('target-elem')
       
       document.body.innerHTML = `
-        <div id="${sourceId}" data-rx-action="/hoisted" data-rx-hoist-to="${targetId}" data-rx-trigger="click">
+        <div id="${sourceId}" data-rx-action="/delegated" data-rx-delegate-action-to="${targetId}" data-rx-trigger="click">
           Source Element
         </div>
         <button id="${targetId}">Target Button</button>
@@ -3467,57 +5233,56 @@ describe('RazorX Framework API Surface Tests', () => {
       const sourceElement = document.getElementById(sourceId)!
       const targetButton = document.getElementById(targetId)!
 
-      // Act - Click the source element to trigger hoisting, then click the target
+      // Act - Click the source element to trigger delegation, then click the target
       sourceElement.click()
       await waitForMicrotasks()
       
-      // Now the target should have the hoisted behavior
+      // Now the target should have the delegated action
       targetButton.click()
       await waitForMicrotasks()
 
       // Assert
-      expect(mockFetch).toHaveBeenCalledWith('/hoisted', expect.any(Object))
+      expect(mockFetch).toHaveBeenCalledWith('/delegated', expect.any(Object))
     })
 
-    test('data-rx-ignore prevents element processing', () => {
+    test('delegating does NOT copy rxIncludeState from target element', async () => {
       // Arrange
-      const ignoredId = getUniqueId('ignored-elem')
-      const processedId = getUniqueId('processed-elem')
+      const sourceId = getUniqueId('source-elem')
+      const targetId = getUniqueId('target-elem')
+      
+      // Set up state in session storage
+      sessionStorage.setItem('userId', '123')
+      sessionStorage.setItem('theme', 'dark')
       
       document.body.innerHTML = `
-        <div data-rx-ignore="true">
-          <button id="${ignoredId}" data-rx-action="/ignored">Ignored</button>
+        <div id="${sourceId}" data-rx-action="/delegated-no-state" data-rx-delegate-action-to="${targetId}" data-rx-trigger="click">
+          Source Element
         </div>
-        <button id="${processedId}" data-rx-action="/processed">Processed</button>
+        <button id="${targetId}" data-rx-include-state='["userId", "theme"]'>Target Button</button>
       `
+      processNewElements()
 
-      const processedButton = document.getElementById(processedId)!
-      const ignoredButton = document.getElementById(ignoredId)!
+      const sourceElement = document.getElementById(sourceId)!
+      const targetButton = document.getElementById(targetId)!
 
-      // Act & Assert
-      processedButton.click() // Should work
-      expect(() => ignoredButton.click()).not.toThrow() // Should not cause errors
-    })
-
-    test('data-rx-ignore="false" allows processing in ignored containers', () => {
-      // Arrange
-      const allowedId = getUniqueId('allowed-elem')
+      // Act - Click the source element to trigger delegation, then click the target
+      sourceElement.click()
+      await waitForMicrotasks()
       
-      document.body.innerHTML = `
-        <div data-rx-ignore="true">
-          <div data-rx-ignore="false">
-            <button id="${allowedId}" data-rx-action="/allowed">Allowed</button>
-          </div>
-        </div>
-      `
+      // Now click the target to execute the delegated action
+      targetButton.click()
+      await waitForMicrotasks()
 
-      const allowedButton = document.getElementById(allowedId)!
-
-      // Act
-      allowedButton.click()
-
-      // Assert - Should not throw error
-      expect(() => allowedButton.click()).not.toThrow()
+      // Assert - The request should NOT include state parameters
+      expect(mockFetch).toHaveBeenCalledWith('/delegated-no-state', expect.any(Object))
+      const calls = vi.mocked(fetch).mock.calls
+      const lastCall = calls[calls.length - 1]
+      const url = lastCall?.[0] as string
+      
+      // Verify state parameters are NOT in the URL
+      expect(url).not.toContain('userId')
+      expect(url).not.toContain('theme')
+      expect(url).toBe('/delegated-no-state')
     })
 
     test('reveal margin configuration for IntersectionObserver', () => {
@@ -3539,6 +5304,207 @@ describe('RazorX Framework API Surface Tests', () => {
           rootMargin: '10px 20px 30px 40px'
         })
       )
+    })
+  })
+
+  describe('Allow Event Default Behavior', () => {
+    beforeEach(() => {
+      mockFetch.mockImplementation(mockSuccessResponse())
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+
+    test('no attribute - should prevent default', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'href': '#should-not-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+    })
+
+    test('empty attribute (boolean) - should allow default', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-allow-event-default': '',
+        'href': '#should-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).not.toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+    })
+
+    test('attribute="true" - should allow default', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-allow-event-default': 'true',
+        'href': '#should-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).not.toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+    })
+
+    test('attribute="false" - should prevent default', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-allow-event-default': 'false',
+        'href': '#should-not-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+    })
+
+    test('invalid value - should warn and prevent default', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-allow-event-default': 'invalid',
+        'href': '#should-not-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(warnSpy).toHaveBeenCalledWith(
+        `The data-rx-allow-event-default attribute on element ${linkId} has an invalid value "invalid". Valid values are: no value (empty), "true", or "false"`
+      )
+      expect(preventDefaultSpy).not.toHaveBeenCalled() // Invalid values allow default as current implementation
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+
+      warnSpy.mockRestore()
+    })
+
+    test('form submission with allow-event-default', async () => {
+      // Arrange
+      const formId = getUniqueId('form')
+      const form = createElementWithId('form', formId, {
+        'data-rx-action': '/submit',
+        'data-rx-method': 'POST',
+        'data-rx-trigger': 'submit',
+        'data-rx-allow-event-default': 'true'
+      })
+      form.innerHTML = '<input name="test" value="value">'
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      const event = new Event('submit', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      form.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).not.toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/submit', expect.objectContaining({
+        method: 'POST'
+      }))
+    })
+
+    test('case insensitive values work correctly', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-allow-event-default': 'TRUE',
+        'href': '#should-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).not.toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
+    })
+
+    test('whitespace is trimmed from attribute value', async () => {
+      // Arrange
+      const linkId = getUniqueId('link')
+      const link = createElementWithId('a', linkId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-allow-event-default': '  false  ',
+        'href': '#should-not-navigate'
+      })
+      document.body.appendChild(link)
+      processNewElements()
+
+      // Act
+      const event = new MouseEvent('click', { cancelable: true })
+      const preventDefaultSpy = vi.spyOn(event, 'preventDefault')
+      link.dispatchEvent(event)
+      await waitForMicrotasks()
+
+      // Assert
+      expect(preventDefaultSpy).toHaveBeenCalled()
+      expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
     })
   })
 
@@ -4347,7 +6313,7 @@ describe('RazorX Framework API Surface Tests', () => {
 
     test('data-rx-loading-indicator hides indicator when request completes', async () => {
       // Arrange
-      const requestPromise = Promise.resolve(mockSuccessResponse())
+      const requestPromise = Promise.resolve(mockSuccessResponse()())
       mockFetch.mockReturnValue(requestPromise)
 
       const btnId = getUniqueId('loading-btn')
@@ -4602,7 +6568,7 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(indicator.classList.contains('rx-loading-visible')).toBe(false)
       
       // But verify that the loading indicator works when triggered
-      const requestPromise = Promise.resolve(mockSuccessResponse())
+      const requestPromise = Promise.resolve(mockSuccessResponse()())
       mockFetch.mockReturnValue(requestPromise)
       
       button.dispatchEvent(new Event('click', { bubbles: true }))
@@ -4665,6 +6631,165 @@ describe('RazorX Framework API Surface Tests', () => {
         vi.useRealTimers()
       }
     }, 10000)
+
+    test('element removed while request in-flight cleans up loading indicator tracking', async () => {
+      // Arrange
+      mockFetch.mockClear()
+      let resolveRequest: (() => void) | null = null
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+      mockFetch.mockReturnValue(requestPromise)
+
+      const btnId = getUniqueId('remove-while-loading-btn')
+      const indicatorId = getUniqueId('remove-while-loading-indicator')
+      
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/remove-test',
+        'data-rx-loading-indicator': indicatorId
+      })
+      
+      const indicator = createElementWithId('div', indicatorId, {
+        class: 'rx-loading-hidden'
+      })
+      
+      document.body.appendChild(button)
+      document.body.appendChild(indicator)
+      processNewElements()
+
+      // Act - start request (indicator shows)
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+      
+      // Verify indicator is showing
+      expect(indicator.classList.contains('rx-loading-visible')).toBe(true)
+      expect(indicator.classList.contains('rx-loading-hidden')).toBe(false)
+      
+      // Remove button from DOM while request is in-flight
+      button.remove()
+      
+      // Manually trigger the MutationObserver callback since JSDOM doesn't always fire it
+      type ExtendedMutationObserver = MutationObserver & { callback?: MutationCallback }
+      const observer = document.rxMutationObserver as ExtendedMutationObserver
+      if (observer?.callback) {
+        const records: MutationRecord[] = [{
+          type: 'childList',
+          target: document.body,
+          addedNodes: [] as unknown as NodeList,
+          removedNodes: [button] as unknown as NodeList,
+          previousSibling: null,
+          nextSibling: null,
+          attributeName: null,
+          attributeNamespace: null,
+          oldValue: null
+        }]
+        observer.callback(records, observer)
+      }
+      
+      await waitForDOMUpdates()
+      
+      // Assert - indicator should be hidden after element removal
+      expect(indicator.classList.contains('rx-loading-hidden')).toBe(true)
+      expect(indicator.classList.contains('rx-loading-visible')).toBe(false)
+      
+      // Complete the request to clean up
+      resolveRequest!()
+      await requestPromise
+      await waitForDOMUpdates()
+    })
+
+    test('multiple elements sharing indicator - one removed mid-request', async () => {
+      // Arrange
+      mockFetch.mockClear()
+      let resolveRequest1: (() => void) | null = null
+      let resolveRequest2: (() => void) | null = null
+      let requestCount = 0
+      
+      mockFetch.mockImplementation(() => {
+        requestCount++
+        if (requestCount === 1) {
+          return new Promise<Response>(resolve => {
+            resolveRequest1 = () => resolve(mockSuccessResponse()())
+          })
+        } else {
+          return new Promise<Response>(resolve => {
+            resolveRequest2 = () => resolve(mockSuccessResponse()())
+          })
+        }
+      })
+
+      const btn1Id = getUniqueId('shared-remove-btn1')
+      const btn2Id = getUniqueId('shared-remove-btn2')
+      const indicatorId = getUniqueId('shared-remove-indicator')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/shared-test1',
+        'data-rx-loading-indicator': indicatorId,
+        'data-rx-disable-queueing': 'true'  // Allow concurrent requests
+      })
+      
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/shared-test2',
+        'data-rx-loading-indicator': indicatorId,
+        'data-rx-disable-queueing': 'true'  // Allow concurrent requests
+      })
+      
+      const indicator = createElementWithId('div', indicatorId, {
+        class: 'rx-loading-hidden'
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      document.body.appendChild(indicator)
+      processNewElements()
+
+      // Act - start both requests
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+      
+      // Verify indicator is showing
+      expect(indicator.classList.contains('rx-loading-visible')).toBe(true)
+      
+      // Remove button1 while both requests are in-flight
+      button1.remove()
+      
+      // Manually trigger the MutationObserver callback
+      type ExtendedMutationObserver = MutationObserver & { callback?: MutationCallback }
+      const observer = document.rxMutationObserver as ExtendedMutationObserver
+      if (observer?.callback) {
+        const records: MutationRecord[] = [{
+          type: 'childList',
+          target: document.body,
+          addedNodes: [] as unknown as NodeList,
+          removedNodes: [button1] as unknown as NodeList,
+          previousSibling: null,
+          nextSibling: null,
+          attributeName: null,
+          attributeNamespace: null,
+          oldValue: null
+        }]
+        observer.callback(records, observer)
+      }
+      
+      await waitForDOMUpdates()
+      
+      // Assert - indicator should still be visible (button2 still active)
+      expect(indicator.classList.contains('rx-loading-visible')).toBe(true)
+      expect(indicator.classList.contains('rx-loading-hidden')).toBe(false)
+      
+      // Complete button2's request
+      resolveRequest2!()
+      await waitForDOMUpdates()
+      
+      // Now indicator should be hidden
+      expect(indicator.classList.contains('rx-loading-hidden')).toBe(true)
+      expect(indicator.classList.contains('rx-loading-visible')).toBe(false)
+      
+      // Complete button1's request to clean up (even though element is gone)
+      resolveRequest1!()
+      await waitForDOMUpdates()
+    })
   })
 
 

@@ -17,9 +17,6 @@ public class ErrorHandler : RequestHandler {
         IRxDriver rxDriver
     ) {
         var m = new ErrorModel(code ?? 404);
-        return await rxDriver
-            .With(context)
-            .AddPage<App, ErrorPage, ErrorModel>(m, "Error")
-            .Render();
+        return await rxDriver.RenderPage<App, ErrorPage, ErrorModel>(context, m, "Error");
     }
 }

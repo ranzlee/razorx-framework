@@ -8,15 +8,14 @@ declare global {
     interface HTMLElement {
         dataset: {
             // all dataset props must be strings
-            rxIgnore?: string, //data-rx-ignore
             rxAction?: string, //data-rx-action
             rxMethod?: string, //data-rx-method
             rxTrigger?: string, //data-rx-trigger
-            rxAllowEventDefault?: string //data-rx-allow-default
+            rxAllowEventDefault?: string //data-rx-allow-event-default
             rxDisableInFlight?: string, //data-rx-disable-in-flight
             rxDebounce?: string //data-rx-debounce
             rxDisableQueueing?: string // data-rx-disable-queueing
-            rxHoistTo?: string //data-rx-hoist-to transfer rx behaviors to another element
+            rxDelegateActionTo?: string //data-rx-delegate-action-to transfer action and method to another element
             rxIncludeState?: string //data-rx-include-state
             rxLoadingIndicator?: string //data-rx-loading-indicator
         },
@@ -106,6 +105,7 @@ export type SpecialTriggerConfig = {
 
 export type InitializedTrigger = SpecialTriggerConfig & {
     type: 'initialized';
+    delay?: number; // Optional delay in milliseconds before triggering
 }
 
 export type PollTrigger = SpecialTriggerConfig & {
@@ -146,6 +146,13 @@ type ElementTriggerState = {
     observer?: IntersectionObserver;
 }
 
+type DelegatedActionConfig = {
+    action: string;
+    method: string;
+    sourceId: string;
+    timestamp: number;
+}
+
 type ParsedRxHeaders = {
     merge?: MergeStrategy[];
     setState?: RxSetStateTrigger[];
@@ -165,6 +172,8 @@ const _debouncedRequests: Map<string, (() => Promise<void>) & { _cleanup?: () =>
 const _elementCache: Map<string, HTMLElement> = new Map();
 
 const _elementTriggerState: WeakMap<HTMLElement, ElementTriggerState> = new WeakMap();
+
+const _delegatedActionConfigs: WeakMap<HTMLElement, DelegatedActionConfig> = new WeakMap();
 
 const _activeLoadingIndicators: Map<string, Set<string>> = new Map();
 
@@ -306,7 +315,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
         }
         if (trimmed.includes(" ")) {
-            throw new Error(`Space-separated triggers are not supported. Convert "${trimmed}" to JSON array format`);
+            throw new Error(`Triggers must use JSON array format, not space-separated values: "${trimmed}"`);
         }
         return [trimmed];
     }
@@ -331,7 +340,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
         if (trimmed.includes(" ")) {
             const jsonArray = `["${trimmed.split(' ').join('", "')}"]`;
-            throw new Error(`Space-separated state keys are no longer supported. Convert "${trimmed}" to JSON array format: ${jsonArray}`);
+            throw new Error(`State keys must use JSON array format: ${jsonArray} (not space-separated: "${trimmed}")`);
         }
         return [trimmed];
     }
@@ -360,11 +369,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (!indicatorId) {
             return;
         }
-        if (!_activeLoadingIndicators.has(indicatorId)) {
-            _activeLoadingIndicators.set(indicatorId, new Set());
-        }
-        const activeElements = _activeLoadingIndicators.get(indicatorId)!;
         if (show) {
+            if (!_activeLoadingIndicators.has(indicatorId)) {
+                _activeLoadingIndicators.set(indicatorId, new Set());
+            }
+            const activeElements = _activeLoadingIndicators.get(indicatorId)!;
             activeElements.add(ele.id);
             const indicator = getCachedElement(indicatorId);
             if (indicator) {
@@ -374,6 +383,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 console.warn(`Loading indicator element '${indicatorId}' not found`);
             }
         } else {
+            const activeElements = _activeLoadingIndicators.get(indicatorId);
+            if (!activeElements) {
+                return;
+            }
             activeElements.delete(ele.id);
             // Only hide if no other elements are using it
             if (activeElements.size === 0) {
@@ -382,6 +395,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     indicator.classList.remove(_loadingClasses.visible);
                     indicator.classList.add(_loadingClasses.hidden);
                 }
+                _activeLoadingIndicators.delete(indicatorId);
             }
         }
     }
@@ -402,22 +416,46 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             ele.setAttribute("data-rx-trigger", rxTrigger);
         }
         const triggers = parseTriggers(ele.dataset.rxTrigger);
-        if (ele.dataset.rxHoistTo) {
+        const hasOnlySpecialTriggers = triggers.length > 0 && triggers.every((trigger) => 
+            typeof trigger === 'object' && 'type' in trigger
+        );
+        if (hasOnlySpecialTriggers) {
+            if (ele.dataset.rxDebounce !== undefined) {
+                console.warn(
+                    `Element ${ele.id} has data-rx-debounce="${ele.dataset.rxDebounce}" but only contains special triggers (initialized, poll, revealed). ` +
+                    `The debounce attribute has no effect on special triggers. ` +
+                    `For the initialized trigger, use the 'delay' property instead.`
+                );
+            }
+            if (ele.dataset.rxDisableQueueing !== undefined) {
+                console.warn(
+                    `Element ${ele.id} has data-rx-disable-queueing="${ele.dataset.rxDisableQueueing}" but only contains special triggers (initialized, poll, revealed). ` +
+                    `The disable-queueing attribute has no effect on special triggers.`
+                );
+            }
+            if (ele.dataset.rxAllowEventDefault !== undefined) {
+                console.warn(
+                    `Element ${ele.id} has data-rx-allow-event-default="${ele.dataset.rxAllowEventDefault}" but only contains special triggers (initialized, poll, revealed). ` +
+                    `The allow-event-default attribute has no effect on special triggers as they use CustomEvents, not DOM events.`
+                );
+            }
+        }
+        
+        if (ele.dataset.rxDelegateActionTo) {
             const hasSpecialTrigger = triggers.some((trigger) => 
                 typeof trigger === 'object' && 'type' in trigger
             );
             if (hasSpecialTrigger) {
                 throw new Error(
                     `Element ${ele.id} cannot use special triggers ` +
-                    `with data-rx-hoist-to. Special triggers have their own lifecycle and cannot be hoisted to another element.`
+                    `with data-rx-delegate-action-to. Special triggers have their own lifecycle and cannot be delegated to another element.`
                 );
             }
             const triggerState = _elementTriggerState.get(ele) || { triggers: new Set() };
             triggers.forEach((trigger): void => {
                 if (typeof trigger === 'string') {
-                    // Check if already added to prevent duplicates
                     if (!triggerState.triggers.has(trigger)) {
-                        ele.addEventListener(trigger, elementHoistEventHandler);
+                        ele.addEventListener(trigger, elementDelegateActionEventHandler);
                         triggerState.triggers.add(trigger);
                     }
                 }
@@ -430,8 +468,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     // Handle special triggers
                     switch (trigger.type) {
                         case 'initialized':
-                            initializedTrigger(ele);
-                            triggerState.triggers.add('initialized');
+                            initializedTrigger(ele, trigger.delay);
+                            triggerState.triggers.add('initialized' + (trigger.delay ? ':' + trigger.delay : ''));
                             break;
                         case 'poll':
                             pollTrigger(ele, trigger.interval);
@@ -442,7 +480,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                             triggerState.triggers.add('revealed:' + (trigger.margin || '0px'));
                             break;
                         default:
-                            console.warn(`Unknown special trigger type: ${(trigger as any).type}`);
+                            console.warn(`Unknown special trigger type: ${(trigger as SpecialTriggerConfig).type}`);
                     }
                 } else if (typeof trigger === 'string') {
                     // Handle regular string triggers
@@ -456,9 +494,15 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
-    function initializedTrigger(ele: HTMLElement): void {
-        const evt = new CustomEvent('initialized', { detail: { type: 'initialized' } });
-        elementTriggerProcessor(ele, evt);
+    function initializedTrigger(ele: HTMLElement, delay?: number): void {
+        const evt = new CustomEvent('initialized', { detail: { type: 'initialized', delay: delay } });
+        if (delay && delay > 0) {
+            setTimeout(() => {
+                elementTriggerProcessor(ele, evt);
+            }, delay);
+        } else {
+            elementTriggerProcessor(ele, evt);
+        }
     }
 
     function pollTrigger(ele: HTMLElement, interval?: number): void {
@@ -516,16 +560,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function addTriggers(ele: HTMLElement): void {
-        const firstIgnore = ele.closest("[data-rx-ignore]");
-        if (firstIgnore && firstIgnore instanceof HTMLElement) { 
-            const ignore = firstIgnore.dataset.rxIgnore?.trim().toLowerCase();
-            if (ignore !== "" && ignore !== "true" && ignore !== "false") {
-                console.warn(`The data-rx-ignore attribute on element ${firstIgnore.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
-            }
-            if (ignore !== "false") {
-                return;
-            }  
-        }
         if (ele.dataset.rxAction && (!_callbacks.beforeInitializeElement || _callbacks.beforeInitializeElement(ele))) {
             configureElement(ele);
             setTriggers(ele);
@@ -561,14 +595,29 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             const triggers = ele.dataset.rxTrigger.split(/\s+/);
             triggers.forEach((trigger): void => {
                 ele.removeEventListener(trigger, elementTriggerEventHandler);
-                ele.removeEventListener(trigger, elementHoistEventHandler);
+                ele.removeEventListener(trigger, elementDelegateActionEventHandler);
             });
         }
-        // Clean up debounced requests
         const debouncedRequest = _debouncedRequests.get(ele.id);
         if (debouncedRequest) {
             debouncedRequest._cleanup?.();
             _debouncedRequests.delete(ele.id);
+        }
+        _delegatedActionConfigs.delete(ele);
+        if (ele.dataset.rxLoadingIndicator && ele.id) {
+            const indicatorId = ele.dataset.rxLoadingIndicator;
+            const activeElements = _activeLoadingIndicators.get(indicatorId);
+            if (activeElements) {
+                activeElements.delete(ele.id);
+                if (activeElements.size === 0) {
+                    const indicator = getCachedElement(indicatorId);
+                    if (indicator) {
+                        indicator.classList.remove(_loadingClasses.visible);
+                        indicator.classList.add(_loadingClasses.hidden);
+                    }
+                    _activeLoadingIndicators.delete(indicatorId);
+                }
+            }
         }
         const children = ele.children;
         if (children?.length <= 0) {
@@ -623,43 +672,64 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
-    function elementHoistEventHandler(this: HTMLElement): void {
-        const hoistTargetId = this.dataset.rxHoistTo ?? "";
-        const hoistTarget = getCachedElement(hoistTargetId);
-        if (!hoistTarget) {
-            const err = `Element ${this.id} with "data-rx-hoist-to" ${this.dataset.rxHoistTo} does not reference a valid DOM element.`;
+    function elementDelegateActionEventHandler(this: HTMLElement): void {
+        const delegateTargetId = this.dataset.rxDelegateActionTo ?? "";
+        const delegateTarget = getCachedElement(delegateTargetId);
+        if (!delegateTarget) {
+            const err = `Element ${this.id} with "data-rx-delegate-action-to" ${this.dataset.rxDelegateActionTo} does not reference a valid DOM element.`;
             throw new Error(err);
         }
-        Array.from(this.attributes).forEach((attr: Attr): void => {
-            if (attr.name === "data-rx-action" || attr.name === "data-rx-method") {
-                hoistTarget.setAttribute(attr.name, attr.value);
-            }
+        _delegatedActionConfigs.set(delegateTarget, {
+            action: this.dataset.rxAction!,  // Always exists - only elements with rxAction get here
+            method: this.dataset.rxMethod ?? ((this.tagName === "FORM" || this.closest("form")) ? "POST" : "GET"),
+            sourceId: this.id,
+            timestamp: Date.now()
         });
-        if (!hoistTarget.addRxCallbacks) {
-            configureElement(hoistTarget);
-            setTriggers(hoistTarget);
-        } 
-        if (_callbacks.afterInitializeElement) {
-            _callbacks.afterInitializeElement(hoistTarget);
+        if (!delegateTarget.dataset.rxTrigger) {
+            delegateTarget.addEventListener('click', delegatedActionTargetClickHandler, { once: true });
+            delegateTarget.setAttribute('data-rx-trigger', 'delegate-one-shot');
+        }
+    }
+    
+    async function delegatedActionTargetClickHandler(this: HTMLElement, evt: Event): Promise<void> {
+        evt.preventDefault();
+        const config = _delegatedActionConfigs.get(this);
+        if (!config) {
+            console.warn(`No delegated action configuration found for element ${this.id}. The delegation may have expired.`);
+            this.removeAttribute('data-rx-trigger'); // Clean up the temporary marker
+            return;
+        }
+        _delegatedActionConfigs.delete(this);
+        this.removeAttribute('data-rx-trigger'); // Clean up the temporary marker
+        const syntheticElement = document.createElement('div');
+        syntheticElement.id = `delegate-synthetic-${config.sourceId}-${Date.now()}`;
+        syntheticElement.dataset.rxAction = config.action;
+        syntheticElement.dataset.rxMethod = config.method;
+        configureElement(syntheticElement);
+        try {
+            await elementTriggerProcessor(syntheticElement, evt);
+        } catch (error) {
+            console.error(`Failed to process delegated action request from ${config.sourceId}:`, error);
+            sendError(this, error);
         }
     }
 
     function elementTriggerEventHandler(this: HTMLElement, evt: Event): void {
         const allowEventDefault = this.dataset.rxAllowEventDefault?.trim().toLowerCase();
         if (allowEventDefault !== undefined && allowEventDefault !== "" && allowEventDefault !== "true" && allowEventDefault !== "false") {
-            console.warn(`The data-rx-allow-event-default attribute on element ${this.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
+            console.warn(`The data-rx-allow-event-default attribute on element ${this.id} has an invalid value "${allowEventDefault}". Valid values are: no value (empty), "true", or "false"`);
         }
         if (allowEventDefault === undefined || allowEventDefault === "false") {
             evt.preventDefault();
         }
-        const debounceValue = this.dataset.rxDebounce?.trim().toLowerCase();
+        const debounceValue = this.dataset.rxDebounce?.trim();
         if (debounceValue === undefined) {
             queue(this, evt);
             return;
         }
         const delay = parseInt(debounceValue, 10);
         if (Number.isNaN(delay) || delay <= 0) {
-            console.warn(`The data-rx-debounce attribute on element ${this.id} is invalid. It must be a number >= zero`);
+            console.warn(`The data-rx-debounce attribute on element ${this.id} is invalid. It must be a number > zero`);
             queue(this, evt);
             return;
         }
@@ -674,7 +744,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
     
     function queue(ele: HTMLElement, evt: Event): void {
-        if (ele.dataset.rxDisableQueueing !== undefined && ele.dataset.rxDisableQueueing.toLowerCase() !== "false") {
+        const disableQueueing = ele.dataset.rxDisableQueueing?.trim().toLowerCase();
+        if (disableQueueing !== undefined && disableQueueing !== "" && disableQueueing !== "true" && disableQueueing !== "false") {
+            console.warn(`The data-rx-disable-queueing attribute on element ${ele.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
+        }
+        if (disableQueueing !== undefined && disableQueueing !== "false") {
             elementTriggerProcessor(ele, evt);
             return;
         }
@@ -755,7 +829,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             headers.set(RxRequestHeader, "");
             const ac = new AbortController();
             const request: RequestDetail = {
-                action: ele.dataset.rxAction ?? "", 
+                action: ele.dataset.rxAction!,  // Always exists - only elements with rxAction get here
                 method: getMethod(ele),
                 redirect: _fetchRedirect,
                 body,
@@ -833,7 +907,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             let response: Response | null = null;
             try {
-                if (disableElement !== undefined && disableElement.toLowerCase() !== "false") {
+                if (disableElement !== undefined && disableElement !== "false") {
                     toggleDisable(ele, true);
                 }
                 if (ele._rxCallbacks!.beforeFetch) {
@@ -858,7 +932,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             } finally {
                 _requestRefTracker.delete(ele.id);
                 toggleLoadingIndicator(ele, false);
-                if (disableElement !== undefined && disableElement.toLowerCase() !== "false") {
+                if (disableElement !== undefined && disableElement !== "false") {
                     toggleDisable(ele, false);
                 }
             }
@@ -873,39 +947,30 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (stateKeys.length === 0) {
             return {};
         }
-        const sessionValues = new Map<string, string | null>();
-        const localValues = new Map<string, string | null>();
+        const state: Record<string, string> = {};
         try {
             stateKeys.forEach((k): void => {
+                let value: string | null = null;
                 try {
-                    sessionValues.set(k, sessionStorage.getItem(k));
+                    value = sessionStorage.getItem(k);
                 } catch (storageError) {
                     console.warn(`Failed to read sessionStorage key '${k}':`, storageError instanceof Error ? storageError.message : String(storageError));
-                    sessionValues.set(k, null);
                 }
-            });
-            stateKeys.forEach((k): void => {
-                try {
-                    localValues.set(k, localStorage.getItem(k));
-                } catch (storageError) {
-                    console.warn(`Failed to read localStorage key '${k}':`, storageError instanceof Error ? storageError.message : String(storageError));
-                    localValues.set(k, null);
+                if (!value) {
+                    try {
+                        value = localStorage.getItem(k);
+                    } catch (storageError) {
+                        console.warn(`Failed to read localStorage key '${k}':`, storageError instanceof Error ? storageError.message : String(storageError));
+                    }
+                }
+                if (value) {
+                    state[k] = value;
                 }
             });
         } catch (globalError) {
             console.warn('Failed to access browser storage:', globalError instanceof Error ? globalError.message : String(globalError));
             return {};
         }
-        const state: Record<string, string> = {};
-        stateKeys.forEach((k): void => {
-            let v = sessionValues.get(k);
-            if (!v) {
-                v = localValues.get(k);
-            }
-            if (v) {
-                state[k] = v;
-            }
-        });
         return state;
     }
 
@@ -960,7 +1025,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             throw new Error(`Element ${ele.id} has no response after request.`);
         }
         if (response.status >= 400) {
-            //dev error response
             document.rxMutationObserver?.disconnect();
             removeTriggers(document.body);
             document.title = "Error";
@@ -1200,6 +1264,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         const m = ele.dataset.rxMethod?.trim().toUpperCase() ?? "";
         switch (m) {
             case "":
+                // Default to POST for form elements, GET for everything else
+                return (ele.tagName === "FORM" || ele.closest("form")) ? "POST" : "GET";
             case "GET":
                 return "GET";
             case "POST": 
@@ -1229,6 +1295,26 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         const parentFieldset = ele.closest("fieldset");
         if (parentFieldset) {
             targetElement = parentFieldset;
+        } else if (ele instanceof HTMLFormElement) {
+            const formControls = ele.querySelectorAll('input, textarea, select, button');
+            formControls.forEach(control => {
+                if (disable) {
+                    control.setAttribute("disabled", "");
+                } else {
+                    control.removeAttribute("disabled");
+                }
+            });
+            if (ele.id) {
+                const associatedControls = document.querySelectorAll(`[form="${ele.id}"]`);
+                associatedControls.forEach(control => {
+                    if (disable) {
+                        control.setAttribute("disabled", "");
+                    } else {
+                        control.removeAttribute("disabled");
+                    }
+                });
+            }
+            return; // Exit early for form handling
         } else if (ele instanceof HTMLOptionElement) {
             const parentOptGroup = ele.closest("optgroup");
             if (parentOptGroup) {

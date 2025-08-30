@@ -5,6 +5,7 @@
     data-rx-method="@(Model.IsEdit ? "PUT" : "POST")" 
     data-rx-action="@(Model.IsEdit ? $"/todo/{Model.Id}" : "/todo")" 
     data-rx-loading-indicator="@(Model.IsEdit ? "edit-loading" : false)"
+    data-rx-disable-in-flight
     novalidate>
     <textarea
         id="@($"todo-text-{Model.Id}")"

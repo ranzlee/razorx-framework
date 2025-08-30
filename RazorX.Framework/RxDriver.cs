@@ -52,27 +52,41 @@ public static class RxDriverServices {
 
 public interface IRxDriver : IAsyncDisposable, IDisposable {
     IRxResponseBuilder With(HttpContext context);
+    
+    Task<IResult> RenderPage<TRoot, TComponent, TModel>(
+        HttpContext context, 
+        TModel model, 
+        string? title = null,
+        CancellationToken cancellationToken = default
+    ) where TRoot : IRootComponent
+      where TComponent : IComponent, IComponentModel<TModel>;
+    
+    Task<IResult> RenderPage<TRoot, TComponent>(
+        HttpContext context, 
+        string? title = null,
+        CancellationToken cancellationToken = default
+    ) where TRoot : IRootComponent
+      where TComponent : IComponent;
+    
+    Task<IResult> RenderPage<TRoot, THead, TComponent, TModel>(
+        HttpContext context,
+        TModel model, 
+        string? title = null,
+        CancellationToken cancellationToken = default
+    ) where TRoot : IRootComponent
+      where THead : IComponent
+      where TComponent : IComponent, IComponentModel<TModel>;
+    
+    Task<IResult> RenderPage<TRoot, THead, TComponent>(
+        HttpContext context,
+        string? title = null,
+        CancellationToken cancellationToken = default
+    ) where TRoot : IRootComponent
+      where THead : IComponent
+      where TComponent : IComponent;
 }
 
 public interface IRxResponseBuilder {
-    IRxResponseBuilder AddPage<TRoot, TComponent, TModel>(TModel model, string? title = null)
-    where TRoot : IRootComponent
-    where TComponent : IComponent, IComponentModel<TModel>;
-
-    IRxResponseBuilder AddPage<TRoot, TComponent>(string? title = null)
-    where TRoot : IRootComponent
-    where TComponent : IComponent;
-
-    IRxResponseBuilder AddPage<TRoot, THead, TComponent, TModel>(TModel model, string? title = null)
-    where TRoot : IRootComponent
-    where THead : IComponent
-    where TComponent : IComponent, IComponentModel<TModel>;
-
-    IRxResponseBuilder AddPage<TRoot, THead, TComponent>(string? title = null)
-    where TRoot : IRootComponent
-    where THead : IComponent
-    where TComponent : IComponent;
-
     IRxResponseBuilder AddFragment<TComponent, TModel>(
         TModel model,
         string targetId,
@@ -108,6 +122,108 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
             ? throw new ObjectDisposedException(nameof(RxDriver)) 
             : (IRxResponseBuilder)new RxResponseBuilder(context, htmlRenderer, logger);
     }
+    
+    public async Task<IResult> RenderPage<TRoot, TComponent, TModel>(
+        HttpContext context, 
+        TModel model, 
+        string? title = null,
+        CancellationToken cancellationToken = default
+    ) where TRoot : IRootComponent
+      where TComponent : IComponent, IComponentModel<TModel> {
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxDriver));
+        cancellationToken.ThrowIfCancellationRequested();
+        
+        var pageComponentParameters = new Dictionary<string, object?> {
+            { nameof(IComponentModel<TModel>.Model), model }
+        };
+        
+        var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
+            { nameof(IRootComponent.MainContent), typeof(TComponent) },
+            { nameof(IRootComponent.MainContentParameters), pageComponentParameters },
+            { nameof(IRootComponent.Title), title },
+        });
+        
+        return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
+    }
+    
+    public async Task<IResult> RenderPage<TRoot, TComponent>(
+        HttpContext context, 
+        string? title = null,
+        CancellationToken cancellationToken = default
+    ) where TRoot : IRootComponent
+      where TComponent : IComponent {
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxDriver));
+        cancellationToken.ThrowIfCancellationRequested();
+        
+        var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
+            { nameof(IRootComponent.MainContent), typeof(TComponent) },
+            { nameof(IRootComponent.Title), title },
+        });
+        
+        return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
+    }
+    
+    public async Task<IResult> RenderPage<TRoot, THead, TComponent, TModel>(
+        HttpContext context,
+        TModel model, 
+        string? title = null,
+        CancellationToken cancellationToken = default
+    ) where TRoot : IRootComponent
+      where THead : IComponent
+      where TComponent : IComponent, IComponentModel<TModel> {
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxDriver));
+        cancellationToken.ThrowIfCancellationRequested();
+        
+        var pageComponentParameters = new Dictionary<string, object?> {
+            { nameof(IComponentModel<TModel>.Model), model }
+        };
+        
+        var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
+            { nameof(IRootComponent.MainContent), typeof(TComponent) },
+            { nameof(IRootComponent.HeadContent), typeof(THead) },
+            { nameof(IRootComponent.MainContentParameters), pageComponentParameters },
+            { nameof(IRootComponent.Title), title },
+        });
+        
+        return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
+    }
+    
+    public async Task<IResult> RenderPage<TRoot, THead, TComponent>(
+        HttpContext context,
+        string? title = null,
+        CancellationToken cancellationToken = default
+    ) where TRoot : IRootComponent
+      where THead : IComponent
+      where TComponent : IComponent {
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxDriver));
+        cancellationToken.ThrowIfCancellationRequested();
+        
+        var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
+            { nameof(IRootComponent.MainContent), typeof(TComponent) },
+            { nameof(IRootComponent.HeadContent), typeof(THead) },
+            { nameof(IRootComponent.Title), title },
+        });
+        
+        return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
+    }
+    
+    private async Task<IResult> RenderPageInternal(
+        Type rootComponentType,
+        ParameterView rootParameters,
+        CancellationToken cancellationToken
+    ) {
+        cancellationToken.ThrowIfCancellationRequested();
+        
+        string output = string.Empty;
+
+        await InvokeOnDispatcher(htmlRenderer.Dispatcher, async () => {
+            cancellationToken.ThrowIfCancellationRequested();
+            var root = await htmlRenderer.RenderComponentAsync(rootComponentType, rootParameters).ConfigureAwait(false);
+            output = root.ToHtmlString();
+        }, logger).ConfigureAwait(false);
+        
+        return Results.Content(output, "text/html");
+    }
 
     public async ValueTask DisposeAsync() {
         if (disposed) {
@@ -128,6 +244,50 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
         }
     }
 
+    private static readonly ConcurrentDictionary<Type, Func<object, Func<Task>, Task>?> _invokeAsyncFuncCache = new();
+    
+    internal static Task InvokeOnDispatcher(object dispatcher, Func<Task> workItem, ILogger logger) {
+        try {
+            // Use cached compiled expression for better performance
+            var dispatcherType = dispatcher.GetType();
+            var func = _invokeAsyncFuncCache.GetOrAdd(dispatcherType, type => CreateInvokeAsyncFunc(type, logger));
+            return func?.Invoke(dispatcher, workItem) ?? Task.CompletedTask;
+        }
+        catch (Exception ex) {
+            // Log reflection failure
+            logger.LogError(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
+            throw;
+        }
+    }
+    
+    private static Func<object, Func<Task>, Task>? CreateInvokeAsyncFunc(Type dispatcherType, ILogger logger) {
+        try {
+            var method = dispatcherType.GetMethod("InvokeAsync", [typeof(Func<Task>)]);
+            if (method == null) {
+                logger.LogWarning("InvokeAsync method not found on dispatcher {DispatcherType}", dispatcherType.Name);
+                return null;
+            }
+            // Create compiled expression based on whether method is static or instance
+            var dispatcherParam = Expression.Parameter(typeof(object), "dispatcher");
+            var workItemParam = Expression.Parameter(typeof(Func<Task>), "workItem");
+            Expression call;
+            if (method.IsStatic) {
+                // Static method: DispatcherType.InvokeAsync(workItem)
+                call = Expression.Call(method, workItemParam);
+            } else {
+                // Instance method: ((DispatcherType)dispatcher).InvokeAsync(workItem)
+                var cast = Expression.Convert(dispatcherParam, dispatcherType);
+                call = Expression.Call(cast, method, workItemParam);
+            }
+            var lambda = Expression.Lambda<Func<object, Func<Task>, Task>>(call, dispatcherParam, workItemParam);
+            return lambda.Compile();
+        }
+        catch (Exception ex) {
+            logger.LogWarning(ex, "Failed to create compiled expression for dispatcher {DispatcherType}", dispatcherType.Name);
+            return null;
+        }
+    }
+    
     public void Dispose() {
         if (disposed) {
             return;
@@ -153,8 +313,6 @@ internal record MergeStrategy(string Target, string Strategy);
 internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrapper htmlRenderer, ILogger logger) : IRxResponseBuilder, IDisposable {
     private bool isRendering = false;
     private bool disposed = false;
-    private Type? rootComponent = null;
-    private ParameterView rootParameters;
     private readonly StringBuilder content = new(capacity: 4096);
     private readonly Lock contentLock = new();
     private readonly List<Task> renderTasks = [];
@@ -180,87 +338,18 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         }
     }
 
-    public IRxResponseBuilder AddPage<TRoot, TComponent, TModel>(TModel model, string? title = null)
-    where TRoot : IRootComponent
-    where TComponent : IComponent, IComponentModel<TModel> {
-        ThrowIfDisposed();
-        CheckRenderingStatus();
-        CheckPageRenderStatus();
-        var pageComponentParameters = new Dictionary<string, object?> {
-            { nameof(IComponentModel<TModel>.Model), model }
-        };
-        rootComponent = typeof(TRoot);
-        rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
-            { nameof(IRootComponent.MainContent), typeof(TComponent) },
-            { nameof(IRootComponent.MainContentParameters),  pageComponentParameters },
-            { nameof(IRootComponent.Title), title },
-        });
-        return this;
-    }
-
-    public IRxResponseBuilder AddPage<TRoot, TComponent>(string? title = null)
-    where TRoot : IRootComponent
-    where TComponent : IComponent {
-        ThrowIfDisposed();
-        CheckRenderingStatus();
-        CheckPageRenderStatus();
-        rootComponent = typeof(TRoot);
-        rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
-            { nameof(IRootComponent.MainContent), typeof(TComponent) },
-            { nameof(IRootComponent.Title), title },
-        });
-        return this;
-    }
-
-    public IRxResponseBuilder AddPage<TRoot, THead, TComponent, TModel>(TModel model, string? title = null)
-    where TRoot : IRootComponent
-    where THead : IComponent
-    where TComponent : IComponent, IComponentModel<TModel> {
-        ThrowIfDisposed();
-        CheckRenderingStatus();
-        CheckPageRenderStatus();
-        var pageComponentParameters = new Dictionary<string, object?> {
-            { nameof(IComponentModel<TModel>.Model), model }
-        };
-        rootComponent = typeof(TRoot);
-        rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
-            { nameof(IRootComponent.MainContent), typeof(TComponent) },
-            { nameof(IRootComponent.HeadContent), typeof(THead) },
-            { nameof(IRootComponent.MainContentParameters),  pageComponentParameters },
-            { nameof(IRootComponent.Title), title },
-        });
-        return this;
-    }
-
-    public IRxResponseBuilder AddPage<TRoot, THead, TComponent>(string? title = null)
-    where TRoot : IRootComponent
-    where THead : IComponent
-    where TComponent : IComponent {
-        ThrowIfDisposed();
-        CheckRenderingStatus();
-        CheckPageRenderStatus();
-        rootComponent = typeof(TRoot);
-        rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
-            { nameof(IRootComponent.MainContent), typeof(TComponent) },
-            { nameof(IRootComponent.HeadContent), typeof(THead) },
-            { nameof(IRootComponent.Title), title },
-        });
-        return this;
-    }
-
     public IRxResponseBuilder AddFragment<TComponent, TModel>(
         TModel model,
         string targetId,
         FragmentMergeStrategyType fragmentMergeStrategy = FragmentMergeStrategyType.Swap
     ) where TComponent : IComponent, IComponentModel<TModel> {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         CheckRenderingStatus();
-        CheckPageRenderStatus();
         ValidateTargetId(targetId);
         var parameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
             { nameof(IComponentModel<TModel>.Model), model }
         });
-        renderTasks.Add(InvokeOnDispatcher(htmlRenderer.Dispatcher, async () => {
+        renderTasks.Add(RxDriver.InvokeOnDispatcher(htmlRenderer.Dispatcher, async () => {
             var output = await htmlRenderer.RenderComponentAsync<TComponent>(parameters).ConfigureAwait(false);
             var template = CreateTemplate(targetId, output.ToHtmlString());
             lock (contentLock) {
@@ -275,11 +364,10 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         string targetId,
         FragmentMergeStrategyType fragmentMergeStrategy = FragmentMergeStrategyType.Swap
     ) where TComponent : IComponent {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         CheckRenderingStatus();
-        CheckPageRenderStatus();
         ValidateTargetId(targetId);
-        renderTasks.Add(InvokeOnDispatcher(htmlRenderer.Dispatcher, async () => {
+        renderTasks.Add(RxDriver.InvokeOnDispatcher(htmlRenderer.Dispatcher, async () => {
             var output = await htmlRenderer.RenderComponentAsync<TComponent>(ParameterView.Empty).ConfigureAwait(false);
             var template = CreateTemplate(targetId, output.ToHtmlString());
             lock (contentLock) {
@@ -291,30 +379,29 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     }
 
     public IRxResponseBuilder RemoveElement(string targetId) {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         CheckRenderingStatus();
-        CheckPageRenderStatus();
         ValidateTargetId(targetId);
         mergeStrategies.Add(new(targetId, "remove"));
         return this;
     }
 
     public IRxResponseBuilder AddTriggerCloseDialog(string dialogId, string? onCloseData = null, string? resetFormId = null) {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         CheckRenderingStatus();
         closeDialogTrigger = new(dialogId, onCloseData, resetFormId);
         return this;
     }
 
     public IRxResponseBuilder AddTriggerFocusElement(string elementId, bool positionCursorEnd = false) {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         CheckRenderingStatus();
         focusElementTrigger = new(elementId, positionCursorEnd); 
         return this;
     }
 
     public IRxResponseBuilder AddTriggerSetState(string key, string value, MetadataScope scope = MetadataScope.Session, bool updateUrl = false) {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         CheckRenderingStatus();
         ValidateStateKey(key);
         if (!stateKeysInResponse.Add(key)) {
@@ -325,7 +412,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     }
 
     public IRxResponseBuilder AddTriggerSetStateBatch(Dictionary<string, string> state, MetadataScope scope, bool updateUrl = false) {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         CheckRenderingStatus();
         foreach (var (key, value) in state) {
             ValidateStateKey(key);
@@ -341,20 +428,17 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         bool ignoreActiveElementValueOnMorph = false,
         CancellationToken cancellationToken = default
     ) {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         cancellationToken.ThrowIfCancellationRequested();
         CheckRenderingStatus();
         
+        // Fragments and triggers require rx-request header
+        if (!context.Request.IsRxRequest()) {
+            throw new InvalidOperationException("Fragment and trigger operations require rx-request header. Use RenderPage methods for full page rendering.");
+        }
+        
         // Set rendering flag early to prevent duplicate renders
         isRendering = true;
-        
-        if (rootComponent is not null) {
-            logger.LogDebug("Rendering Page");
-            return await HandlePageRequest(cancellationToken).ConfigureAwait(false);
-        }
-        if (!context.Request.IsRxRequest()) {
-            throw new InvalidOperationException("Partial rendering is not supported for synchronous requests.");
-        }
         //triggers
         if (closeDialogTrigger != null) {
             context.Response.Headers.Append("rx-trigger-close-dialog", JsonSerializer.Serialize(closeDialogTrigger, serializerSettings));
@@ -399,30 +483,9 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         mergeStrategies.Add(new(targetId, mergeStrategy));
     }
 
-    private async Task<IResult> HandlePageRequest(CancellationToken cancellationToken = default) {
-        if (rootComponent == null) {
-            throw new InvalidOperationException("Root component is not set");
-        }
-        
-        cancellationToken.ThrowIfCancellationRequested();
-        string output = string.Empty;
-        await InvokeOnDispatcher(htmlRenderer.Dispatcher, async () => {
-            cancellationToken.ThrowIfCancellationRequested();
-            var root = await htmlRenderer.RenderComponentAsync(rootComponent, rootParameters).ConfigureAwait(false);
-            output = root.ToHtmlString();
-        }, logger);
-        return Results.Content(output, "text/html");
-    }
-
     private void CheckRenderingStatus() {
         if (isRendering) {
             throw new InvalidOperationException("Render has already been called and may only be called once per request.");
-        }
-    }
-
-    private void CheckPageRenderStatus() {
-        if (rootComponent is not null) {
-            throw new InvalidOperationException("RxDriver is set to render a page. No other operations are allowed and Render must be called.");
         }
     }
 
@@ -442,58 +505,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         return key.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_');
     }
     
-    private static readonly ConcurrentDictionary<Type, Func<object, Func<Task>, Task>?> _invokeAsyncFuncCache = new();
-    
-    private static Task InvokeOnDispatcher(object dispatcher, Func<Task> workItem, ILogger logger) {
-        try {
-            // Use cached compiled expression for better performance
-            var dispatcherType = dispatcher.GetType();
-            var func = _invokeAsyncFuncCache.GetOrAdd(dispatcherType, type => CreateInvokeAsyncFunc(type, logger));
-            return func?.Invoke(dispatcher, workItem) ?? Task.CompletedTask;
-        }
-        catch (Exception ex) {
-            // Log reflection failure
-            logger.LogError(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
-            throw;
-        }
-    }
-    
-    private static Func<object, Func<Task>, Task>? CreateInvokeAsyncFunc(Type dispatcherType, ILogger logger) {
-        try {
-            var method = dispatcherType.GetMethod("InvokeAsync", [typeof(Func<Task>)]);
-            if (method == null) {
-                logger.LogWarning("InvokeAsync method not found on dispatcher {DispatcherType}", dispatcherType.Name);
-                return null;
-            }
-            // Create compiled expression based on whether method is static or instance
-            var dispatcherParam = Expression.Parameter(typeof(object), "dispatcher");
-            var workItemParam = Expression.Parameter(typeof(Func<Task>), "workItem");
-            Expression call;
-            if (method.IsStatic) {
-                // Static method: DispatcherType.InvokeAsync(workItem)
-                call = Expression.Call(method, workItemParam);
-            } else {
-                // Instance method: ((DispatcherType)dispatcher).InvokeAsync(workItem)
-                var cast = Expression.Convert(dispatcherParam, dispatcherType);
-                call = Expression.Call(cast, method, workItemParam);
-            }
-            var lambda = Expression.Lambda<Func<object, Func<Task>, Task>>(call, dispatcherParam, workItemParam);
-            return lambda.Compile();
-        }
-        catch (Exception ex) {
-            logger.LogWarning(ex, "Failed to create compiled expression for dispatcher {DispatcherType}", dispatcherType.Name);
-            return null;
-        }
-    }
-    
     public void Dispose() {
         disposed = true;
-    }
-    
-    private void ThrowIfDisposed() {
-        if (!disposed) {
-            return;
-        }
-        throw new ObjectDisposedException(nameof(RxResponseBuilder));
     }
 }

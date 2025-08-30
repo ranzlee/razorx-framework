@@ -114,15 +114,13 @@ public class RxDriverTests {
     #region Page Rendering Tests
 
     [TestMethod]
-    public async Task AddPage_WithModel_SetsCorrectParameters() {
+    public async Task RenderPage_WithModel_RendersCorrectly() {
         // Arrange
         var model = new TestModel { Value = "test" };
         
         // Act
-        var result = await _rxDriver
-            .With(_httpContext)
-            .AddPage<TestRootComponent, TestPageComponent, TestModel>(model, "Test Title")
-            .Render();
+        var result = await _rxDriver.RenderPage<TestRootComponent, TestPageComponent, TestModel>(
+            _httpContext, model, "Test Title");
 
         // Assert
         Assert.IsNotNull(result);
@@ -139,12 +137,10 @@ public class RxDriverTests {
     }
 
     [TestMethod]
-    public async Task AddPage_WithoutModel_SetsCorrectParameters() {
+    public async Task RenderPage_WithoutModel_RendersCorrectly() {
         // Act
-        var result = await _rxDriver
-            .With(_httpContext)
-            .AddPage<TestRootComponent, TestPageComponent>("Test Title")
-            .Render();
+        var result = await _rxDriver.RenderPage<TestRootComponent, TestPageComponent>(
+            _httpContext, "Test Title");
 
         // Assert
         Assert.IsNotNull(result);
@@ -157,15 +153,13 @@ public class RxDriverTests {
     }
 
     [TestMethod]
-    public async Task AddPage_WithHeadContent_SetsCorrectParameters() {
+    public async Task RenderPage_WithHeadContent_RendersCorrectly() {
         // Arrange
         var model = new TestModel { Value = "test" };
         
         // Act
-        var result = await _rxDriver
-            .With(_httpContext)
-            .AddPage<TestRootComponent, TestHeadComponent, TestPageComponent, TestModel>(model, "Test Title")
-            .Render();
+        var result = await _rxDriver.RenderPage<TestRootComponent, TestHeadComponent, TestPageComponent, TestModel>(
+            _httpContext, model, "Test Title");
 
         // Assert
         Assert.IsNotNull(result);
@@ -175,6 +169,53 @@ public class RxDriverTests {
         Assert.AreEqual("Test Title", parameters["Title"]);
         Assert.AreEqual(typeof(TestPageComponent), parameters["MainContent"]);
         Assert.AreEqual(typeof(TestHeadComponent), parameters["HeadContent"]);
+        
+        var mainContentParams = parameters["MainContentParameters"] as Dictionary<string, object?>;
+        Assert.IsNotNull(mainContentParams);
+        Assert.AreEqual(model, mainContentParams["Model"]);
+    }
+    
+    [TestMethod]
+    public async Task RenderPage_WithoutHeadContent_RendersCorrectly() {
+        // Act
+        var result = await _rxDriver.RenderPage<TestRootComponent, TestHeadComponent, TestPageComponent>(
+            _httpContext, "Test Title");
+
+        // Assert
+        Assert.IsNotNull(result);
+        Assert.IsTrue(_mockRenderer.RenderCalled);
+        Assert.AreEqual(typeof(TestRootComponent), _mockRenderer.LastComponentType);
+        
+        var parameters = _mockRenderer.LastParametersDictionary;
+        Assert.AreEqual("Test Title", parameters["Title"]);
+        Assert.AreEqual(typeof(TestPageComponent), parameters["MainContent"]);
+        Assert.AreEqual(typeof(TestHeadComponent), parameters["HeadContent"]);
+    }
+
+    [TestMethod]
+    public async Task RenderPage_DoesNotRequireRxRequestHeader() {
+        // Arrange - No rx-request header set
+        Assert.IsFalse(_httpContext.Request.Headers.ContainsKey("rx-request"));
+        
+        // Act
+        var result = await _rxDriver.RenderPage<TestRootComponent, TestPageComponent>(
+            _httpContext, "Test Title");
+
+        // Assert - Should succeed without rx-request header
+        Assert.IsNotNull(result);
+        Assert.IsTrue(_mockRenderer.RenderCalled);
+    }
+
+    [TestMethod]
+    public async Task RenderPage_WithCancellation_ThrowsOperationCanceledException() {
+        // Arrange
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        
+        // Act & Assert
+        await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => 
+            _rxDriver.RenderPage<TestRootComponent, TestPageComponent>(
+                _httpContext, "Test Title", cts.Token));
     }
 
     #endregion
@@ -486,15 +527,16 @@ public class RxDriverTests {
         // Act & Assert
         var exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => 
             builder.AddFragment<TestFragmentComponent>("test").Render());
-        Assert.IsTrue(exception.Message.Contains("Partial rendering is not supported for synchronous requests"));
+        Assert.IsTrue(exception.Message.Contains("Fragment and trigger operations require rx-request header"));
     }
 
     [TestMethod]
     public async Task Render_CalledTwice_ThrowsInvalidOperationException() {
         // Arrange
+        _httpContext.Request.Headers["rx-request"] = "";
         var builder = _rxDriver
             .With(_httpContext)
-            .AddPage<TestRootComponent, TestPageComponent>();
+            .AddFragment<TestFragmentComponent>("test");
 
         // Act
         await builder.Render();
@@ -538,38 +580,6 @@ public class RxDriverTests {
 
         // Assert
         Assert.IsTrue(_httpContext.Response.Headers.ContainsKey("rx-morph-ignore-active"));
-    }
-
-    #endregion
-
-    #region Builder State Tests
-
-    [TestMethod]
-    public void AddPage_CalledTwice_ThrowsInvalidOperationException() {
-        // Arrange
-        var builder = _rxDriver.With(_httpContext);
-
-        // Act
-        builder.AddPage<TestRootComponent, TestPageComponent>();
-
-        // Assert
-        var exception = Assert.ThrowsException<InvalidOperationException>(() => 
-            builder.AddPage<TestRootComponent, TestPageComponent>());
-        Assert.IsTrue(exception.Message.Contains("RxDriver is set to render a page"));
-    }
-
-    [TestMethod]
-    public void AddFragment_AfterAddPage_ThrowsInvalidOperationException() {
-        // Arrange
-        var builder = _rxDriver.With(_httpContext);
-
-        // Act
-        builder.AddPage<TestRootComponent, TestPageComponent>();
-
-        // Assert
-        var exception = Assert.ThrowsException<InvalidOperationException>(() => 
-            builder.AddFragment<TestFragmentComponent>("test"));
-        Assert.IsTrue(exception.Message.Contains("RxDriver is set to render a page"));
     }
 
     #endregion
