@@ -5058,14 +5058,19 @@ describe('RazorX Framework API Surface Tests', () => {
       let concurrentRequests = 0
       let maxConcurrent = 0
       
-      mockFetch.mockImplementation(() => {
-        return new Promise(resolve => {
+      mockFetch.mockImplementation((url) => {
+        // Only count our specific test URLs
+        if (url.includes('false-uppercase-queue-test')) {
           requestCount++
           concurrentRequests++
           maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
-          
+        }
+        
+        return new Promise(resolve => {
           setTimeout(() => {
-            concurrentRequests--
+            if (url.includes('false-uppercase-queue-test')) {
+              concurrentRequests--
+            }
             resolve(mockSuccessResponse()())
           }, 30)
         })
@@ -5272,7 +5277,7 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(mockFetch).toHaveBeenCalledWith('/delegated-no-state', expect.any(Object))
       const calls = vi.mocked(fetch).mock.calls
       const lastCall = calls[calls.length - 1]
-      const url = lastCall[0] as string
+      const url = lastCall?.[0] as string
       
       // Verify state parameters are NOT in the URL
       expect(url).not.toContain('userId')
