@@ -32,7 +32,7 @@ declare global {
   }
 }
 
-// Helper functions for testing need to be at module level for proper hoisting
+// Helper functions for testing need to be at module level for proper scoping
 function triggerDOMContentLoaded(): void {
   document.dispatchEvent(new Event('DOMContentLoaded'))
 }
@@ -5208,13 +5208,13 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(maxConcurrent).toBe(2)  // Both run at same time
     })
 
-    test('hoisting transfers behavior to another element', async () => {
+    test('delegating transfers action and method to another element', async () => {
       // Arrange
       const sourceId = getUniqueId('source-elem')
       const targetId = getUniqueId('target-elem')
       
       document.body.innerHTML = `
-        <div id="${sourceId}" data-rx-action="/hoisted" data-rx-hoist-to="${targetId}" data-rx-trigger="click">
+        <div id="${sourceId}" data-rx-action="/delegated" data-rx-delegate-action-to="${targetId}" data-rx-trigger="click">
           Source Element
         </div>
         <button id="${targetId}">Target Button</button>
@@ -5224,18 +5224,57 @@ describe('RazorX Framework API Surface Tests', () => {
       const sourceElement = document.getElementById(sourceId)!
       const targetButton = document.getElementById(targetId)!
 
-      // Act - Click the source element to trigger hoisting, then click the target
+      // Act - Click the source element to trigger delegation, then click the target
       sourceElement.click()
       await waitForMicrotasks()
       
-      // Now the target should have the hoisted behavior
+      // Now the target should have the delegated action
       targetButton.click()
       await waitForMicrotasks()
 
       // Assert
-      expect(mockFetch).toHaveBeenCalledWith('/hoisted', expect.any(Object))
+      expect(mockFetch).toHaveBeenCalledWith('/delegated', expect.any(Object))
     })
 
+    test('delegating does NOT copy rxIncludeState from target element', async () => {
+      // Arrange
+      const sourceId = getUniqueId('source-elem')
+      const targetId = getUniqueId('target-elem')
+      
+      // Set up state in session storage
+      sessionStorage.setItem('userId', '123')
+      sessionStorage.setItem('theme', 'dark')
+      
+      document.body.innerHTML = `
+        <div id="${sourceId}" data-rx-action="/delegated-no-state" data-rx-delegate-action-to="${targetId}" data-rx-trigger="click">
+          Source Element
+        </div>
+        <button id="${targetId}" data-rx-include-state='["userId", "theme"]'>Target Button</button>
+      `
+      processNewElements()
+
+      const sourceElement = document.getElementById(sourceId)!
+      const targetButton = document.getElementById(targetId)!
+
+      // Act - Click the source element to trigger delegation, then click the target
+      sourceElement.click()
+      await waitForMicrotasks()
+      
+      // Now click the target to execute the delegated action
+      targetButton.click()
+      await waitForMicrotasks()
+
+      // Assert - The request should NOT include state parameters
+      expect(mockFetch).toHaveBeenCalledWith('/delegated-no-state', expect.any(Object))
+      const calls = vi.mocked(fetch).mock.calls
+      const lastCall = calls[calls.length - 1]
+      const url = lastCall[0] as string
+      
+      // Verify state parameters are NOT in the URL
+      expect(url).not.toContain('userId')
+      expect(url).not.toContain('theme')
+      expect(url).toBe('/delegated-no-state')
+    })
 
     test('reveal margin configuration for IntersectionObserver', () => {
       // Arrange

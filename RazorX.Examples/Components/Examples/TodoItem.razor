@@ -13,7 +13,7 @@
     <button id="delete-todo-modal-trigger-@(Model.Id)"
         data-rx-action="/todo/@(Model.Id)"
         data-rx-method="DELETE"
-        data-rx-hoist-to="delete-todo-modal-ok"
+        data-rx-delegate-action-to="delete-todo-modal-ok"
         class="outline secondary">
         Delete
     </button>

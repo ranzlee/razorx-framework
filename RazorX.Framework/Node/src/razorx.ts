@@ -15,7 +15,7 @@ declare global {
             rxDisableInFlight?: string, //data-rx-disable-in-flight
             rxDebounce?: string //data-rx-debounce
             rxDisableQueueing?: string // data-rx-disable-queueing
-            rxHoistTo?: string //data-rx-hoist-to transfer rx behaviors to another element
+            rxDelegateActionTo?: string //data-rx-delegate-action-to transfer action and method to another element
             rxIncludeState?: string //data-rx-include-state
             rxLoadingIndicator?: string //data-rx-loading-indicator
         },
@@ -146,7 +146,7 @@ type ElementTriggerState = {
     observer?: IntersectionObserver;
 }
 
-type HoistedConfig = {
+type DelegatedActionConfig = {
     action: string;
     method: string;
     sourceId: string;
@@ -173,7 +173,7 @@ const _elementCache: Map<string, HTMLElement> = new Map();
 
 const _elementTriggerState: WeakMap<HTMLElement, ElementTriggerState> = new WeakMap();
 
-const _hoistedConfigs: WeakMap<HTMLElement, HoistedConfig> = new WeakMap();
+const _delegatedActionConfigs: WeakMap<HTMLElement, DelegatedActionConfig> = new WeakMap();
 
 const _activeLoadingIndicators: Map<string, Set<string>> = new Map();
 
@@ -441,22 +441,21 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
         }
         
-        if (ele.dataset.rxHoistTo) {
+        if (ele.dataset.rxDelegateActionTo) {
             const hasSpecialTrigger = triggers.some((trigger) => 
                 typeof trigger === 'object' && 'type' in trigger
             );
             if (hasSpecialTrigger) {
                 throw new Error(
                     `Element ${ele.id} cannot use special triggers ` +
-                    `with data-rx-hoist-to. Special triggers have their own lifecycle and cannot be hoisted to another element.`
+                    `with data-rx-delegate-action-to. Special triggers have their own lifecycle and cannot be delegated to another element.`
                 );
             }
             const triggerState = _elementTriggerState.get(ele) || { triggers: new Set() };
             triggers.forEach((trigger): void => {
                 if (typeof trigger === 'string') {
-                    // Check if already added to prevent duplicates
                     if (!triggerState.triggers.has(trigger)) {
-                        ele.addEventListener(trigger, elementHoistEventHandler);
+                        ele.addEventListener(trigger, elementDelegateActionEventHandler);
                         triggerState.triggers.add(trigger);
                     }
                 }
@@ -596,7 +595,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             const triggers = ele.dataset.rxTrigger.split(/\s+/);
             triggers.forEach((trigger): void => {
                 ele.removeEventListener(trigger, elementTriggerEventHandler);
-                ele.removeEventListener(trigger, elementHoistEventHandler);
+                ele.removeEventListener(trigger, elementDelegateActionEventHandler);
             });
         }
         const debouncedRequest = _debouncedRequests.get(ele.id);
@@ -604,7 +603,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             debouncedRequest._cleanup?.();
             _debouncedRequests.delete(ele.id);
         }
-        _hoistedConfigs.delete(ele);
+        _delegatedActionConfigs.delete(ele);
         if (ele.dataset.rxLoadingIndicator && ele.id) {
             const indicatorId = ele.dataset.rxLoadingIndicator;
             const activeElements = _activeLoadingIndicators.get(indicatorId);
@@ -673,47 +672,44 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
-    function elementHoistEventHandler(this: HTMLElement): void {
-        const hoistTargetId = this.dataset.rxHoistTo ?? "";
-        const hoistTarget = getCachedElement(hoistTargetId);
-        if (!hoistTarget) {
-            const err = `Element ${this.id} with "data-rx-hoist-to" ${this.dataset.rxHoistTo} does not reference a valid DOM element.`;
+    function elementDelegateActionEventHandler(this: HTMLElement): void {
+        const delegateTargetId = this.dataset.rxDelegateActionTo ?? "";
+        const delegateTarget = getCachedElement(delegateTargetId);
+        if (!delegateTarget) {
+            const err = `Element ${this.id} with "data-rx-delegate-action-to" ${this.dataset.rxDelegateActionTo} does not reference a valid DOM element.`;
             throw new Error(err);
         }
-        _hoistedConfigs.set(hoistTarget, {
+        _delegatedActionConfigs.set(delegateTarget, {
             action: this.dataset.rxAction!,  // Always exists - only elements with rxAction get here
             method: this.dataset.rxMethod ?? ((this.tagName === "FORM" || this.closest("form")) ? "POST" : "GET"),
             sourceId: this.id,
             timestamp: Date.now()
         });
-        if (!hoistTarget.dataset.rxTrigger) {
-            hoistTarget.addEventListener('click', hoistedTargetClickHandler, { once: true });
-            hoistTarget.setAttribute('data-rx-trigger', 'hoist-one-shot');
+        if (!delegateTarget.dataset.rxTrigger) {
+            delegateTarget.addEventListener('click', delegatedActionTargetClickHandler, { once: true });
+            delegateTarget.setAttribute('data-rx-trigger', 'delegate-one-shot');
         }
     }
     
-    async function hoistedTargetClickHandler(this: HTMLElement, evt: Event): Promise<void> {
+    async function delegatedActionTargetClickHandler(this: HTMLElement, evt: Event): Promise<void> {
         evt.preventDefault();
-        const config = _hoistedConfigs.get(this);
+        const config = _delegatedActionConfigs.get(this);
         if (!config) {
-            console.warn(`No hoisted configuration found for element ${this.id}. The hoisting may have expired.`);
+            console.warn(`No delegated action configuration found for element ${this.id}. The delegation may have expired.`);
             this.removeAttribute('data-rx-trigger'); // Clean up the temporary marker
             return;
         }
-        _hoistedConfigs.delete(this);
+        _delegatedActionConfigs.delete(this);
         this.removeAttribute('data-rx-trigger'); // Clean up the temporary marker
         const syntheticElement = document.createElement('div');
-        syntheticElement.id = `hoist-synthetic-${config.sourceId}-${Date.now()}`;
+        syntheticElement.id = `delegate-synthetic-${config.sourceId}-${Date.now()}`;
         syntheticElement.dataset.rxAction = config.action;
         syntheticElement.dataset.rxMethod = config.method;
-        if (this.dataset.rxIncludeState) {
-            syntheticElement.dataset.rxIncludeState = this.dataset.rxIncludeState;
-        }
         configureElement(syntheticElement);
         try {
             await elementTriggerProcessor(syntheticElement, evt);
         } catch (error) {
-            console.error(`Failed to process hoisted request from ${config.sourceId}:`, error);
+            console.error(`Failed to process delegated action request from ${config.sourceId}:`, error);
             sendError(this, error);
         }
     }
@@ -1029,7 +1025,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             throw new Error(`Element ${ele.id} has no response after request.`);
         }
         if (response.status >= 400) {
-            //dev error response
             document.rxMutationObserver?.disconnect();
             removeTriggers(document.body);
             document.title = "Error";
