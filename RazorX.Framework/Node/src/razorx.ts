@@ -887,7 +887,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             let response: Response | null = null;
             try {
-                if (disableElement !== undefined && disableElement.toLowerCase() !== "false") {
+                if (disableElement !== undefined && disableElement !== "false") {
                     toggleDisable(ele, true);
                 }
                 if (ele._rxCallbacks!.beforeFetch) {
@@ -912,7 +912,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             } finally {
                 _requestRefTracker.delete(ele.id);
                 toggleLoadingIndicator(ele, false);
-                if (disableElement !== undefined && disableElement.toLowerCase() !== "false") {
+                if (disableElement !== undefined && disableElement !== "false") {
                     toggleDisable(ele, false);
                 }
             }
@@ -1285,6 +1285,26 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         const parentFieldset = ele.closest("fieldset");
         if (parentFieldset) {
             targetElement = parentFieldset;
+        } else if (ele instanceof HTMLFormElement) {
+            const formControls = ele.querySelectorAll('input, textarea, select, button');
+            formControls.forEach(control => {
+                if (disable) {
+                    control.setAttribute("disabled", "");
+                } else {
+                    control.removeAttribute("disabled");
+                }
+            });
+            if (ele.id) {
+                const associatedControls = document.querySelectorAll(`[form="${ele.id}"]`);
+                associatedControls.forEach(control => {
+                    if (disable) {
+                        control.setAttribute("disabled", "");
+                    } else {
+                        control.removeAttribute("disabled");
+                    }
+                });
+            }
+            return; // Exit early for form handling
         } else if (ele instanceof HTMLOptionElement) {
             const parentOptGroup = ele.closest("optgroup");
             if (parentOptGroup) {

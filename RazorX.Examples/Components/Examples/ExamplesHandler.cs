@@ -79,7 +79,7 @@ public class ExamplesHandler : RequestHandler {
     }
 
     public static async Task<IResult> SaveTodo(HttpContext context, IRxDriver rxDriver, TodoFormModel model, int id) {
-        await Task.Delay(500);
+        await Task.Delay(700);
         model = model with { Id = id };
         var validationResult = ValidateTodo(context, rxDriver, true, model);
         if (validationResult != null) {

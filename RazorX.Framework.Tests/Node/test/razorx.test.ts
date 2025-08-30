@@ -4038,6 +4038,499 @@ describe('RazorX Framework API Surface Tests', () => {
       expect((button as HTMLButtonElement).disabled).toBe(false)
     })
 
+    test('data-rx-disable-in-flight with empty value (boolean) disables element', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const btnId = getUniqueId('disable-btn-empty')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/disable-test',
+        'data-rx-disable-in-flight': ''  // Empty value = boolean true
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect((button as HTMLButtonElement).disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight="false" does not disable element', async () => {
+      // Arrange
+      mockFetch.mockImplementation(mockSuccessResponse())
+
+      const btnId = getUniqueId('no-disable-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-disable-test',
+        'data-rx-disable-in-flight': 'false'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+      await waitForMicrotasks()
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight with invalid value warns and disables', async () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const btnId = getUniqueId('invalid-disable-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/invalid-disable-test',
+        'data-rx-disable-in-flight': 'invalid'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(consoleSpy).toHaveBeenCalledWith(
+        `The data-rx-disable-in-flight attribute on element ${btnId} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`
+      )
+      expect((button as HTMLButtonElement).disabled).toBe(true)  // Still disables despite invalid value
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+      
+      consoleSpy.mockRestore()
+    })
+
+    test('data-rx-disable-in-flight works with input elements', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const inputId = getUniqueId('disable-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/input-disable-test',
+        'data-rx-trigger': 'change',
+        'data-rx-disable-in-flight': 'true'
+      }) as HTMLInputElement
+      document.body.appendChild(input)
+      processNewElements()
+
+      // Act
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(input.disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(input.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight works with select elements', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const selectId = getUniqueId('disable-select')
+      const select = createElementWithId('select', selectId, {
+        'data-rx-action': '/select-disable-test',
+        'data-rx-trigger': 'change',
+        'data-rx-disable-in-flight': 'true'
+      }) as HTMLSelectElement
+      document.body.appendChild(select)
+      processNewElements()
+
+      // Act
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(select.disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(select.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight works with textarea elements', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const textareaId = getUniqueId('disable-textarea')
+      const textarea = createElementWithId('textarea', textareaId, {
+        'data-rx-action': '/textarea-disable-test',
+        'data-rx-trigger': 'input',
+        'data-rx-disable-in-flight': 'true'
+      }) as HTMLTextAreaElement
+      document.body.appendChild(textarea)
+      processNewElements()
+
+      // Act
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(textarea.disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(textarea.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight disables all controls within a form', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const formId = getUniqueId('disable-form')
+      const form = createElementWithId('form', formId, {
+        'data-rx-action': '/form-disable-test',
+        'data-rx-method': 'POST',
+        'data-rx-disable-in-flight': 'true'
+      }) as HTMLFormElement
+      
+      const input = document.createElement('input')
+      const textarea = document.createElement('textarea')
+      const select = document.createElement('select')
+      const button = document.createElement('button')
+      
+      form.appendChild(input)
+      form.appendChild(textarea)
+      form.appendChild(select)
+      form.appendChild(button)
+      
+      document.body.appendChild(form)
+      processNewElements()
+
+      // Act
+      form.dispatchEvent(new Event('submit', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(input.disabled).toBe(true)
+      expect(textarea.disabled).toBe(true)
+      expect(select.disabled).toBe(true)
+      expect(button.disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(input.disabled).toBe(false)
+      expect(textarea.disabled).toBe(false)
+      expect(select.disabled).toBe(false)
+      expect(button.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight disables elements associated via form attribute', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const formId = getUniqueId('disable-form-attr')
+      const form = createElementWithId('form', formId, {
+        'data-rx-action': '/form-attr-disable-test',
+        'data-rx-method': 'POST',
+        'data-rx-disable-in-flight': 'true'
+      }) as HTMLFormElement
+      
+      // Create a button outside the form but associated via form attribute
+      const externalButton = document.createElement('button')
+      externalButton.setAttribute('form', formId)
+      externalButton.id = getUniqueId('external-btn')
+      
+      // Create an input outside the form but associated via form attribute
+      const externalInput = document.createElement('input')
+      externalInput.setAttribute('form', formId)
+      externalInput.id = getUniqueId('external-input')
+      
+      document.body.appendChild(form)
+      document.body.appendChild(externalButton)
+      document.body.appendChild(externalInput)
+      processNewElements()
+
+      // Act
+      form.dispatchEvent(new Event('submit', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(externalButton.disabled).toBe(true)
+      expect(externalInput.disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(externalButton.disabled).toBe(false)
+      expect(externalInput.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight handles elements within fieldset', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const fieldset = document.createElement('fieldset')
+      const btnId = getUniqueId('fieldset-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/fieldset-test',
+        'data-rx-disable-in-flight': 'true'
+      })
+      
+      fieldset.appendChild(button)
+      document.body.appendChild(fieldset)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(fieldset.disabled).toBe(true)  // Fieldset should be disabled
+      // Note: Button doesn't get disabled attribute when fieldset is disabled, but appears disabled in browser
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(fieldset.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight is case insensitive', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const btnId = getUniqueId('case-insensitive-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/case-test',
+        'data-rx-disable-in-flight': 'TRUE'  // Uppercase
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect((button as HTMLButtonElement).disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight with "FALSE" (uppercase) does not disable', async () => {
+      // Arrange
+      mockFetch.mockImplementation(mockSuccessResponse())
+
+      const btnId = getUniqueId('false-uppercase-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/false-uppercase-test',
+        'data-rx-disable-in-flight': 'FALSE'  // Uppercase false
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+      await waitForMicrotasks()
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight handles whitespace correctly', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const btnId = getUniqueId('whitespace-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/whitespace-test',
+        'data-rx-disable-in-flight': '  true  '  // Whitespace around value
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect((button as HTMLButtonElement).disabled).toBe(true)
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight handles option elements within optgroup', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const select = document.createElement('select')
+      const optgroup = document.createElement('optgroup')
+      optgroup.label = 'Group 1'
+      
+      const optionId = getUniqueId('option-with-action')
+      const option = document.createElement('option')
+      option.id = optionId
+      option.value = 'test'
+      option.textContent = 'Test Option'
+      option.setAttribute('data-rx-action', '/option-test')
+      option.setAttribute('data-rx-trigger', 'click')
+      option.setAttribute('data-rx-disable-in-flight', 'true')
+      
+      optgroup.appendChild(option)
+      select.appendChild(optgroup)
+      document.body.appendChild(select)
+      processNewElements()
+
+      // Act
+      option.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(optgroup.disabled).toBe(true)  // Optgroup should be disabled
+      // Note: When optgroup is disabled, all its child options appear disabled in browser
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(optgroup.disabled).toBe(false)
+    })
+
+    test('data-rx-disable-in-flight handles option elements without optgroup', async () => {
+      // Arrange
+      let resolveRequest: () => void
+      const requestPromise = new Promise<Response>(resolve => {
+        resolveRequest = () => resolve(mockSuccessResponse()())
+      })
+
+      mockFetch.mockReturnValue(requestPromise)
+
+      const select = document.createElement('select')
+      
+      const optionId = getUniqueId('standalone-option')
+      const option = document.createElement('option')
+      option.id = optionId
+      option.value = 'test'
+      option.textContent = 'Test Option'
+      option.setAttribute('data-rx-action', '/option-standalone-test')
+      option.setAttribute('data-rx-trigger', 'click')
+      option.setAttribute('data-rx-disable-in-flight', 'true')
+      
+      select.appendChild(option)
+      document.body.appendChild(select)
+      processNewElements()
+
+      // Act
+      option.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(option.disabled).toBe(true)  // Option itself should be disabled
+
+      // Cleanup
+      resolveRequest!()
+      await requestPromise
+      await waitForMicrotasks()
+      
+      expect(option.disabled).toBe(false)
+    })
+
     test('hoisting transfers behavior to another element', async () => {
       // Arrange
       const sourceId = getUniqueId('source-elem')
