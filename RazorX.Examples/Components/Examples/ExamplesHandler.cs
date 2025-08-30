@@ -34,8 +34,8 @@ public class ExamplesHandler : RequestHandler {
 
     public static async Task<IResult> NextTodos(HttpContext context, IRxDriver rxDriver, int id, string filter = "") {
         var page = Todos
-            .Where(x => x.Id > id && x.Text.Contains(filter, StringComparison.InvariantCultureIgnoreCase))
-            .OrderBy(x => x.Id)
+            .Where(x => x.Id < id && x.Text.Contains(filter, StringComparison.InvariantCultureIgnoreCase))
+            .OrderByDescending(x => x.Id)
             .Take(5);
         return await rxDriver
             .With(context)
@@ -46,12 +46,11 @@ public class ExamplesHandler : RequestHandler {
     public static async Task<IResult> SearchTodos(HttpContext context, IRxDriver rxDriver, string filter = "") {
         var page = Todos
             .Where(x => x.Text.Contains(filter, StringComparison.InvariantCultureIgnoreCase))
-            .OrderBy(x => x.Id)
+            .OrderByDescending(x => x.Id)
             .Take(5);
         return await rxDriver
             .With(context)
             .AddTriggerSetState("filter", filter, MetadataScope.Session, true)
-            //.AddTriggerSetState("test", "test", MetadataScope.Session, true)
             .AddFragment<TodoSearch, string>(filter, "search-todos", FragmentMergeStrategyType.Morph)
             .AddFragment<TodoList, IEnumerable<TodoModel>>(page, "todo-list", FragmentMergeStrategyType.SwapInner)
             .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)
@@ -74,7 +73,7 @@ public class ExamplesHandler : RequestHandler {
             .AddTriggerCloseDialog("new-todo-modal")
             .AddTriggerFocusElement("new-todo-modal-trigger")
             .AddFragment<TodoForm, TodoFormModel>(new TodoFormModel(0, "", false, false, false), "new-todo-form", FragmentMergeStrategyType.Swap)
-            .AddFragment<TodoItem, TodoModel>(todo, "todo-list", FragmentMergeStrategyType.AppendBeforeEnd)
+            .AddFragment<TodoItem, TodoModel>(todo, "todo-list", FragmentMergeStrategyType.AppendAfterBegin)
             .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)
             .Render();
     }
@@ -122,7 +121,7 @@ public class ExamplesHandler : RequestHandler {
         }
         var todos = Todos
             .Where(x => x.Text.Contains(filter, StringComparison.InvariantCultureIgnoreCase))
-            .OrderBy(x => x.Id)
+            .OrderByDescending(x => x.Id)
             .ToList();
         todos.Remove(todo);
         Todos.Remove(todo);
@@ -134,7 +133,7 @@ public class ExamplesHandler : RequestHandler {
         if (todos.Count == 0) {
             driver.AddTriggerFocusElement("new-todo-modal-trigger", true);
         } else {
-            var nextFocus = todos.OrderByDescending(x => x.Id).FirstOrDefault(x => x.Id < id) ?? todos.FirstOrDefault(x => x.Id > id);
+            var nextFocus = todos.OrderBy(x => x.Id).FirstOrDefault(x => x.Id > id) ?? todos.FirstOrDefault(x => x.Id < id);
             var nextFocusId = nextFocus?.Id ?? todos.First().Id;
             driver.AddTriggerFocusElement($"edit-todo-modal-trigger-{nextFocusId}");
         }
