@@ -5004,6 +5004,8 @@ describe('RazorX Framework API Surface Tests', () => {
 
     test('data-rx-disable-queueing is case insensitive', async () => {
       // Arrange
+      mockFetch.mockClear()  // Clear any previous mock state
+      
       let requestCount = 0
       let concurrentRequests = 0
       let maxConcurrent = 0
@@ -5050,6 +5052,8 @@ describe('RazorX Framework API Surface Tests', () => {
 
     test('data-rx-disable-queueing with "FALSE" (uppercase) enables queueing', async () => {
       // Arrange - Test that elements with FALSE still queue
+      mockFetch.mockClear()  // Clear any previous mock state
+      
       let requestCount = 0
       let concurrentRequests = 0
       let maxConcurrent = 0
