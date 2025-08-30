@@ -706,14 +706,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (allowEventDefault === undefined || allowEventDefault === "false") {
             evt.preventDefault();
         }
-        const debounceValue = this.dataset.rxDebounce?.trim().toLowerCase();
+        const debounceValue = this.dataset.rxDebounce?.trim();
         if (debounceValue === undefined) {
             queue(this, evt);
             return;
         }
         const delay = parseInt(debounceValue, 10);
         if (Number.isNaN(delay) || delay <= 0) {
-            console.warn(`The data-rx-debounce attribute on element ${this.id} is invalid. It must be a number >= zero`);
+            console.warn(`The data-rx-debounce attribute on element ${this.id} is invalid. It must be a number > zero`);
             queue(this, evt);
             return;
         }

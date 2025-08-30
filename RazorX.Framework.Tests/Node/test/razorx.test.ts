@@ -3338,7 +3338,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const form = document.createElement('form')
       const input1 = createElementWithId('input', getUniqueId('input1'), {
         name: 'username',
-        value: 'testuser'
+        value: 'test-user'
       }) as HTMLInputElement
       const input2 = createElementWithId('input', getUniqueId('input2'), {
         name: 'filter',
@@ -3369,7 +3369,7 @@ describe('RazorX Framework API Surface Tests', () => {
       const url = fetchCall[0] as string
       const options = fetchCall[1]
       
-      expect(url).toContain('username=testuser')
+      expect(url).toContain('username=test-user')
       expect(url).toContain('filter=active')
       expect(options.method).toBe('GET')
       expect(options.body).toBeUndefined()
@@ -3971,6 +3971,253 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Assert
       expect(mockFetch).toHaveBeenCalledTimes(1) // Only one request after debounce
+      
+      vi.useRealTimers()
+    })
+
+    test('data-rx-debounce with invalid non-numeric value warns and executes immediately', async () => {
+      // Arrange
+      const warnings: string[] = []
+      const originalWarn = console.warn
+      console.warn = (msg: string) => warnings.push(msg)
+      
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('invalid-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/invalid-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': 'not-a-number'
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      await waitForMicrotasks()
+      
+      // Assert - Should warn and execute immediately (no debounce)
+      expect(warnings).toContain(
+        `The data-rx-debounce attribute on element ${inputId} is invalid. It must be a number > zero`
+      )
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      // Cleanup
+      console.warn = originalWarn
+    })
+
+    test('data-rx-debounce with zero value warns and executes immediately', async () => {
+      // Arrange
+      const warnings: string[] = []
+      const originalWarn = console.warn
+      console.warn = (msg: string) => warnings.push(msg)
+      
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('zero-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/zero-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': '0'
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      await waitForMicrotasks()
+      
+      // Assert - Should warn about zero value
+      expect(warnings).toContain(
+        `The data-rx-debounce attribute on element ${inputId} is invalid. It must be a number > zero`
+      )
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      // Cleanup
+      console.warn = originalWarn
+    })
+
+    test('data-rx-debounce with negative value warns and executes immediately', async () => {
+      // Arrange
+      const warnings: string[] = []
+      const originalWarn = console.warn
+      console.warn = (msg: string) => warnings.push(msg)
+      
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('negative-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/negative-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': '-100'
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      await waitForMicrotasks()
+      
+      // Assert - Should warn about negative value
+      expect(warnings).toContain(
+        `The data-rx-debounce attribute on element ${inputId} is invalid. It must be a number > zero`
+      )
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      // Cleanup
+      console.warn = originalWarn
+    })
+
+    test('data-rx-debounce with empty string value warns and executes immediately', async () => {
+      // Arrange
+      const warnings: string[] = []
+      const originalWarn = console.warn
+      console.warn = (msg: string) => warnings.push(msg)
+      
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('empty-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/empty-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': ''
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      await waitForMicrotasks()
+      
+      // Assert - Should warn about empty value
+      expect(warnings).toContain(
+        `The data-rx-debounce attribute on element ${inputId} is invalid. It must be a number > zero`
+      )
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      // Cleanup
+      console.warn = originalWarn
+    })
+
+    test('data-rx-debounce with decimal value works correctly', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('decimal-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/decimal-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': '100.5' // parseInt will parse as 100
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      
+      // Should not have called fetch yet
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      // Advance time by 100ms (the parsed integer value)
+      vi.advanceTimersByTime(100)
+      await vi.runAllTimersAsync()
+      
+      // Assert - Should have executed after 100ms (not 100.5)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      vi.useRealTimers()
+    })
+
+    test('data-rx-debounce handles whitespace correctly', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('whitespace-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/whitespace-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': '  200  ' // Should be trimmed to '200'
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      
+      // Should not have called fetch yet
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      // Advance time
+      vi.advanceTimersByTime(200)
+      await vi.runAllTimersAsync()
+      
+      // Assert - Should work with trimmed value
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      vi.useRealTimers()
+    })
+
+    test('data-rx-debounce with very large value works correctly', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('large-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/large-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': '999999' // Very large delay
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input'))
+      
+      // Should not have called fetch yet
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      // Advance time by the large value
+      vi.advanceTimersByTime(999999)
+      await vi.runAllTimersAsync()
+      
+      // Assert - Should execute after the delay
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+      
+      vi.useRealTimers()
+    })
+
+    test('data-rx-debounce correctly resets timer on subsequent events', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      mockFetch.mockImplementation(mockSuccessResponse())
+      
+      const inputId = getUniqueId('reset-debounce-input')
+      const input = createElementWithId('input', inputId, {
+        'data-rx-action': '/reset-debounce',
+        'data-rx-trigger': 'input',
+        'data-rx-debounce': '300'
+      })
+      document.body.appendChild(input)
+      processNewElements()
+      
+      // Act
+      input.dispatchEvent(new Event('input')) // First event
+      vi.advanceTimersByTime(200) // Advance 200ms
+      
+      input.dispatchEvent(new Event('input')) // Second event should reset timer
+      vi.advanceTimersByTime(200) // Advance another 200ms (total 400ms)
+      
+      // Should not have called fetch yet (only 200ms since last event)
+      expect(mockFetch).not.toHaveBeenCalled()
+      
+      vi.advanceTimersByTime(100) // Advance to 300ms since last event
+      await vi.runAllTimersAsync()
+      
+      // Assert - Should execute only once
+      expect(mockFetch).toHaveBeenCalledTimes(1)
       
       vi.useRealTimers()
     })
