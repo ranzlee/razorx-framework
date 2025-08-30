@@ -709,7 +709,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         try {
             await elementTriggerProcessor(syntheticElement, evt);
         } catch (error) {
-            console.error(`Failed to process delegated action request from ${config.sourceId}:`, error);
+            // sendError already logs to console.error
             sendError(this, error);
         }
     }
@@ -756,7 +756,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             try {
                 await elementTriggerProcessor(ele, evt);
             } catch (error: unknown) {
-                console.error('Request queue error:', error);
+                // sendError already logs to console.error
                 sendError(ele, error);
             }
         });
