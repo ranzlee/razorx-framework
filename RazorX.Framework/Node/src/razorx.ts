@@ -315,7 +315,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
         }
         if (trimmed.includes(" ")) {
-            throw new Error(`Space-separated triggers are not supported. Convert "${trimmed}" to JSON array format`);
+            throw new Error(`Triggers must use JSON array format, not space-separated values: "${trimmed}"`);
         }
         return [trimmed];
     }
@@ -340,7 +340,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
         if (trimmed.includes(" ")) {
             const jsonArray = `["${trimmed.split(' ').join('", "')}"]`;
-            throw new Error(`Space-separated state keys are no longer supported. Convert "${trimmed}" to JSON array format: ${jsonArray}`);
+            throw new Error(`State keys must use JSON array format: ${jsonArray} (not space-separated: "${trimmed}")`);
         }
         return [trimmed];
     }

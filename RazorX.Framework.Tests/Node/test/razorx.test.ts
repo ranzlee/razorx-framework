@@ -1050,7 +1050,7 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert - Error should be logged
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: 'Space-separated state keys are no longer supported. Convert "key1 key2" to JSON array format: ["key1", "key2"]'
+          message: 'State keys must use JSON array format: ["key1", "key2"] (not space-separated: "key1 key2")'
         })
       )
       
