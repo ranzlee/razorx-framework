@@ -4531,6 +4531,436 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(option.disabled).toBe(false)
     })
 
+    test('data-rx-disable-queueing with empty value (boolean) disables queueing', async () => {
+      // Arrange - Test that DIFFERENT elements can run concurrently
+      let request1Started = false
+      let request1Completed = false
+      let request2Started = false
+      let request2Completed = false
+      
+      mockFetch.mockImplementation((url) => {
+        return new Promise(resolve => {
+          if (url.includes('concurrent-test1')) {
+            request1Started = true
+            setTimeout(() => {
+              request1Completed = true
+              resolve(mockSuccessResponse()())
+            }, 100)
+          } else {
+            request2Started = true
+            setTimeout(() => {
+              request2Completed = true
+              resolve(mockSuccessResponse()())
+            }, 50)
+          }
+        })
+      })
+
+      const btn1Id = getUniqueId('concurrent-btn1')
+      const btn2Id = getUniqueId('concurrent-btn2')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/concurrent-test1',
+        'data-rx-disable-queueing': ''  // Empty value = boolean true
+      })
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/concurrent-test2',
+        'data-rx-disable-queueing': ''  // Empty value = boolean true
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      processNewElements()
+
+      // Act - Trigger both buttons
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Wait a bit to ensure both requests start
+      await new Promise(resolve => setTimeout(resolve, 10))
+
+      // Assert - Both requests should start immediately (concurrent)
+      expect(request1Started).toBe(true)
+      expect(request2Started).toBe(true)
+      expect(request1Completed).toBe(false)
+      expect(request2Completed).toBe(false)
+
+      // Wait for both to complete
+      await new Promise(resolve => setTimeout(resolve, 150))
+      expect(request1Completed).toBe(true)
+      expect(request2Completed).toBe(true)
+    })
+
+    test('data-rx-disable-queueing="true" disables queueing', async () => {
+      // Arrange - Test that DIFFERENT elements with disable-queueing can run concurrently
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation(() => {
+        return new Promise(resolve => {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+          
+          setTimeout(() => {
+            concurrentRequests--
+            resolve(mockSuccessResponse()())
+          }, 50)
+        })
+      })
+
+      const btn1Id = getUniqueId('concurrent-true-btn1')
+      const btn2Id = getUniqueId('concurrent-true-btn2')
+      const btn3Id = getUniqueId('concurrent-true-btn3')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/concurrent-true-test1',
+        'data-rx-disable-queueing': 'true'
+      })
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/concurrent-true-test2',
+        'data-rx-disable-queueing': 'true'
+      })
+      const button3 = createElementWithId('button', btn3Id, {
+        'data-rx-action': '/concurrent-true-test3',
+        'data-rx-disable-queueing': 'true'
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      document.body.appendChild(button3)
+      processNewElements()
+
+      // Act - Trigger all three buttons
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      button3.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Wait for all to complete
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // Assert - All three should run concurrently
+      expect(requestCount).toBe(3)
+      expect(maxConcurrent).toBe(3)  // All three running at same time
+    })
+
+    test('data-rx-disable-queueing="false" enables queueing (default)', async () => {
+      // Arrange
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation(() => {
+        return new Promise(resolve => {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+          
+          setTimeout(() => {
+            concurrentRequests--
+            resolve(mockSuccessResponse()())
+          }, 30)
+        })
+      })
+
+      const btnId = getUniqueId('sequential-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/sequential-test',
+        'data-rx-disable-queueing': 'false'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act - Trigger three requests rapidly
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Wait for all to complete
+      await new Promise(resolve => setTimeout(resolve, 150))
+
+      // Assert - Should run sequentially
+      expect(requestCount).toBe(3)
+      expect(maxConcurrent).toBe(1)  // Only one at a time
+    })
+
+    test('no data-rx-disable-queueing attribute enables queueing by default', async () => {
+      // Arrange
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation(() => {
+        return new Promise(resolve => {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+          
+          setTimeout(() => {
+            concurrentRequests--
+            resolve(mockSuccessResponse()())
+          }, 30)
+        })
+      })
+
+      const btnId = getUniqueId('default-queue-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/default-queue-test'
+        // No data-rx-disable-queueing attribute
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act - Trigger three requests rapidly
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Wait for all to complete
+      await new Promise(resolve => setTimeout(resolve, 150))
+
+      // Assert - Should run sequentially (default behavior)
+      expect(requestCount).toBe(3)
+      expect(maxConcurrent).toBe(1)  // Only one at a time
+    })
+
+    test('data-rx-disable-queueing with invalid value warns and disables queueing', async () => {
+      // Arrange
+      const warnings: string[] = []
+      const originalWarn = console.warn
+      console.warn = (msg: string) => warnings.push(msg)
+      
+      mockFetch.mockImplementation(mockSuccessResponse())
+
+      const btnId = getUniqueId('invalid-queue-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/invalid-queue-test',
+        'data-rx-disable-queueing': 'yes'  // Invalid value
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act - Trigger button (warning happens synchronously in queue function)
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Assert - Should have warned immediately  
+      expect(warnings).toContain(
+        `The data-rx-disable-queueing attribute on element ${btnId} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`
+      )
+      
+      // Cleanup
+      console.warn = originalWarn
+      await waitForMicrotasks()
+    })
+
+    test('data-rx-disable-queueing is case insensitive', async () => {
+      // Arrange
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation(() => {
+        return new Promise(resolve => {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+          
+          setTimeout(() => {
+            concurrentRequests--
+            resolve(mockSuccessResponse()())
+          }, 30)
+        })
+      })
+
+      const btn1Id = getUniqueId('case-queue-btn1')
+      const btn2Id = getUniqueId('case-queue-btn2')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/case-queue-test1',
+        'data-rx-disable-queueing': 'TRUE'  // Uppercase
+      })
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/case-queue-test2',
+        'data-rx-disable-queueing': 'TRUE'  // Uppercase
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      processNewElements()
+
+      // Act
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // Assert - Should disable queueing (concurrent execution)
+      expect(requestCount).toBe(2)
+      expect(maxConcurrent).toBe(2)  // Concurrent execution
+    })
+
+    test('data-rx-disable-queueing with "FALSE" (uppercase) enables queueing', async () => {
+      // Arrange - Test that elements with FALSE still queue
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation(() => {
+        return new Promise(resolve => {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+          
+          setTimeout(() => {
+            concurrentRequests--
+            resolve(mockSuccessResponse()())
+          }, 30)
+        })
+      })
+
+      const btn1Id = getUniqueId('false-uppercase-queue-btn1')
+      const btn2Id = getUniqueId('false-uppercase-queue-btn2')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/false-uppercase-queue-test1',
+        'data-rx-disable-queueing': 'FALSE'  // Uppercase false - queueing enabled
+      })
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/false-uppercase-queue-test2',
+        'data-rx-disable-queueing': 'FALSE'  // Uppercase false - queueing enabled
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      processNewElements()
+
+      // Act - Trigger both buttons
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Wait for both to complete
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // Assert - Should enable queueing (sequential)
+      expect(requestCount).toBe(2)
+      expect(maxConcurrent).toBe(1)  // Sequential execution
+    })
+
+    test('data-rx-disable-queueing handles whitespace correctly', async () => {
+      // Arrange
+      mockFetch.mockClear()  // Clear any previous mock state
+      
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation((url) => {
+        // Only count our specific test URLs
+        if (url.includes('whitespace-queue-test')) {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+        }
+        
+        return new Promise(resolve => {
+          setTimeout(() => {
+            if (url.includes('whitespace-queue-test')) {
+              concurrentRequests--
+            }
+            resolve(mockSuccessResponse()())
+          }, 30)
+        })
+      })
+
+      const btn1Id = getUniqueId('whitespace-queue-btn1')
+      const btn2Id = getUniqueId('whitespace-queue-btn2')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/whitespace-queue-test1',
+        'data-rx-disable-queueing': '  true  '  // Whitespace around value
+      })
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/whitespace-queue-test2',
+        'data-rx-disable-queueing': '  true  '  // Whitespace around value
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      processNewElements()
+
+      // Act
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      await new Promise(resolve => setTimeout(resolve, 100))
+
+      // Assert - Should disable queueing
+      expect(requestCount).toBe(2)
+      expect(maxConcurrent).toBe(2)  // Concurrent execution
+    })
+
+    test('data-rx-disable-queueing with debounce still allows concurrent after debounce', async () => {
+      // Arrange
+      mockFetch.mockClear()  // Clear any previous mock state
+      
+      let requestCount = 0
+      let concurrentRequests = 0
+      let maxConcurrent = 0
+      
+      mockFetch.mockImplementation((url) => {
+        // Only count our specific test URLs
+        if (url.includes('debounce-queue-test')) {
+          requestCount++
+          concurrentRequests++
+          maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
+        }
+        
+        return new Promise(resolve => {
+          setTimeout(() => {
+            if (url.includes('debounce-queue-test')) {
+              concurrentRequests--
+            }
+            resolve(mockSuccessResponse()())
+          }, 30)
+        })
+      })
+
+      const btn1Id = getUniqueId('debounce-queue-btn1')
+      const btn2Id = getUniqueId('debounce-queue-btn2')
+      
+      const button1 = createElementWithId('button', btn1Id, {
+        'data-rx-action': '/debounce-queue-test1',
+        'data-rx-debounce': '50',
+        'data-rx-disable-queueing': 'true'
+      })
+      
+      const button2 = createElementWithId('button', btn2Id, {
+        'data-rx-action': '/debounce-queue-test2',
+        'data-rx-debounce': '50',
+        'data-rx-disable-queueing': 'true'
+      })
+      
+      document.body.appendChild(button1)
+      document.body.appendChild(button2)
+      processNewElements()
+
+      // Act - Click both buttons
+      button1.dispatchEvent(new Event('click', { bubbles: true }))
+      button2.dispatchEvent(new Event('click', { bubbles: true }))
+      
+      // Wait for debounce to complete
+      await new Promise(resolve => setTimeout(resolve, 70))
+      
+      // Wait for requests to complete
+      await new Promise(resolve => setTimeout(resolve, 50))
+
+      // Assert - Both should run concurrently after debounce
+      expect(requestCount).toBe(2)
+      expect(maxConcurrent).toBe(2)  // Both run at same time
+    })
+
     test('hoisting transfers behavior to another element', async () => {
       // Arrange
       const sourceId = getUniqueId('source-elem')

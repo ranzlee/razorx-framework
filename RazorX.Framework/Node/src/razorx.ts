@@ -728,7 +728,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
     
     function queue(ele: HTMLElement, evt: Event): void {
-        if (ele.dataset.rxDisableQueueing !== undefined && ele.dataset.rxDisableQueueing.toLowerCase() !== "false") {
+        const disableQueueing = ele.dataset.rxDisableQueueing?.trim().toLowerCase();
+        if (disableQueueing !== undefined && disableQueueing !== "" && disableQueueing !== "true" && disableQueueing !== "false") {
+            console.warn(`The data-rx-disable-queueing attribute on element ${ele.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
+        }
+        if (disableQueueing !== undefined && disableQueueing !== "false") {
             elementTriggerProcessor(ele, evt);
             return;
         }
