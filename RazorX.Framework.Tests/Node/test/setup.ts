@@ -95,6 +95,30 @@ if (typeof HTMLDialogElement !== 'undefined') {
   }
 }
 
+// Mock Popover API since jsdom doesn't implement it
+HTMLElement.prototype.showPopover = vi.fn(function(this: HTMLElement) {
+  // Simulate popover behavior
+  this.setAttribute('popover-open', 'true')
+})
+
+HTMLElement.prototype.hidePopover = vi.fn(function(this: HTMLElement) {
+  // Simulate popover behavior
+  this.removeAttribute('popover-open')
+})
+
+// Add :popover-open pseudo-class support for testing
+Object.defineProperty(HTMLElement.prototype, 'matches', {
+  value: function(this: HTMLElement, selector: string) {
+    if (selector === ':popover-open') {
+      return this.hasAttribute('popover-open')
+    }
+    // Call the original matches for other selectors
+    return Element.prototype.matches.call(this, selector)
+  },
+  writable: true,
+  configurable: true
+})
+
 // Mock sessionStorage and localStorage
 Object.defineProperty(window, 'sessionStorage', {
   value: {

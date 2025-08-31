@@ -3444,7 +3444,7 @@ describe('RazorX Framework API Surface Tests', () => {
 
         // Act
         button.dispatchEvent(new Event('click', { bubbles: true }))
-        await waitForDOMUpdates()
+        await waitForMicrotasks()
 
         // Assert
         expect(mockFetch).toHaveBeenCalledWith('/single-string-test', expect.any(Object))
@@ -3498,7 +3498,7 @@ describe('RazorX Framework API Surface Tests', () => {
 
         // Act
         button.dispatchEvent(new Event('click', { bubbles: true }))
-        await waitForDOMUpdates()
+        await waitForMicrotasks()
 
         // Assert
         expect(mockFetch).toHaveBeenCalledWith('/single-array-test', expect.any(Object))
@@ -3744,7 +3744,7 @@ describe('RazorX Framework API Surface Tests', () => {
         // Act - Add to DOM (should trigger initialized)
         document.body.appendChild(element)
         processNewElements()
-        await waitForDOMUpdates()
+        await waitForMicrotasks()
 
         // Assert - initialized trigger should fire
         expect(mockFetch).toHaveBeenCalledWith('/complex-array-test', expect.any(Object))
@@ -3753,10 +3753,10 @@ describe('RazorX Framework API Surface Tests', () => {
         
         // Act - Test regular triggers
         element.dispatchEvent(new Event('click', { bubbles: true }))
-        await waitForDOMUpdates()
+        await waitForMicrotasks()
         
         element.dispatchEvent(new Event('mouseenter', { bubbles: true }))
-        await waitForDOMUpdates()
+        await waitForMicrotasks()
 
         // Assert
         expect(mockFetch).toHaveBeenCalledTimes(2)
@@ -5044,7 +5044,7 @@ describe('RazorX Framework API Surface Tests', () => {
       button1.dispatchEvent(new Event('click', { bubbles: true }))
       button2.dispatchEvent(new Event('click', { bubbles: true }))
       
-      await new Promise(resolve => setTimeout(resolve, 100))
+      await new Promise(resolve => setTimeout(resolve, 60))
 
       // Assert - Should disable queueing (concurrent execution)
       expect(requestCount).toBe(2)
@@ -5708,162 +5708,7 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(requestCount).toBe(2)
     })
 
-    test.skip('form validation workflow with error display', async () => {
-      // Arrange
-      const formId = getUniqueId('validation-form')
-      const btnId = getUniqueId('submit-btn')
-      const errorId = getUniqueId('error-display')
-      const successId = getUniqueId('success-display')
 
-      let validationAttempts = 0
-      mockFetch.mockImplementation(async () => {
-        validationAttempts++
-        
-        if (validationAttempts === 1) {
-          // First attempt - validation error
-          return new Response(
-            `<template id="${errorId}-rx-fragment"><div id="${errorId}" class="error">Email is required</div></template>`,
-            {
-              status: 200,
-              headers: {
-                'rx-merge': JSON.stringify([{ target: errorId, strategy: 'swap' }]),
-                'content-type': 'text/html'
-              }
-            }
-          )
-        } else {
-          // Second attempt - success
-          return new Response(
-            `<template id="${successId}-rx-fragment"><div id="${successId}" class="success">Form submitted successfully</div></template>`,
-            {
-              headers: {
-                'rx-merge': JSON.stringify([
-                  { target: errorId, strategy: 'swap' },
-                  { target: successId, strategy: 'swap' }
-                ]),
-                'content-type': 'text/html'
-              }
-            }
-          )
-        }
-      })
-      
-      const form = createElementWithId('form', formId)
-      form.innerHTML = `
-        <input name="name" value="John Doe" />
-        <input name="email" value="" />
-        <button id="${btnId}" data-rx-action="/validate" data-rx-method="POST" type="submit">
-          Submit
-        </button>
-      `
-      document.body.appendChild(form)
-      
-      const errorDisplay = createElementWithId('div', errorId)
-      const successDisplay = createElementWithId('div', successId)
-      document.body.appendChild(errorDisplay)
-      document.body.appendChild(successDisplay)
-      
-      processNewElements()
-
-      const submitButton = document.getElementById(btnId)!
-      const emailInput = form.querySelector('input[name="email"]') as HTMLInputElement
-
-      // Act - First submission (invalid)
-      submitButton.dispatchEvent(new Event('click', { bubbles: true }))
-      await waitForDOMUpdates()
-
-      // Assert - Error displayed
-      expect(errorDisplay.textContent?.trim()).toBe('Email is required')
-
-      // Act - Fix email and resubmit
-      emailInput.value = 'john@example.com'
-      submitButton.dispatchEvent(new Event('click', { bubbles: true }))
-      await waitForDOMUpdates()
-
-      // Assert - Success displayed
-      expect(successDisplay.textContent?.trim()).toBe('Form submitted successfully')
-      expect(validationAttempts).toBe(2)
-    })
-
-    test.skip('real-time search with debouncing and state management', async () => {
-      // Arrange
-      vi.useFakeTimers()
-      
-      const searchQueries: string[] = []
-      mockFetch.mockImplementation(async (url) => {
-        const urlObj = new URL(url, 'http://localhost')
-        const query = urlObj.searchParams.get('q') || ''
-        searchQueries.push(query)
-        
-        return new Response(
-          `<template id="search-results-rx-fragment">
-            <div>Results for: ${query}</div>
-          </template>`,
-          {
-            headers: {
-              'rx-merge': JSON.stringify([{ target: 'search-results', strategy: 'swap' }]),
-              'rx-trigger-set-state': JSON.stringify({ 
-                scope: 'Session', 
-                key: 'last-search', 
-                value: query 
-              }),
-              'content-type': 'text/html'
-            }
-          }
-        )
-      })
-
-      document.body.innerHTML = `
-        <form id="search-form">
-          <input 
-            id="search-input" 
-            name="q" 
-            data-rx-action="/search" 
-            data-rx-trigger="input"
-            data-rx-debounce="300"
-            data-rx-include-state="user-id"
-            placeholder="Search..."
-          />
-        </form>
-        <div id="search-results"></div>
-      `
-      processNewElements()
-
-      // Setup state
-      mockStorage.sessionStorage.set('user-id', '12345')
-
-      const searchInput = document.getElementById('search-input') as HTMLInputElement
-
-      // Act - Type search query with rapid changes
-      searchInput.value = 'h'
-      searchInput.dispatchEvent(new Event('input'))
-      
-      vi.advanceTimersByTime(100)
-      
-      searchInput.value = 'he'
-      searchInput.dispatchEvent(new Event('input'))
-      
-      vi.advanceTimersByTime(100)
-      
-      searchInput.value = 'hello'
-      searchInput.dispatchEvent(new Event('input'))
-      
-      // Fast forward past debounce delay
-      vi.advanceTimersByTime(350)
-      await vi.runOnlyPendingTimersAsync()
-      
-      // Wait for DOM updates to complete
-      await waitForDOMUpdates()
-
-      // Assert - Only final search executed
-      expect(searchQueries).toEqual(['hello'])
-      expect(sessionStorage.setItem).toHaveBeenCalledWith('last-search', 'hello')
-      
-      const results = document.getElementById('search-results')
-      expect(results?.textContent?.trim()).toBe('Results for: hello')
-      
-      vi.useRealTimers()
-    })
 
     test('modal dialog workflow with focus management', async () => {
       // Arrange
@@ -6790,6 +6635,532 @@ describe('RazorX Framework API Surface Tests', () => {
       // Complete button1's request to clean up (even though element is gone)
       resolveRequest1!()
       await waitForDOMUpdates()
+    })
+  })
+
+  describe('Toast Feature', () => {
+    beforeEach(() => {
+      mockFetch.mockImplementation(mockSuccessResponse())
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+
+    // Helper to create toast trigger with defaults matching server behavior
+    const createToastTrigger = (overrides: Partial<{
+      message: string,
+      type: string,
+      duration: number,
+      verticalPosition: string,
+      horizontalPosition: string,
+      clickToDismiss: boolean
+    }> = {}) => {
+      return {
+        message: 'Default message',
+        type: 'Info',
+        duration: 5000,
+        verticalPosition: 'Top',
+        horizontalPosition: 'Right',
+        clickToDismiss: true,
+        ...overrides
+      }
+    }
+
+    test('rx-trigger-toast header creates toast with correct properties', async () => {
+      // Arrange
+      const toastMessage = 'Operation successful!'
+      const headers = {
+        'rx-trigger-toast': JSON.stringify({
+          message: toastMessage,
+          type: 'Success',
+          duration: 3000,
+          verticalPosition: 'Top',
+          horizontalPosition: 'Right',
+          clickToDismiss: true
+        })
+      }
+      mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+      const btnId = getUniqueId('toast-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/toast-test'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      const toasts = document.querySelectorAll('[popover]')
+      expect(toasts.length).toBe(1)
+      
+      const toast = toasts[0] as HTMLElement
+      expect(toast.textContent).toBe(toastMessage)
+      expect(toast.classList.contains('rx-toast')).toBe(true)
+      expect(toast.classList.contains('rx-toast-success')).toBe(true)
+      expect(toast.classList.contains('rx-toast-top-right')).toBe(true)
+      expect(toast.getAttribute('role')).toBe('alert')
+      expect(toast.getAttribute('aria-live')).toBe('polite')
+      expect(toast.getAttribute('popover')).toBe('manual')
+      
+      // Verify toast has an ID
+      expect(toast.id).toMatch(/^rx-toast-\d+-[a-z0-9]+$/)
+    })
+
+    test('toast with minimal parameters uses defaults', async () => {
+      // Arrange
+      const toastMessage = 'Default toast'
+      const headers = {
+        'rx-trigger-toast': JSON.stringify({
+          message: toastMessage,
+          type: 'Info', // Server default
+          duration: 5000, // Server default
+          verticalPosition: 'Top', // Server default
+          horizontalPosition: 'Right', // Server default
+          clickToDismiss: true // Server default
+        })
+      }
+      mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+      const btnId = getUniqueId('default-toast-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/default-toast'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      const toast = document.querySelector('[popover]') as HTMLElement
+      expect(toast).toBeTruthy()
+      expect(toast.textContent).toBe(toastMessage)
+      // Defaults from server: Info type, Top position, Right position
+      expect(toast.classList.contains('rx-toast-info')).toBe(true)
+      expect(toast.classList.contains('rx-toast-top-right')).toBe(true)
+    })
+
+    test('all toast types apply correct CSS classes', async () => {
+      // Arrange
+      const types = ['Info', 'Success', 'Warning', 'Error']
+      const expectedClasses = ['rx-toast-info', 'rx-toast-success', 'rx-toast-warning', 'rx-toast-error']
+      
+      for (let i = 0; i < types.length; i++) {
+        // Clear any existing toasts
+        document.querySelectorAll('[popover]').forEach(el => el.remove())
+        
+        const headers = {
+          'rx-trigger-toast': JSON.stringify(createToastTrigger({
+            message: `${types[i]} message`,
+            type: types[i]
+          }))
+        }
+        mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+        const btnId = getUniqueId(`type-toast-btn-${i}`)
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': `/type-toast-${i}`
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act
+        button.click()
+        await waitForMicrotasks()
+
+        // Assert
+        const toast = document.querySelector('[popover]') as HTMLElement
+        expect(toast).toBeTruthy()
+        const expectedClass = expectedClasses[i]
+        expect(expectedClass).toBeDefined()
+        expect(toast.classList.contains(expectedClass!)).toBe(true)
+        
+        // Cleanup
+        button.remove()
+      }
+    })
+
+    test('all 9 position zones apply correct CSS classes', async () => {
+      // Arrange
+      const positions = [
+        { vertical: 'Top', horizontal: 'Left', expectedClass: 'rx-toast-top-left' },
+        { vertical: 'Top', horizontal: 'Middle', expectedClass: 'rx-toast-top-middle' },
+        { vertical: 'Top', horizontal: 'Right', expectedClass: 'rx-toast-top-right' },
+        { vertical: 'Center', horizontal: 'Left', expectedClass: 'rx-toast-center-left' },
+        { vertical: 'Center', horizontal: 'Middle', expectedClass: 'rx-toast-center-middle' },
+        { vertical: 'Center', horizontal: 'Right', expectedClass: 'rx-toast-center-right' },
+        { vertical: 'Bottom', horizontal: 'Left', expectedClass: 'rx-toast-bottom-left' },
+        { vertical: 'Bottom', horizontal: 'Middle', expectedClass: 'rx-toast-bottom-middle' },
+        { vertical: 'Bottom', horizontal: 'Right', expectedClass: 'rx-toast-bottom-right' }
+      ]
+      
+      for (let i = 0; i < positions.length; i++) {
+        // Clear any existing toasts
+        document.querySelectorAll('[popover]').forEach(el => el.remove())
+        
+        const pos = positions[i]
+        expect(pos).toBeDefined()
+        const headers = {
+          'rx-trigger-toast': JSON.stringify(createToastTrigger({
+            message: `Position ${pos!.vertical}-${pos!.horizontal}`,
+            verticalPosition: pos!.vertical,
+            horizontalPosition: pos!.horizontal
+          }))
+        }
+        mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+        const btnId = getUniqueId(`pos-toast-btn-${i}`)
+        const button = createElementWithId('button', btnId, {
+          'data-rx-action': `/pos-toast-${i}`
+        })
+        document.body.appendChild(button)
+        processNewElements()
+
+        // Act
+        button.click()
+        await waitForMicrotasks()
+
+        // Assert
+        const toast = document.querySelector('[popover]') as HTMLElement
+        expect(toast).toBeTruthy()
+        expect(toast.classList.contains(pos!.expectedClass)).toBe(true)
+        
+        // Cleanup
+        button.remove()
+      }
+    })
+
+
+    test('toast with duration 0 does not auto-dismiss', async () => {
+      // Arrange
+      vi.useFakeTimers()
+      const headers = {
+        'rx-trigger-toast': JSON.stringify(createToastTrigger({
+          message: 'Persistent toast',
+          duration: 0
+        }))
+      }
+      mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+      const btnId = getUniqueId('persistent-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/persistent'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.click()
+      await vi.runAllTimersAsync() // Process the request
+
+      // Assert - toast exists initially
+      let toast = document.querySelector('[popover]') as HTMLElement
+      expect(toast).toBeTruthy()
+
+      // Advance time significantly
+      vi.advanceTimersByTime(60000) // 1 minute
+      toast = document.querySelector('[popover]') as HTMLElement
+      expect(toast).toBeTruthy() // Still exists
+
+      vi.useRealTimers()
+    })
+
+    test('toast with clickToDismiss true removes on click', async () => {
+      // Arrange
+      const headers = {
+        'rx-trigger-toast': JSON.stringify(createToastTrigger({
+          message: 'Click to dismiss',
+          clickToDismiss: true,
+          duration: 0 // Persistent so we can test click
+        }))
+      }
+      mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+      const btnId = getUniqueId('click-dismiss-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/click-dismiss'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.click()
+      await waitForMicrotasks()
+
+      // Assert - toast exists initially
+      let toast = document.querySelector('[popover]') as HTMLElement
+      expect(toast).toBeTruthy()
+
+      // Click the toast
+      toast.click()
+      await waitForMicrotasks()
+
+      // Toast should be removed
+      toast = document.querySelector('[popover]') as HTMLElement
+      expect(toast).toBeFalsy()
+    })
+
+    test('toast with clickToDismiss false does not remove on click', async () => {
+      // Arrange
+      const headers = {
+        'rx-trigger-toast': JSON.stringify(createToastTrigger({
+          message: 'Cannot click to dismiss',
+          clickToDismiss: false,
+          duration: 0 // Persistent
+        }))
+      }
+      mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+      const btnId = getUniqueId('no-click-dismiss-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-click-dismiss'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.click()
+      await waitForMicrotasks()
+
+      // Assert - toast exists initially
+      let toast = document.querySelector('[popover]') as HTMLElement
+      expect(toast).toBeTruthy()
+
+      // Click the toast
+      toast.click()
+      await waitForMicrotasks()
+
+      // Toast should still exist
+      toast = document.querySelector('[popover]') as HTMLElement
+      expect(toast).toBeTruthy()
+    })
+
+
+
+    test('toast removed via MutationObserver cleans up properly', async () => {
+      // Test that toast can be removed and cleanup happens without errors
+      const headers = {
+        'rx-trigger-toast': JSON.stringify(createToastTrigger({
+          message: 'Toast to remove',
+          duration: 0 // Persistent
+        }))
+      }
+      mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+      const btnId = getUniqueId('mutation-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/mutation'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Create toast
+      button.click()
+      await waitForMicrotasks()
+
+      const toast = document.querySelector('[popover]') as HTMLElement
+      expect(toast).toBeTruthy()
+
+      // Remove toast - MutationObserver should handle cleanup
+      toast.remove()
+      await waitForMicrotasks()
+
+      // Should be removed from DOM
+      expect(document.querySelector('[popover]')).toBeFalsy()
+    })
+
+    test('invalid toast trigger missing message shows error', async () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'error')
+      const headers = {
+        'rx-trigger-toast': JSON.stringify({
+          type: 'Success',
+          duration: 3000
+          // Missing required 'message' field
+        })
+      }
+      mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+      const btnId = getUniqueId('invalid-toast-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/invalid-toast'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert - no toast created
+      const toasts = document.querySelectorAll('[popover]')
+      expect(toasts.length).toBe(0)
+
+      // Error should be logged
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('missing required field: message'),
+        expect.any(Object)
+      )
+
+      consoleSpy.mockRestore()
+    })
+
+    test('malformed toast trigger JSON shows error', async () => {
+      // Arrange
+      const consoleSpy = vi.spyOn(console, 'error')
+      const headers = {
+        'rx-trigger-toast': 'not-valid-json'
+      }
+      mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+      const btnId = getUniqueId('malformed-toast-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/malformed-toast'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert - no toast created
+      const toasts = document.querySelectorAll('[popover]')
+      expect(toasts.length).toBe(0)
+
+      // Error should be logged
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse "rx-trigger-toast" header'),
+        expect.any(Object)
+      )
+
+      consoleSpy.mockRestore()
+    })
+
+    test('toast uses textContent for XSS protection', async () => {
+      // Arrange
+      const maliciousMessage = '<script>alert("XSS")</script><b>Bold text</b>'
+      const headers = {
+        'rx-trigger-toast': JSON.stringify(createToastTrigger({
+          message: maliciousMessage
+        }))
+      }
+      mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+      const btnId = getUniqueId('xss-toast-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/xss-toast'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      const toast = document.querySelector('[popover]') as HTMLElement
+      expect(toast).toBeTruthy()
+      
+      // Content should be escaped (textContent, not innerHTML)
+      expect(toast.textContent).toBe(maliciousMessage)
+      expect(toast.innerHTML).not.toContain('<script>')
+      expect(toast.innerHTML).not.toContain('<b>')
+      expect(toast.querySelector('script')).toBeFalsy()
+      expect(toast.querySelector('b')).toBeFalsy()
+    })
+
+    test('toast showPopover is called for top-layer rendering', async () => {
+      // Arrange
+      const showPopoverSpy = vi.fn()
+      const originalCreateElement = document.createElement.bind(document)
+      
+      // Mock createElement to spy on showPopover
+      document.createElement = function(tagName: string) {
+        const element = originalCreateElement(tagName)
+        if (tagName === 'div') {
+          element.showPopover = showPopoverSpy
+          // Mock hidePopover too for cleanup
+          element.hidePopover = vi.fn()
+        }
+        return element
+      }
+
+      const headers = {
+        'rx-trigger-toast': JSON.stringify(createToastTrigger({
+          message: 'Popover test'
+        }))
+      }
+      mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+      const btnId = getUniqueId('popover-toast-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/popover-toast'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(showPopoverSpy).toHaveBeenCalled()
+
+      // Restore
+      document.createElement = originalCreateElement
+    })
+
+
+    test('toast with custom classes via init options', async () => {
+      // Clear existing setup and reinitialize with custom classes
+      const rxDoc = document as unknown as RxDocument
+      if (rxDoc.rxMutationObserver) {
+        rxDoc.rxMutationObserver.disconnect()
+        delete rxDoc.rxMutationObserver
+      }
+
+      // Reinitialize with custom toast classes
+      razorx.init({
+        toastClasses: {
+          base: 'custom-toast',
+          success: 'custom-success',
+          topRight: 'custom-top-right'
+        }
+      })
+      triggerDOMContentLoaded()
+
+      // Arrange
+      const headers = {
+        'rx-trigger-toast': JSON.stringify({
+          message: 'Custom class toast',
+          type: 'Success',
+          verticalPosition: 'Top',
+          horizontalPosition: 'Right'
+        })
+      }
+      mockFetch.mockImplementation(mockSuccessResponse(headers))
+
+      const btnId = getUniqueId('custom-class-btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/custom-class'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      const toast = document.querySelector('[popover]') as HTMLElement
+      expect(toast).toBeTruthy()
+      expect(toast.classList.contains('custom-toast')).toBe(true)
+      expect(toast.classList.contains('custom-success')).toBe(true)
+      expect(toast.classList.contains('custom-top-right')).toBe(true)
     })
   })
 
