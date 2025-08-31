@@ -50,9 +50,10 @@
 
   <!-- Include TypeScript client distribution files in NuGet package -->
   <ItemGroup>
-    <None Include="Node/dist/razorx.js" Pack="true" PackagePath="contentFiles/any/any/wwwroot/js/razorx.js" />
-    <None Include="Node/dist/razorx.js.map" Pack="true" PackagePath="contentFiles/any/any/wwwroot/js/razorx.js.map" />
-    <None Include="Node/dist/razorx.d.ts" Pack="true" PackagePath="contentFiles/any/any/wwwroot/js/razorx.d.ts" />
+    <None Include="Node/dist/js/razorx.js" Pack="true" PackagePath="contentFiles/any/any/wwwroot/js/razorx.js" />
+    <None Include="Node/dist/js/razorx.js.map" Pack="true" PackagePath="contentFiles/any/any/wwwroot/js/razorx.js.map" />
+    <None Include="Node/dist/js/razorx.d.ts" Pack="true" PackagePath="contentFiles/any/any/wwwroot/js/razorx.d.ts" />
+    <None Include="Node/dist/css/razorx.css" Pack="true" PackagePath="contentFiles/any/any/wwwroot/css/razorx.css" />
     <None Include="build/RazorX.Framework.targets" Pack="true" PackagePath="build/RazorX.Framework.targets" />
     <None Include="buildTransitive/RazorX.Framework.targets" Pack="true" PackagePath="buildTransitive/RazorX.Framework.targets" />
     <None Include="../README.md" Pack="true" PackagePath="README.md" />

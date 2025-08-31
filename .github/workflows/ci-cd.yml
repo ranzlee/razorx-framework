@@ -366,6 +366,7 @@ jobs:
           "contentFiles/any/any/wwwroot/js/razorx.js"
           "contentFiles/any/any/wwwroot/js/razorx.js.map"
           "contentFiles/any/any/wwwroot/js/razorx.d.ts"
+          "contentFiles/any/any/wwwroot/css/razorx.css"
           "build/RazorX.Framework.targets"
           "lib/net9.0/RazorX.Framework.dll"
         )
@@ -397,9 +398,16 @@ jobs:
         
         # Check client files
         if [[ -f "wwwroot/js/razorx.js" ]]; then
-          echo "✅ Client files installed correctly"
+          echo "✅ JavaScript files installed correctly"
         else
-          echo "❌ Client files not found"
+          echo "❌ JavaScript files not found"
+          exit 1
+        fi
+        
+        if [[ -f "wwwroot/css/razorx.css" ]]; then
+          echo "✅ CSS files installed correctly"
+        else
+          echo "❌ CSS files not found"
           exit 1
         fi
     

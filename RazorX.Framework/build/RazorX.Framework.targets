@@ -2,48 +2,64 @@
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
 
   <PropertyGroup>
-    <RazorXClientSourcePath>$(MSBuildThisFileDirectory)../contentFiles/any/any/wwwroot/js</RazorXClientSourcePath>
-    <RazorXClientDestPath>$(MSBuildProjectDirectory)/wwwroot/js</RazorXClientDestPath>
+    <RazorXJsSourcePath>$(MSBuildThisFileDirectory)../contentFiles/any/any/wwwroot/js</RazorXJsSourcePath>
+    <RazorXJsDestPath>$(MSBuildProjectDirectory)/wwwroot/js</RazorXJsDestPath>
+    <RazorXCssSourcePath>$(MSBuildThisFileDirectory)../contentFiles/any/any/wwwroot/css</RazorXCssSourcePath>
+    <RazorXCssDestPath>$(MSBuildProjectDirectory)/wwwroot/css</RazorXCssDestPath>
   </PropertyGroup>
 
-  <!-- Copy RazorX client files to consuming project's wwwroot/js folder -->
+  <!-- Copy RazorX client files to consuming project's wwwroot folders -->
   <Target Name="CopyRazorXClientFiles" BeforeTargets="Build" Condition="'$(EnableRazorXClientFiles)' != 'false'">
     
-    <!-- Ensure wwwroot/js directory exists -->
-    <MakeDir Directories="$(RazorXClientDestPath)" Condition="!Exists('$(RazorXClientDestPath)')" />
+    <!-- Ensure wwwroot/js and wwwroot/css directories exist -->
+    <MakeDir Directories="$(RazorXJsDestPath)" Condition="!Exists('$(RazorXJsDestPath)')" />
+    <MakeDir Directories="$(RazorXCssDestPath)" Condition="!Exists('$(RazorXCssDestPath)')" />
     
-    <!-- Define client files to copy -->
+    <!-- Define JavaScript files to copy -->
     <ItemGroup>
-      <RazorXClientFiles Include="$(RazorXClientSourcePath)/razorx.js" />
-      <RazorXClientFiles Include="$(RazorXClientSourcePath)/razorx.js.map" />
-      <RazorXClientFiles Include="$(RazorXClientSourcePath)/razorx.d.ts" />
+      <RazorXJsFiles Include="$(RazorXJsSourcePath)/razorx.js" />
+      <RazorXJsFiles Include="$(RazorXJsSourcePath)/razorx.js.map" />
+      <RazorXJsFiles Include="$(RazorXJsSourcePath)/razorx.d.ts" />
     </ItemGroup>
     
-    <!-- Copy files with proper error handling -->
+    <!-- Define CSS files to copy -->
+    <ItemGroup>
+      <RazorXCssFiles Include="$(RazorXCssSourcePath)/razorx.css" />
+    </ItemGroup>
+    
+    <!-- Copy JavaScript files -->
     <Copy 
-      SourceFiles="@(RazorXClientFiles)"
-      DestinationFolder="$(RazorXClientDestPath)"
+      SourceFiles="@(RazorXJsFiles)"
+      DestinationFolder="$(RazorXJsDestPath)"
       SkipUnchangedFiles="true"
       ContinueOnError="WarnAndContinue" />
     
-    <Message Importance="high" Text="RazorX.Framework: Copied client files to $(RazorXClientDestPath)/" 
-             Condition="Exists('$(RazorXClientSourcePath)/razorx.js')" />
+    <!-- Copy CSS files -->
+    <Copy 
+      SourceFiles="@(RazorXCssFiles)"
+      DestinationFolder="$(RazorXCssDestPath)"
+      SkipUnchangedFiles="true"
+      ContinueOnError="WarnAndContinue" />
     
-    <Warning Text="RazorX.Framework: Client files not found at $(RazorXClientSourcePath). Package may not be properly installed." 
-             Condition="!Exists('$(RazorXClientSourcePath)/razorx.js')" />
+    <Message Importance="high" Text="RazorX.Framework: Copied JavaScript files to $(RazorXJsDestPath)/ and CSS files to $(RazorXCssDestPath)/" 
+             Condition="Exists('$(RazorXJsSourcePath)/razorx.js')" />
+    
+    <Warning Text="RazorX.Framework: Client files not found at $(RazorXJsSourcePath). Package may not be properly installed." 
+             Condition="!Exists('$(RazorXJsSourcePath)/razorx.js')" />
     
   </Target>
 
   <!-- Clean target for client files -->
   <Target Name="CleanRazorXClientFiles" BeforeTargets="Clean" Condition="'$(EnableRazorXClientFiles)' != 'false'">
     <ItemGroup>
-      <RazorXFilesToDelete Include="$(RazorXClientDestPath)/razorx.js" />
-      <RazorXFilesToDelete Include="$(RazorXClientDestPath)/razorx.js.map" />
-      <RazorXFilesToDelete Include="$(RazorXClientDestPath)/razorx.d.ts" />
+      <RazorXFilesToDelete Include="$(RazorXJsDestPath)/razorx.js" />
+      <RazorXFilesToDelete Include="$(RazorXJsDestPath)/razorx.js.map" />
+      <RazorXFilesToDelete Include="$(RazorXJsDestPath)/razorx.d.ts" />
+      <RazorXFilesToDelete Include="$(RazorXCssDestPath)/razorx.css" />
     </ItemGroup>
     
     <Delete Files="@(RazorXFilesToDelete)" ContinueOnError="true" />
-    <Message Importance="high" Text="RazorX.Framework: Cleaned client files from $(RazorXClientDestPath)/" />
+    <Message Importance="high" Text="RazorX.Framework: Cleaned JavaScript files from $(RazorXJsDestPath)/ and CSS files from $(RazorXCssDestPath)/" />
   </Target>
 
 </Project>

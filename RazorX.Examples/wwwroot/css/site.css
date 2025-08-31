@@ -14,12 +14,3 @@
     color: firebrick;
 }
 
-.rx-loading-hidden {
-    display: none;
-    visibility: hidden;
-}
-
-.rx-loading-visible {
-    display: inline;
-    visibility: visible;
-}

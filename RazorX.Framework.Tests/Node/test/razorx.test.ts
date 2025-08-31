@@ -4240,7 +4240,8 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Act
       button.click() // First click
-      await waitForMicrotasks()
+      // Wait for the request to actually start and register in _requestRefTracker
+      await new Promise(resolve => setTimeout(resolve, 10))
       
       button.click() // Second click should be ignored
       await waitForMicrotasks()

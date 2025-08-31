@@ -39,6 +39,7 @@ public class ExamplesHandler : RequestHandler {
             .Take(5);
         return await rxDriver
             .With(context)
+            .AddTriggerToast("Todos loaded!", ToastType.Info, 3500, ToastVerticalPosition.Bottom, ToastHorizontalPosition.Right)
             .AddFragment<TodoList, IEnumerable<TodoModel>>(page, "todo-list", FragmentMergeStrategyType.AppendBeforeEnd)
             .Render();
     }
@@ -48,13 +49,16 @@ public class ExamplesHandler : RequestHandler {
             .Where(x => x.Text.Contains(filter, StringComparison.InvariantCultureIgnoreCase))
             .OrderByDescending(x => x.Id)
             .Take(5);
-        return await rxDriver
+        var driver = rxDriver
             .With(context)
             .AddTriggerSetState("filter", filter, MetadataScope.Session, true)
             .AddFragment<TodoSearch, string>(filter, "search-todos", FragmentMergeStrategyType.Morph)
             .AddFragment<TodoList, IEnumerable<TodoModel>>(page, "todo-list", FragmentMergeStrategyType.SwapInner)
-            .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)
-            .Render();
+            .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap);
+        if (!string.IsNullOrWhiteSpace(filter)) {
+            driver.AddTriggerToast("Filter applied!", ToastType.Warning, 3500, ToastVerticalPosition.Top, ToastHorizontalPosition.Left);
+        }
+        return await driver.Render();
     }
 
     public static IResult PollTest() {
@@ -72,6 +76,7 @@ public class ExamplesHandler : RequestHandler {
             .With(context)
             .AddTriggerCloseDialog("new-todo-modal")
             .AddTriggerFocusElement("new-todo-modal-trigger")
+            .AddTriggerToast("Todo created successfully!", ToastType.Success)
             .AddFragment<TodoForm, TodoFormModel>(new TodoFormModel(0, "", false, false, false), "new-todo-form", FragmentMergeStrategyType.Swap)
             .AddFragment<TodoItem, TodoModel>(todo, "todo-list", FragmentMergeStrategyType.AppendAfterBegin)
             .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)
@@ -94,6 +99,7 @@ public class ExamplesHandler : RequestHandler {
             .With(context)
             .AddTriggerCloseDialog("edit-todo-modal")
             .AddTriggerFocusElement($"edit-todo-modal-trigger-{id}")
+            .AddTriggerToast("Todo updated successfully!", ToastType.Success)
             .AddFragment<TodoFormLoading>("edit-todo-form-container", FragmentMergeStrategyType.SwapInner)
             .AddFragment<TodoItem, TodoModel>(todo, $"todo-item-{todo.Id}", FragmentMergeStrategyType.Swap)
             .Render();
@@ -128,6 +134,7 @@ public class ExamplesHandler : RequestHandler {
         var driver = rxDriver
             .With(context)
             .AddTriggerCloseDialog("delete-todo-modal")
+            .AddTriggerToast("Todo deleted successfully!", ToastType.Success)
             .AddFragment<TodoCount, (int Completed, int Total)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap)
             .RemoveElement($"todo-item-{id}");
         if (todos.Count == 0) {
@@ -159,6 +166,7 @@ public class ExamplesHandler : RequestHandler {
             model = model with { IsEdit = isEdit, HasError = true };
             return rxDriver
                 .With(context)
+                .AddTriggerToast("Validation error!", ToastType.Error, 3500, ToastVerticalPosition.Top, ToastHorizontalPosition.Middle)
                 .AddFragment<TodoForm, TodoFormModel>(model, isEdit ? "edit-todo-form" : "new-todo-form", FragmentMergeStrategyType.Swap);
         }
         return null;

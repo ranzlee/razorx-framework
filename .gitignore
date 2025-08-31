@@ -69,3 +69,4 @@ RazorX.Framework.Tests/Node/coverage
 RazorX.Examples/bin/
 RazorX.Examples/obj/
 RazorX.Examples/wwwroot/js/razorx.*
+RazorX.Examples/wwwroot/css/razorx.*

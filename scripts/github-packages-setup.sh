@@ -355,9 +355,15 @@ install_package() {
         
         # Check if client files were copied
         if [[ -f "wwwroot/js/razorx.js" ]]; then
-            log_success "Client files copied to wwwroot/js/"
+            log_success "JavaScript files copied to wwwroot/js/"
         else
-            log_info "Client files will be copied on build"
+            log_info "JavaScript files will be copied on build"
+        fi
+        
+        if [[ -f "wwwroot/css/razorx.css" ]]; then
+            log_success "CSS files copied to wwwroot/css/"
+        else
+            log_info "CSS files will be copied on build"
         fi
     else
         log_error "Package installation failed"

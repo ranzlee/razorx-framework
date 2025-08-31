@@ -107,6 +107,7 @@ validate_package_structure() {
         "contentFiles/any/any/wwwroot/js/razorx.js"
         "contentFiles/any/any/wwwroot/js/razorx.js.map"
         "contentFiles/any/any/wwwroot/js/razorx.d.ts"
+        "contentFiles/any/any/wwwroot/css/razorx.css"
         "build/RazorX.Framework.targets"
         "buildTransitive/RazorX.Framework.targets"
         "lib/net9.0/RazorX.Framework.dll"
@@ -169,6 +170,7 @@ test_package_installation() {
         "wwwroot/js/razorx.js"
         "wwwroot/js/razorx.js.map"
         "wwwroot/js/razorx.d.ts"
+        "wwwroot/css/razorx.css"
     )
     
     for file in "${client_files[@]}"; do

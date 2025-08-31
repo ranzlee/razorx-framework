@@ -1,0 +1,283 @@
+/* RazorX Framework Styles */
+
+/* Loading Indicator Styles */
+.rx-loading-hidden {
+    display: none;
+    visibility: hidden;
+}
+
+.rx-loading-visible {
+    display: inline;
+    visibility: visible;
+}
+
+/* Toast Base Styles */
+.rx-toast {
+    padding: 12px 16px;
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    font-size: 14px;
+    line-height: 1.5;
+    max-width: 320px;
+    cursor: pointer;
+    box-sizing: border-box;
+    font-family: inherit;
+    backdrop-filter: blur(8px);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), 
+                opacity 0.2s ease-out,
+                box-shadow 0.2s ease-out;
+    will-change: transform;
+}
+
+/* Critical: Override popover default centering when shown */
+.rx-toast:popover-open {
+    position: fixed;
+    margin: 0;
+    inset: unset;
+}
+
+/* Type variants with accessible colors */
+.rx-toast-info {
+    background-color: #3b82f6;
+    color: white;
+    border: 1px solid #2563eb;
+}
+
+.rx-toast-success {
+    background-color: #10b981;
+    color: white;
+    border: 1px solid #059669;
+}
+
+.rx-toast-warning {
+    background-color: #f59e0b;
+    color: #1f2937;
+    border: 1px solid #d97706;
+}
+
+.rx-toast-error {
+    background-color: #ef4444;
+    color: white;
+    border: 1px solid #dc2626;
+}
+
+/* Position classes - all 9 combinations */
+
+/* Transforms on base class to prevent shift, positioning on :popover-open */
+.rx-toast-top-middle {
+    transform: translateX(-50%);
+}
+
+.rx-toast-center-left {
+    transform: translateY(-50%);
+}
+
+.rx-toast-center-middle {
+    transform: translate(-50%, -50%);
+}
+
+.rx-toast-center-right {
+    transform: translateY(-50%);
+}
+
+.rx-toast-bottom-middle {
+    transform: translateX(-50%);
+}
+
+/* Position properties must be on :popover-open to override inset: unset */
+.rx-toast-top-left:popover-open {
+    top: 20px;
+    left: 20px;
+}
+
+.rx-toast-top-middle:popover-open {
+    top: 20px;
+    left: 50%;
+}
+
+.rx-toast-top-right:popover-open {
+    top: 20px;
+    right: 20px;
+}
+
+.rx-toast-center-left:popover-open {
+    top: 50%;
+    left: 20px;
+}
+
+.rx-toast-center-middle:popover-open {
+    top: 50%;
+    left: 50%;
+}
+
+.rx-toast-center-right:popover-open {
+    top: 50%;
+    right: 20px;
+}
+
+.rx-toast-bottom-left:popover-open {
+    bottom: 20px;
+    left: 20px;
+}
+
+.rx-toast-bottom-middle:popover-open {
+    bottom: 20px;
+    left: 50%;
+}
+
+.rx-toast-bottom-right:popover-open {
+    bottom: 20px;
+    right: 20px;
+}
+
+/* Animation - using separate opacity animation to avoid transform conflicts */
+@keyframes rx-toast-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* Scale animation for toasts without positioning transforms */
+@keyframes rx-toast-scale-in {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Apply appropriate animation based on position */
+.rx-toast-top-left.rx-toast:popover-open,
+.rx-toast-top-right.rx-toast:popover-open,
+.rx-toast-bottom-left.rx-toast:popover-open,
+.rx-toast-bottom-right.rx-toast:popover-open {
+    animation: rx-toast-scale-in 0.2s ease-out;
+}
+
+/* Middle and center positions use fade-in only to preserve positioning transforms */
+.rx-toast-top-middle.rx-toast:popover-open,
+.rx-toast-center-left.rx-toast:popover-open,
+.rx-toast-center-middle.rx-toast:popover-open,
+.rx-toast-center-right.rx-toast:popover-open,
+.rx-toast-bottom-middle.rx-toast:popover-open {
+    animation: rx-toast-fade-in 0.2s ease-out;
+}
+
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+    .rx-toast {
+        animation: none;
+    }
+    
+    .rx-toast-top-middle.rx-toast:popover-open {
+        transform: translateX(-50%);
+    }
+    
+    .rx-toast-center-left.rx-toast:popover-open {
+        transform: translateY(-50%);
+    }
+    
+    .rx-toast-center-middle.rx-toast:popover-open {
+        transform: translate(-50%, -50%);
+    }
+    
+    .rx-toast-center-right.rx-toast:popover-open {
+        transform: translateY(-50%);
+    }
+    
+    .rx-toast-bottom-middle.rx-toast:popover-open {
+        transform: translateX(-50%);
+    }
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 640px) {
+    .rx-toast {
+        max-width: calc(100vw - 40px);
+        font-size: 13px;
+        padding: 10px 14px;
+    }
+    
+    .rx-toast-top-left:popover-open,
+    .rx-toast-center-left:popover-open,
+    .rx-toast-bottom-left:popover-open {
+        left: 10px;
+    }
+    
+    .rx-toast-top-right:popover-open,
+    .rx-toast-center-right:popover-open,
+    .rx-toast-bottom-right:popover-open {
+        right: 10px;
+    }
+    
+    .rx-toast-top-middle:popover-open,
+    .rx-toast-top-left:popover-open,
+    .rx-toast-top-right:popover-open {
+        top: 10px;
+    }
+    
+    .rx-toast-bottom-middle:popover-open,
+    .rx-toast-bottom-left:popover-open,
+    .rx-toast-bottom-right:popover-open {
+        bottom: 10px;
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .rx-toast {
+        border-width: 2px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+    
+    .rx-toast-info {
+        background-color: #1d4ed8;
+        border-color: #1e40af;
+    }
+    
+    .rx-toast-success {
+        background-color: #047857;
+        border-color: #065f46;
+    }
+    
+    .rx-toast-warning {
+        background-color: #d97706;
+        border-color: #b45309;
+        color: white;
+    }
+    
+    .rx-toast-error {
+        background-color: #dc2626;
+        border-color: #b91c1c;
+    }
+}
+
+/* Dark mode support - can be overridden by application */
+@media (prefers-color-scheme: dark) {
+    .rx-toast-info {
+        background-color: #1e40af;
+        border-color: #1d4ed8;
+    }
+    
+    .rx-toast-success {
+        background-color: #047857;
+        border-color: #059669;
+    }
+    
+    .rx-toast-warning {
+        background-color: #d97706;
+        border-color: #f59e0b;
+        color: white;
+    }
+    
+    .rx-toast-error {
+        background-color: #b91c1c;
+        border-color: #dc2626;
+    }
+}

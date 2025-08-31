@@ -12,9 +12,16 @@
 
   <Target Name="CopyJsFiles" AfterTargets="Compile">
     <ItemGroup>
-      <JsFiles Include="../RazorX.Framework/Node/dist/*.*"/>
+      <JsFiles Include="../RazorX.Framework/Node/dist/js/*.*"/>
     </ItemGroup>
     <Copy SourceFiles="@(JsFiles)" DestinationFolder="wwwroot/js" />
+  </Target>
+
+  <Target Name="CopyCssFiles" AfterTargets="Compile">
+    <ItemGroup>
+      <CssFiles Include="../RazorX.Framework/Node/dist/css/*.*"/>
+    </ItemGroup>
+    <Copy SourceFiles="@(CssFiles)" DestinationFolder="wwwroot/css" />
   </Target>
 
 </Project>

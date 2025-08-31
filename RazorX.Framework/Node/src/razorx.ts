@@ -35,6 +35,23 @@ export type Options = {
     loadingIndicatorClasses?: {
         hidden?: string,  // Default: 'rx-loading-hidden'
         visible?: string  // Default: 'rx-loading-visible'
+    },
+    toastClasses?: {
+        base?: string,        // Default: 'rx-toast'
+        info?: string,        // Default: 'rx-toast-info'
+        success?: string,     // Default: 'rx-toast-success'
+        warning?: string,     // Default: 'rx-toast-warning'
+        error?: string,       // Default: 'rx-toast-error'
+        // Position classes (9 zones)
+        topLeft?: string,     // Default: 'rx-toast-top-left'
+        topMiddle?: string,   // Default: 'rx-toast-top-middle'
+        topRight?: string,    // Default: 'rx-toast-top-right'
+        centerLeft?: string,  // Default: 'rx-toast-center-left'
+        centerMiddle?: string,// Default: 'rx-toast-center-middle'
+        centerRight?: string, // Default: 'rx-toast-center-right'
+        bottomLeft?: string,  // Default: 'rx-toast-bottom-left'
+        bottomMiddle?: string,// Default: 'rx-toast-bottom-middle'
+        bottomRight?: string  // Default: 'rx-toast-bottom-right'
     }
 }
 
@@ -95,7 +112,8 @@ export type RxResponseHeaders =
     "rx-morph-ignore-active" | 
     "rx-trigger-close-dialog" | 
     "rx-trigger-focus-element" | 
-    "rx-trigger-set-state";
+    "rx-trigger-set-state" |
+    "rx-trigger-toast";
 
 export type SpecialTriggerType = 'initialized' | 'poll' | 'revealed';
 
@@ -140,6 +158,21 @@ export type RxSetStateTrigger = {
     updateUrl?: boolean,
 }
 
+export type ToastType = "Info" | "Success" | "Warning" | "Error";
+
+export type ToastVerticalPosition = "Top" | "Center" | "Bottom";
+
+export type ToastHorizontalPosition = "Left" | "Middle" | "Right";
+
+export type RxToastTrigger = {
+    message: string,
+    type: ToastType,
+    duration: number,
+    verticalPosition: ToastVerticalPosition,
+    horizontalPosition: ToastHorizontalPosition,
+    clickToDismiss: boolean
+}
+
 type ElementTriggerState = {
     triggers: Set<string>;
     intervalId?: ReturnType<typeof setInterval>;
@@ -153,11 +186,20 @@ type DelegatedActionConfig = {
     timestamp: number;
 }
 
+type ToastState = {
+    element: HTMLElement;
+    zone: string;
+    stackIndex: number;
+    timeoutId?: ReturnType<typeof setTimeout>;
+    clickHandler?: (e: MouseEvent) => void;
+}
+
 type ParsedRxHeaders = {
     merge?: MergeStrategy[];
     setState?: RxSetStateTrigger[];
     closeDialog?: RxCloseDialogTrigger;
     focusElement?: RxFocusElementTrigger;
+    toast?: RxToastTrigger;
     morphIgnoreActive?: boolean;
 };
 
@@ -177,6 +219,10 @@ const _delegatedActionConfigs: WeakMap<HTMLElement, DelegatedActionConfig> = new
 
 const _activeLoadingIndicators: Map<string, Set<string>> = new Map();
 
+const _activeToasts: Map<string, ToastState> = new Map();
+
+const _toastZones: Map<string, string[]> = new Map();
+
 const _fetchRedirect: FetchRedirect = "follow";
 
 const _callbacks: DocumentCallbacks = {};
@@ -184,6 +230,24 @@ const _callbacks: DocumentCallbacks = {};
 let _loadingClasses = {
     hidden: 'rx-loading-hidden',
     visible: 'rx-loading-visible'
+}
+
+let _toastClasses = {
+    base: 'rx-toast',
+    info: 'rx-toast-info',
+    success: 'rx-toast-success',
+    warning: 'rx-toast-warning',
+    error: 'rx-toast-error',
+    // Position classes
+    topLeft: 'rx-toast-top-left',
+    topMiddle: 'rx-toast-top-middle',
+    topRight: 'rx-toast-top-right',
+    centerLeft: 'rx-toast-center-left',
+    centerMiddle: 'rx-toast-center-middle',
+    centerRight: 'rx-toast-center-right',
+    bottomLeft: 'rx-toast-bottom-left',
+    bottomMiddle: 'rx-toast-bottom-middle',
+    bottomRight: 'rx-toast-bottom-right'
 }
 
 const _addCallbacks = (callbacks: DocumentCallbacks): void => {
@@ -220,6 +284,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             ...options.loadingIndicatorClasses
         }
     }
+    
+    // Configure toast classes
+    if (options?.toastClasses) {
+        _toastClasses = {
+            ..._toastClasses,
+            ...options.toastClasses
+        }
+    }
 
     // Add cleanup for page unload scenarios
     window.addEventListener('beforeunload', () => {
@@ -228,6 +300,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             _debouncedRequests.forEach(req => req._cleanup?.());
             _debouncedRequests.clear();
             clearElementCache();
+            cleanupAllToasts();
         }
     });
 
@@ -245,6 +318,28 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 removeTriggers(node);
                 if (node.id) {
                     invalidateCachedElement(node.id);
+                    if (node.classList.contains(_toastClasses.base)) {
+                        _activeToasts.forEach((state, toastId) => {
+                            if (state.element === node) {
+                                if (state.zone && _toastZones.has(state.zone)) {
+                                    const zoneToasts = _toastZones.get(state.zone)!;
+                                    const index = zoneToasts.indexOf(toastId);
+                                    if (index > -1) {
+                                        zoneToasts.splice(index, 1);
+                                    }
+                                    if (zoneToasts.length === 0) {
+                                        _toastZones.delete(state.zone);
+                                    } else {
+                                        reflowZone(state.zone);
+                                    }
+                                }
+                                if (state.timeoutId) {
+                                    clearTimeout(state.timeoutId);
+                                }
+                                _activeToasts.delete(toastId);
+                            }
+                        });
+                    }
                 }
                 node.querySelectorAll('[id]').forEach((child: Element) => {
                     if (child.id) {
@@ -709,7 +804,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         try {
             await elementTriggerProcessor(syntheticElement, evt);
         } catch (error) {
-            // sendError already logs to console.error
             sendError(this, error);
         }
     }
@@ -756,7 +850,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             try {
                 await elementTriggerProcessor(ele, evt);
             } catch (error: unknown) {
-                // sendError already logs to console.error
                 sendError(ele, error);
             }
         });
@@ -1016,6 +1109,16 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 throw new Error(errorMsg);
             }
         }
+        const toastHeader = response.headers.get("rx-trigger-toast");
+        if (toastHeader) {
+            try {
+                parsed.toast = JSON.parse(toastHeader);
+            } catch (parseError) {
+                const errorMsg = `Failed to parse "rx-trigger-toast" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+                console.error(errorMsg, { header: toastHeader });
+                throw new Error(errorMsg);
+            }
+        }
         parsed.morphIgnoreActive = response.headers.has("rx-morph-ignore-active");
         return parsed;
     }
@@ -1027,6 +1130,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (response.status >= 400) {
             document.rxMutationObserver?.disconnect();
             removeTriggers(document.body);
+            cleanupAllToasts();
             document.title = "Error";
             const contentType = response.headers.get("content-type");
             if (contentType && (contentType.includes("application/json") || contentType.includes("application/problem+json"))) {
@@ -1078,6 +1182,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 _callbacks.afterDocumentUpdate(ele);
             }
             processFocusElementTrigger(ele, parsedHeaders?.focusElement);
+            processToastTrigger(ele, parsedHeaders?.toast);
             return;
         }
         if (!parsedHeaders?.merge) {
@@ -1095,6 +1200,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             _callbacks.afterDocumentUpdate(ele);
         }
         processFocusElementTrigger(ele, parsedHeaders?.focusElement);
+        processToastTrigger(ele, parsedHeaders?.toast);
     }
 
     function updateBrowserUrl(stateKeys: string[]): void {
@@ -1258,6 +1364,171 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 }   
             }, 0);
         }
+    }
+
+    function processToastTrigger(ele: HTMLElement, toastTrigger?: RxToastTrigger): void {
+        if (!toastTrigger) {
+            return;
+        }
+        if (!toastTrigger.message) {
+            const errorMsg = `Invalid "rx-trigger-toast" structure - missing required field: message`;
+            console.error(errorMsg, { parsed: toastTrigger });
+            const error = new Error(errorMsg);
+            if (ele._rxCallbacks?.onElementTriggerError) {
+                ele._rxCallbacks.onElementTriggerError(error);
+            }
+            if (_callbacks.onElementTriggerError) {
+                _callbacks.onElementTriggerError(ele, error);
+            }
+            return;
+        }
+        const MAX_CONCURRENT_TOASTS = 5;
+        if (_activeToasts.size >= MAX_CONCURRENT_TOASTS) {
+            // Remove oldest toast (first in Map iteration order)
+            const oldestToastId = _activeToasts.keys().next().value;
+            if (oldestToastId) {
+                cleanupToast(oldestToastId);
+            }
+        }
+        const toastId = `rx-toast-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+        const zone = `${toastTrigger.verticalPosition.toLowerCase()}-${toastTrigger.horizontalPosition.toLowerCase()}`;
+        if (!_toastZones.has(zone)) {
+            _toastZones.set(zone, []);
+        }
+        const zoneToasts = _toastZones.get(zone)!;
+        const stackIndex = zoneToasts.length;
+        const toast = document.createElement('div');
+        toast.id = toastId;
+        toast.setAttribute('popover', 'manual'); // Use popover API for top-layer
+        toast.textContent = toastTrigger.message; // Use textContent for security
+        const typeClass = _toastClasses[toastTrigger.type.toLowerCase() as keyof typeof _toastClasses] || '';
+        const zoneToClassKey: Record<string, keyof typeof _toastClasses> = {
+            'top-left': 'topLeft',
+            'top-middle': 'topMiddle',
+            'top-right': 'topRight',
+            'center-left': 'centerLeft',
+            'center-middle': 'centerMiddle',
+            'center-right': 'centerRight',
+            'bottom-left': 'bottomLeft',
+            'bottom-middle': 'bottomMiddle',
+            'bottom-right': 'bottomRight'
+        };
+        const positionClass = zoneToClassKey[zone] ? _toastClasses[zoneToClassKey[zone]] : '';
+        const classes = [
+            _toastClasses.base,
+            typeClass,
+            positionClass
+        ].filter(c => c); // Remove empty strings
+        toast.className = classes.join(' ');
+        if (stackIndex > 0) {
+            const STACK_SPACING = 10; // pixels between stacked toasts
+            const stackOffset = calculateStackOffset(zone, stackIndex, STACK_SPACING);
+            toast.style.transform = stackOffset;
+        }
+        toast.setAttribute('role', 'alert');
+        toast.setAttribute('aria-live', 'polite');
+        document.body.appendChild(toast);
+        toast.showPopover(); // Show on top-layer
+        zoneToasts.push(toastId);
+        const toastState: ToastState = { 
+            element: toast,
+            zone: zone,
+            stackIndex: stackIndex
+        };
+        if (toastTrigger.clickToDismiss) {
+            const clickHandler = () => {
+                cleanupToast(toastId);
+            };
+            toast.addEventListener('click', clickHandler);
+            toastState.clickHandler = clickHandler;
+        }
+        if (toastTrigger.duration > 0) {
+            toastState.timeoutId = setTimeout(() => {
+                cleanupToast(toastId);
+            }, toastTrigger.duration);
+        }
+        _activeToasts.set(toastId, toastState);
+    }
+
+    function calculateStackOffset(zone: string, stackIndex: number, spacing: number): string {
+        const verticalPos = zone.split('-')[0];
+        const horizontalPos = zone.split('-')[1];
+        const baseOffset = 60; // Approximate height of a toast
+        const totalOffset = stackIndex * (baseOffset + spacing);
+        let transform = '';
+        if (verticalPos === 'top') {
+            // Stack downward for top positions
+            transform = `translateY(${totalOffset}px)`;
+        } else if (verticalPos === 'bottom') {
+            // Stack upward for bottom positions
+            transform = `translateY(-${totalOffset}px)`;
+        } else { // center
+            // Stack downward from center (could be made smarter)
+            transform = `translateY(${totalOffset}px)`;
+        }
+        if (horizontalPos === 'middle') {
+            if (verticalPos === 'top' || verticalPos === 'bottom') {
+                transform = `translateX(-50%) ${transform}`;
+            } else if (verticalPos === 'center') {
+                transform = `translate(-50%, calc(-50% + ${totalOffset}px))`;
+            }
+        } else if (verticalPos === 'center') {
+            if (horizontalPos === 'left' || horizontalPos === 'right') {
+                transform = `translateY(calc(-50% + ${totalOffset}px))`;
+            }
+        }
+        return transform;
+    }
+    
+    function reflowZone(zone: string): void {
+        const zoneToasts = _toastZones.get(zone);
+        if (!zoneToasts || zoneToasts.length === 0) return;
+        const STACK_SPACING = 10;
+        // Reposition each toast in the zone
+        zoneToasts.forEach((toastId, newIndex) => {
+            const toastState = _activeToasts.get(toastId);
+            if (toastState) {
+                toastState.stackIndex = newIndex;
+                if (newIndex === 0) {
+                    toastState.element.style.transform = '';
+                } else {
+                    const stackOffset = calculateStackOffset(zone, newIndex, STACK_SPACING);
+                    toastState.element.style.transform = stackOffset;
+                }
+            }
+        });
+    }
+    
+    function cleanupToast(toastId: string): void {
+        const toastState = _activeToasts.get(toastId);
+        if (!toastState) return;
+        if (toastState.zone && _toastZones.has(toastState.zone)) {
+            const zoneToasts = _toastZones.get(toastState.zone)!;
+            const index = zoneToasts.indexOf(toastId);
+            if (index > -1) {
+                zoneToasts.splice(index, 1);
+            }
+            if (zoneToasts.length === 0) {
+                _toastZones.delete(toastState.zone);
+            } else {
+                reflowZone(toastState.zone);
+            }
+        }
+        if (toastState.timeoutId) {
+            clearTimeout(toastState.timeoutId);
+        }
+        if (toastState.clickHandler) {
+            toastState.element.removeEventListener('click', toastState.clickHandler);
+        }
+        if (toastState.element.matches(':popover-open')) {
+            toastState.element.hidePopover();
+        }
+        toastState.element.remove();
+        _activeToasts.delete(toastId);
+    }
+
+    function cleanupAllToasts(): void {
+        _activeToasts.forEach((_, toastId) => cleanupToast(toastId));
     }
     
     function getMethod(ele: HTMLElement): HttpMethod {

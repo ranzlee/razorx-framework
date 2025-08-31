@@ -27,3 +27,46 @@ public interface IRootComponent {
 public interface IComponentModel<TModel> {
     TModel Model { get; set; }
 }
+
+public enum FragmentMergeStrategyType {
+    Swap = 0,
+    SwapInner = 1,
+    AppendAfterBegin = 2,
+    AppendAfterEnd = 3,
+    AppendBeforeBegin = 4,
+    AppendBeforeEnd = 5,
+    Morph = 6
+}
+
+public enum MetadataScope {
+    Session = 0,
+    Persistent = 1
+}
+
+/// <summary>
+/// Toast display types that determine visual styling.
+/// </summary>
+public enum ToastType {
+    Info = 0,
+    Success = 1,
+    Warning = 2,
+    Error = 3
+}
+
+/// <summary>
+/// Vertical positioning options for toasts.
+/// </summary>
+public enum ToastVerticalPosition {
+    Top = 0,
+    Center = 1,
+    Bottom = 2
+}
+
+/// <summary>
+/// Horizontal positioning options for toasts.
+/// </summary>
+public enum ToastHorizontalPosition {
+    Left = 0,
+    Middle = 1,
+    Right = 2
+}

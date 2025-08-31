@@ -10,24 +10,10 @@ using Microsoft.Extensions.Logging;
 
 namespace RazorX.Framework;
 
-public enum FragmentMergeStrategyType {
-    Swap = 0,
-    SwapInner = 1,
-    AppendAfterBegin = 2,
-    AppendAfterEnd = 3,
-    AppendBeforeBegin = 4,
-    AppendBeforeEnd = 5,
-    Morph = 6
-}
-
-public enum MetadataScope {
-    Session = 0,
-    Persistent = 1
-}
-
 public record CloseDialogTrigger(string DialogId, string? OnCloseData, string? ResetFormId);
 public record FocusElementTrigger(string ElementId, bool PositionCursorEnd);
 public record SetStateTrigger(string Key, string Value, string Scope, bool UpdateUrl = false);
+public record ToastTrigger(string Message, string Type, int Duration, string VerticalPosition, string HorizontalPosition, bool ClickToDismiss);
 
 public static class RxDriverServices {
     public static void AddRxDriver(this IServiceCollection services) {
@@ -107,6 +93,15 @@ public interface IRxResponseBuilder {
     IRxResponseBuilder AddTriggerSetState(string key, string value, MetadataScope scope = MetadataScope.Session, bool updateUrl = false);
 
     IRxResponseBuilder AddTriggerSetStateBatch(Dictionary<string, string> state, MetadataScope scope, bool updateUrl = false);
+
+    IRxResponseBuilder AddTriggerToast(
+        string message,
+        ToastType type = ToastType.Success,
+        int duration = 3500,
+        ToastVerticalPosition verticalPosition = ToastVerticalPosition.Top,
+        ToastHorizontalPosition horizontalPosition = ToastHorizontalPosition.Right,
+        bool clickToDismiss = true
+    );
 
     Task<IResult> Render(
         bool ignoreActiveElementValueOnMorph = false,
@@ -320,6 +315,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     private CloseDialogTrigger? closeDialogTrigger = null;
     private FocusElementTrigger? focusElementTrigger = null;
     private readonly List<SetStateTrigger> setStateTriggers = [];
+    private ToastTrigger? toastTrigger = null;
     private readonly HashSet<string> stateKeysInResponse = [];
     private static readonly JsonSerializerOptions serializerSettings = new(JsonSerializerDefaults.Web);
     
@@ -424,6 +420,28 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         return this;
     }
 
+    public IRxResponseBuilder AddTriggerToast(
+        string message,
+        ToastType type = ToastType.Info,
+        int duration = 5000,
+        ToastVerticalPosition verticalPosition = ToastVerticalPosition.Top,
+        ToastHorizontalPosition horizontalPosition = ToastHorizontalPosition.Right,
+        bool clickToDismiss = true
+    ) {
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
+        CheckRenderingStatus();
+        
+        if (string.IsNullOrWhiteSpace(message)) {
+            throw new ArgumentException("Toast message cannot be null or empty", nameof(message));
+        }
+        if (duration < 0) {
+            throw new ArgumentException("Duration cannot be negative", nameof(duration));
+        }
+        
+        toastTrigger = new ToastTrigger(message, type.ToString(), duration, verticalPosition.ToString(), horizontalPosition.ToString(), clickToDismiss);
+        return this;
+    }
+
     public async Task<IResult> Render(
         bool ignoreActiveElementValueOnMorph = false,
         CancellationToken cancellationToken = default
@@ -439,6 +457,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         
         // Set rendering flag early to prevent duplicate renders
         isRendering = true;
+        
         //triggers
         if (closeDialogTrigger != null) {
             context.Response.Headers.Append("rx-trigger-close-dialog", JsonSerializer.Serialize(closeDialogTrigger, serializerSettings));
@@ -451,6 +470,10 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
                 context.Response.Headers.Append("rx-trigger-set-state", JsonSerializer.Serialize(t, serializerSettings));
             }
         }
+        if (toastTrigger != null) {
+            context.Response.Headers.Append("rx-trigger-toast", JsonSerializer.Serialize(toastTrigger, serializerSettings));
+        }
+
         //fragments
         if (ignoreActiveElementValueOnMorph) {
             context.Response.Headers.Append("rx-morph-ignore-active", true.ToString());
