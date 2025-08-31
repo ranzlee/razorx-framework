@@ -249,6 +249,19 @@ describe('RazorX Framework API Surface Tests', () => {
     })
   }
 
+  async function waitFor(condition: () => void | Promise<void>, timeout = 1000): Promise<void> {
+    const startTime = Date.now()
+    while (Date.now() - startTime < timeout) {
+      try {
+        await condition()
+        return
+      } catch {
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+    }
+    await condition() // Final check that will throw if condition not met
+  }
+
   describe('Core API - Initialization', () => {
     test('razorx.init() sets up MutationObserver', () => {
       // Act
@@ -4240,8 +4253,9 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Act
       button.click() // First click
-      // Wait for the request to actually start and register in _requestRefTracker
-      await new Promise(resolve => setTimeout(resolve, 10))
+      
+      // Wait for the first request to actually start
+      await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1))
       
       button.click() // Second click should be ignored
       await waitForMicrotasks()
@@ -5044,7 +5058,8 @@ describe('RazorX Framework API Surface Tests', () => {
       button1.dispatchEvent(new Event('click', { bubbles: true }))
       button2.dispatchEvent(new Event('click', { bubbles: true }))
       
-      await new Promise(resolve => setTimeout(resolve, 60))
+      // Wait for both requests to start
+      await waitFor(() => expect(requestCount).toBe(2))
 
       // Assert - Should disable queueing (concurrent execution)
       expect(requestCount).toBe(2)
