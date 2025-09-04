@@ -1,5 +1,6 @@
 ﻿using RazorX.Framework;
 using RazorX.Examples.Components.Layout;
+using Microsoft.AspNetCore.Mvc;
 
 namespace RazorX.Examples.Components.Examples;
 
@@ -11,6 +12,7 @@ public class TodoModel(int id, string text, bool isComplete) {
 
 public record ExampleModel(IEnumerable<TodoModel> Todos, int Total, int Completed);
 public record TodoFormModel(int Id, string Text, bool IsComplete, bool HasError, bool IsEdit);
+public record FileUploadModel(string FileId, string FileName);
 
 public class ExamplesHandler : RequestHandler {
     public override void MapRoutes(IEndpointRouteBuilder router) {
@@ -24,6 +26,8 @@ public class ExamplesHandler : RequestHandler {
         router.MapDelete("/todo/{id:int}", DeleteTodo);
         router.MapGet("/search-todos", SearchTodos);
         router.MapGet("/poll-test", PollTest);
+        router.MapPost("/file-upload", FileUpload);
+        router.MapPost("/file-upload-form-submit", FileUploadFormSubmit);
     }
 
     private static readonly List<TodoModel> Todos = [];
@@ -174,5 +178,28 @@ public class ExamplesHandler : RequestHandler {
 
     private static (int Completed, int Total) GetCount() {
         return new(Todos.Count(x => x.IsComplete), Todos.Count);
+    }
+
+    [RequestSizeLimit(long.MaxValue)]
+    [RequestFormLimits(MultipartBodyLengthLimit = long.MaxValue)]
+    public static async Task<IResult> FileUpload(HttpContext context, IRxDriver rxDriver, IFormFile uploadedFile) {
+        return await rxDriver
+            .With(context)
+            .AddFragment<FileResponse, FileUploadModel>(new FileUploadModel(Guid.NewGuid().ToString(), uploadedFile.FileName), "file-upload-container", FragmentMergeStrategyType.Swap)
+            .Render();
+    }
+
+    public static async Task<IResult> FileUploadFormSubmit(HttpContext context, IRxDriver rxDriver, FileUploadModel model) {
+        if (string.IsNullOrWhiteSpace(model.FileId)) {
+            return await rxDriver
+                .With(context)
+                .AddTriggerToast("File is required", ToastType.Error)
+                .Render();
+        }
+        return await rxDriver
+            .With(context)
+            .AddTriggerToast("Form submitted successfully!", ToastType.Success)
+            .AddFragment<FileUploadFormSubmitted, FileUploadModel>(model, "file-upload-form", FragmentMergeStrategyType.Swap)
+            .Render();
     }
 }

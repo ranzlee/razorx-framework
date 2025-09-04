@@ -1,0 +1,11 @@
+@implements IComponentModel<FileUploadModel>
+
+<div id="file-upload-container">
+    <div>@(Model.FileName)</div>
+    <input name="@(nameof(Model.FileId))" type="hidden" value="@(Model.FileId)">
+    <input name="@(nameof(Model.FileName))" type="hidden" value="@(Model.FileName)">
+</div>
+
+@code {
+    [Parameter] public FileUploadModel Model { get; set; } = null!;
+}

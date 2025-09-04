@@ -18,6 +18,7 @@ declare global {
             rxDelegateActionTo?: string //data-rx-delegate-action-to transfer action and method to another element
             rxIncludeState?: string //data-rx-include-state
             rxLoadingIndicator?: string //data-rx-loading-indicator
+            rxFileUploadProgressId?: string //data-rx-file-upload-progress-id - ID of progress element (only valid on file inputs)
         },
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
         _rxCallbacks?: ElementCallbacks,
@@ -68,6 +69,7 @@ export type DocumentCallbacks = {
     onElementMorphed?: (morphedElement: HTMLElement) => void,
     onElementRemoved?: (removedElement: HTMLElement) => void,
     onElementTriggerError?: (triggerElement: HTMLElement, error: unknown) => void,
+    onFileUploadProgress?: (fileInput: HTMLInputElement, progressContext: FileUploadProgressContext) => void,
 }
 
 export type ElementCallbacks = {
@@ -76,6 +78,7 @@ export type ElementCallbacks = {
     beforeDocumentUpdate?: (mergeElement: HTMLElement, strategy: MergeStrategyType) => boolean,
     afterDocumentUpdate?: () => void,
     onElementTriggerError?: (error: unknown) => void,
+    onFileUploadProgress?: (progressContext: FileUploadProgressContext) => void,
 }
 
 export type RequestConfiguration = {
@@ -94,6 +97,13 @@ export type RequestDetail = {
     body: FormData | string | undefined,
     headers: Headers,
     signal: AbortSignal,
+}
+
+export type FileUploadProgressContext = {
+    file: File,
+    loaded: number,
+    total: number,
+    percentage: number,
 }
 
 export type MergeStrategy = {
@@ -263,6 +273,7 @@ const _addCallbacks = (callbacks: DocumentCallbacks): void => {
     _callbacks.onElementMorphed = callbacks.onElementMorphed;
     _callbacks.onElementRemoved = callbacks.onElementRemoved;
     _callbacks.onElementTriggerError = callbacks.onElementTriggerError;
+    _callbacks.onFileUploadProgress = callbacks.onFileUploadProgress;
 }
 
 const _isFirefox = navigator.userAgent.toLowerCase().includes("firefox");
@@ -657,7 +668,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     function addTriggers(ele: HTMLElement): void {
         if (ele.dataset.rxAction && (!_callbacks.beforeInitializeElement || _callbacks.beforeInitializeElement(ele))) {
             configureElement(ele);
-            setTriggers(ele);
+            if (!(ele instanceof HTMLInputElement && ele.type === 'file')) {
+                setTriggers(ele);
+            }
             if (_callbacks.afterInitializeElement) {
                 _callbacks.afterInitializeElement(ele);
             }
@@ -741,6 +754,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             elementCallbacks.beforeDocumentUpdate = callbacks.beforeDocumentUpdate;
             elementCallbacks.beforeFetch = callbacks.beforeFetch;
             elementCallbacks.onElementTriggerError = callbacks.onElementTriggerError;
+            elementCallbacks.onFileUploadProgress = callbacks.onFileUploadProgress;
         }
         Object.defineProperty(ele, "addRxCallbacks", {
             value: addCallbacks,
@@ -750,17 +764,50 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             value: elementCallbacks,
             writable: false,
         });
+        if (ele instanceof HTMLInputElement && ele.type === 'file') {
+            configureFileInput(ele);
+            return;
+        }
+    }
+    
+    function configureFileInput(fileInput: HTMLInputElement): void {
+        const invalidRxAttributes: (keyof typeof fileInput.dataset)[] = [
+            'rxMethod',
+            'rxTrigger', 
+            'rxAllowEventDefault',
+            'rxDisableInFlight',
+            'rxDebounce',
+            'rxDisableQueueing',
+            'rxDelegateActionTo',
+            'rxIncludeState',
+            'rxLoadingIndicator'
+        ];
+        for (const attr of invalidRxAttributes) {
+            if (fileInput.dataset[attr] !== undefined) {
+                const htmlAttr = attr.replace(/([A-Z])/g, '-$1').toLowerCase();
+                const errorMsg = `File input "${fileInput.id}" cannot have data-${htmlAttr} attribute. File inputs only support data-rx-action.`;
+                throw new Error(errorMsg);
+            }
+        }
+        if (fileInput.dataset.rxFileUploadProgressId) {
+            const progressId = fileInput.dataset.rxFileUploadProgressId;
+            const progressElement = document.getElementById(progressId);
+            if (!progressElement) {
+                throw new Error(`File input "${fileInput.id}" references non-existent progress element: ${progressId}`);
+            }
+            if (!(progressElement instanceof HTMLProgressElement)) {
+                throw new Error(`File input "${fileInput.id}" data-rx-file-upload-progress-id must reference a <progress> element, found: <${progressElement.tagName.toLowerCase()}>`);
+            }
+        }
     }
 
     // event handlers
 
     function DOMContentLoaded(): void {
-        //observe the whole document for changes
         document.rxMutationObserver.observe(document.documentElement, { childList: true, subtree: true });
         if (_callbacks.beforeDocumentProcessed) {
             _callbacks.beforeDocumentProcessed();
         }
-        //process the entire document recursively
         addTriggers(document.body);
         if (_callbacks.afterDocumentProcessed) {
             _callbacks.afterDocumentProcessed();
@@ -901,7 +948,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     async function elementTriggerProcessor(ele: HTMLElement, evt: Event): Promise<void> {
         try {   
             _debouncedRequests.delete(ele.id);
-            // Atomic check-and-add to prevent race conditions
             if (_requestRefTracker.has(ele.id)) {
                 throw new Error(`Element ${ele.id} is already executing a request.`);
             }
@@ -970,10 +1016,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     request.action = url.pathname + url.search;
                 }
                 delete request.body;
-            } else {
-                if (options?.encodeRequestFormDataAsJson === undefined || options.encodeRequestFormDataAsJson === true) {
-                    encodeBodyAsJson(request);
-                }
             }
             const state = collectState(ele);
             if (Object.keys(state).length > 0) {
@@ -986,14 +1028,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 });
                 request.action = url.pathname + url.search;
             }
-            const config: RequestConfiguration = {
-                trigger: evt,
-                action: request.action,
-                method: request.method,
-                body: request.body,
-                headers: request.headers,
-                abort: ac.abort.bind(ac),
-            }
             const disableElement = ele.dataset.rxDisableInFlight?.trim().toLowerCase();
             if (disableElement !== undefined && disableElement !== "" && disableElement !== "true" && disableElement !== "false") {
                 console.warn(`The data-rx-disable-in-flight attribute on element ${ele.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
@@ -1003,6 +1037,32 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (disableElement !== undefined && disableElement !== "false") {
                     toggleDisable(ele, true);
                 }
+                const filesMap = new Map<string, File>();
+                let hasFiles = false;
+                if (request.body instanceof FormData) {
+                    const filesToRemove: string[] = [];
+                    request.body.forEach((value: FormDataEntryValue, key: string) => {
+                        if (value instanceof File && value.size > 0 && value.name !== '') {
+                            filesMap.set(key, value);
+                            filesToRemove.push(key);
+                            hasFiles = true;
+                        }
+                    });
+                    filesToRemove.forEach(key => {
+                        (request.body as FormData).delete(key);
+                    });
+                    if (options?.encodeRequestFormDataAsJson === undefined || options.encodeRequestFormDataAsJson === true) {
+                        encodeBodyAsJson(request);
+                    }
+                }
+                const config: RequestConfiguration = {
+                    trigger: evt,
+                    action: request.action,
+                    method: request.method,
+                    body: request.body,
+                    headers: request.headers,
+                    abort: ac.abort.bind(ac),
+                }
                 if (ele._rxCallbacks!.beforeFetch) {
                     ele._rxCallbacks!.beforeFetch(config);
                 }
@@ -1011,6 +1071,23 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 }
                 if (ac.signal.aborted) {
                     return;
+                }
+                if (hasFiles) {
+                    await processFileUploads(filesMap, ele, options, ac.signal);
+                    if (form) {
+                        try {
+                            request.body = new FormData(form, evt instanceof SubmitEvent ? evt.submitter : null);
+                            // Re-encode as JSON after recollection
+                            if (options?.encodeRequestFormDataAsJson === undefined || options.encodeRequestFormDataAsJson === true) {
+                                encodeBodyAsJson(request);
+                            }
+                        } catch (formError) {
+                            const errorMsg = 'Form structure was invalidated during file upload. File upload responses should not replace the form element or submit button. Update only the file input area.';
+                            console.error(errorMsg, formError);
+                            sendError(ele, new Error(errorMsg));
+                            return;
+                        }
+                    }
                 }
                 response = await fetch(request.action, request);
                 if (ac.signal.aborted) {
@@ -1630,7 +1707,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         let hasProps = false;
         detail.body?.forEach((value: FormDataEntryValue, key: string): void => {
             if (value instanceof Blob) {
-                //skip any input [type=file] for XMLHttpRequest processing
+                //skip any input [type=file]
                 return;
             }
             hasProps = true;
@@ -1647,6 +1724,126 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (hasProps) {
             detail.body = JSON.stringify(object);
         }
+    }
+    
+    function parseXHRHeaders(headersString: string): Headers {
+        const headers = new Headers();
+        const lines = headersString.trim().split(/[\r\n]+/);
+        lines.forEach(line => {
+            const parts = line.split(': ');
+            if (parts.length === 2 && parts[0] && parts[1]) {
+                headers.append(parts[0], parts[1]);
+            }
+        });
+        return headers;
+    }
+    
+    async function processFileUploads(filesMap: Map<string, File>, _ele: HTMLElement, options?: Options, signal?: AbortSignal): Promise<void> {
+        const uploads: Promise<void>[] = [];
+        const activeXHRs: XMLHttpRequest[] = [];
+        let signalAborted = false;
+        const abortHandler = (): void => {
+            signalAborted = true;
+            activeXHRs.forEach(xhr => xhr.abort());
+        };
+        signal?.addEventListener('abort', abortHandler);
+        filesMap.forEach((file: File, name: string): void => {
+            const fileInput = document.querySelector(`input[type="file"][name="${name}"][data-rx-action]`) as HTMLInputElement;
+            if (!fileInput) return;
+            const uploadData = new FormData();
+            uploadData.append(name, file);
+            uploads.push(
+                new Promise<void>((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    activeXHRs.push(xhr);
+                    let aborted = false;
+                    xhr.upload.onprogress = (e: ProgressEvent) => {
+                        if (aborted) return;
+                        if (e.lengthComputable) {
+                            const percentComplete = Math.round((e.loaded / e.total) * 100);
+                            if (fileInput.dataset.rxFileUploadProgressId) {
+                                const progressElement = document.getElementById(fileInput.dataset.rxFileUploadProgressId) as HTMLProgressElement;
+                                if (progressElement) {
+                                    progressElement.value = percentComplete;
+                                }
+                            }
+                            const progressContext: FileUploadProgressContext = {
+                                file: file,
+                                loaded: e.loaded,
+                                total: e.total,
+                                percentage: percentComplete
+                            };
+                            if (fileInput._rxCallbacks?.onFileUploadProgress) {
+                                fileInput._rxCallbacks.onFileUploadProgress(progressContext);
+                            }
+                            if (_callbacks.onFileUploadProgress) {
+                                _callbacks.onFileUploadProgress(fileInput, progressContext);
+                            }
+                        }
+                    };
+                    xhr.onload = () => {
+                        if (aborted) return;
+                        const index = activeXHRs.indexOf(xhr);
+                        if (index > -1) activeXHRs.splice(index, 1);
+                        if (fileInput.dataset.rxFileUploadProgressId) {
+                            const progressElement = document.getElementById(fileInput.dataset.rxFileUploadProgressId) as HTMLProgressElement;
+                            if (progressElement) {
+                                progressElement.value = 0;
+                            }
+                        }
+                        const body = (xhr.status === 204 || xhr.status === 205) 
+                            ? null 
+                            : xhr.responseText;
+                        const response = new Response(body, {
+                            status: xhr.status,
+                            statusText: xhr.statusText,
+                            headers: parseXHRHeaders(xhr.getAllResponseHeaders())
+                        });
+                        responseProcessor(fileInput, response).then(resolve).catch(reject);
+                    };
+                    xhr.onerror = () => {
+                        const index = activeXHRs.indexOf(xhr);
+                        if (index > -1) activeXHRs.splice(index, 1);
+                        if (!aborted) {
+                            const error = new Error('Upload failed');
+                            sendError(fileInput, error);
+                            reject(error);
+                        }
+                    };
+                    xhr.onabort = () => {
+                        const index = activeXHRs.indexOf(xhr);
+                        if (index > -1) activeXHRs.splice(index, 1);
+                        if (!aborted && !signalAborted) {
+                            aborted = true;
+                            const error = new Error('Upload aborted');
+                            sendError(fileInput, error);
+                            reject(error);
+                        }
+                    };
+                    xhr.open('POST', fileInput.dataset.rxAction!);
+                    xhr.setRequestHeader('rx-request', '');
+                    if (options?.addCookieToRequestHeader) {
+                        const cookies = Array.isArray(options.addCookieToRequestHeader) 
+                            ? options.addCookieToRequestHeader 
+                            : [options.addCookieToRequestHeader];
+                        cookies.forEach((cookieName: string) => {
+                            const value = `; ${document.cookie}`;
+                            const parts = value.split(`; ${cookieName}=`);
+                            if (parts.length === 2) {
+                                const cookieValue = parts.pop()!.split(";").shift();
+                                if (cookieValue) {
+                                    xhr.setRequestHeader(cookieName, decodeURIComponent(cookieValue));
+                                }
+                            }
+                        });
+                    }
+                    xhr.responseType = 'text';
+                    xhr.send(uploadData);
+                })
+            );
+        });
+        await Promise.all(uploads);
+        signal?.removeEventListener('abort', abortHandler);
     }
 
     // response rendering

@@ -1,0 +1,27 @@
+@implements IComponentModel<FileUploadModel>
+
+<form id="file-upload-form" 
+    data-rx-action="/file-upload-form-submit" 
+    data-rx-method="POST"
+    data-rx-disable-in-flight
+    data-rx-loading-indicator="file-saving">
+    <div id="file-upload-container">
+        <input name="@(nameof(Model.FileId))" type="hidden" value="@(Model.FileId)">
+        <input name="@(nameof(Model.FileName))" type="hidden" value="@(Model.FileName)">
+        <input 
+            id="file-upload-input" 
+            name="uploadedFile"
+            type="file" 
+            data-rx-action="/file-upload" 
+            data-rx-file-upload-progress-id="file-upload-progress">
+        <progress id="file-upload-progress" value="0" max="100" />   
+    </div>
+    <button type="submit">
+        Submit Form
+        <span id="file-saving" aria-busy="true" class="rx-loading-hidden"></span>
+    </button>
+</form>
+
+@code {
+    [Parameter] public FileUploadModel Model { get; set; } = new FileUploadModel(string.Empty, string.Empty);
+}
