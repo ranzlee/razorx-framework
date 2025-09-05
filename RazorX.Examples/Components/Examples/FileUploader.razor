@@ -13,8 +13,34 @@
             name="uploadedFile"
             type="file" 
             data-rx-action="/file-upload" 
-            data-rx-file-upload-progress-id="file-upload-progress">
-        <progress id="file-upload-progress" value="0" max="100" />   
+            data-rx-file-upload-progress-id="file-upload-progress"
+            data-rx-file-upload-max-size="314572800">
+        <progress id="file-upload-progress" value="0" max="100" />
+        <div id="file-size-error" style="color: red;">
+        </div>
+        <script type="module">
+            import { razorx } from "./js/razorx.js"
+            razorx.addCallbacks({
+                onFileSelected: (ele, files, error) => {
+                    if (ele.id === "file-upload-input") {
+                        var msg = document.getElementById("file-size-error");
+                        if (error) {
+                            msg.innerText = error.message;
+                            ele.setAttribute("aria-invalid", "true");
+                            ele.setAttribute("aria-describedby", msg.id);
+                        } else {
+                            msg.innerText = "";
+                            ele.removeAttribute("aria-invalid");
+                            ele.removeAttribute("aria-describedby");
+                            // Files now contain FileInfo objects with fileName, size, and sizeInBytes
+                            if (files.length > 0) {
+                                console.log(`Selected: ${files[0].fileName} (${files[0].size})`);
+                            }
+                        }
+                    }
+                }
+            });
+        </script>
     </div>
     <button type="submit">
         Submit Form

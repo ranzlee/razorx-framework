@@ -19,6 +19,8 @@ declare global {
             rxIncludeState?: string //data-rx-include-state
             rxLoadingIndicator?: string //data-rx-loading-indicator
             rxFileUploadProgressId?: string //data-rx-file-upload-progress-id - ID of progress element (only valid on file inputs)
+            rxFileUploadTimeout?: string //data-rx-file-upload-timeout - Timeout in milliseconds for file upload (only valid on file inputs)
+            rxFileUploadMaxSize?: string //data-rx-file-upload-max-size - Maximum file size in bytes (only valid on file inputs)
         },
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
         _rxCallbacks?: ElementCallbacks,
@@ -56,6 +58,12 @@ export type Options = {
     }
 }
 
+export type FileInfo = {
+    fileName: string,
+    size: string,
+    sizeInBytes: number
+}
+
 export type DocumentCallbacks = {
     beforeDocumentProcessed?: () => void,
     afterDocumentProcessed?: () => void,
@@ -70,6 +78,7 @@ export type DocumentCallbacks = {
     onElementRemoved?: (removedElement: HTMLElement) => void,
     onElementTriggerError?: (triggerElement: HTMLElement, error: unknown) => void,
     onFileUploadProgress?: (fileInput: HTMLInputElement, progressContext: FileUploadProgressContext) => void,
+    onFileSelected?: (fileInput: HTMLInputElement, files: FileInfo[], error?: Error) => void,
 }
 
 export type ElementCallbacks = {
@@ -79,6 +88,7 @@ export type ElementCallbacks = {
     afterDocumentUpdate?: () => void,
     onElementTriggerError?: (error: unknown) => void,
     onFileUploadProgress?: (progressContext: FileUploadProgressContext) => void,
+    onFileSelected?: (files: FileInfo[], error?: Error) => void,
 }
 
 export type RequestConfiguration = {
@@ -274,6 +284,7 @@ const _addCallbacks = (callbacks: DocumentCallbacks): void => {
     _callbacks.onElementRemoved = callbacks.onElementRemoved;
     _callbacks.onElementTriggerError = callbacks.onElementTriggerError;
     _callbacks.onFileUploadProgress = callbacks.onFileUploadProgress;
+    _callbacks.onFileSelected = callbacks.onFileSelected;
 }
 
 const _isFirefox = navigator.userAgent.toLowerCase().includes("firefox");
@@ -755,6 +766,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             elementCallbacks.beforeFetch = callbacks.beforeFetch;
             elementCallbacks.onElementTriggerError = callbacks.onElementTriggerError;
             elementCallbacks.onFileUploadProgress = callbacks.onFileUploadProgress;
+            elementCallbacks.onFileSelected = callbacks.onFileSelected;
         }
         Object.defineProperty(ele, "addRxCallbacks", {
             value: addCallbacks,
@@ -799,6 +811,50 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 throw new Error(`File input "${fileInput.id}" data-rx-file-upload-progress-id must reference a <progress> element, found: <${progressElement.tagName.toLowerCase()}>`);
             }
         }
+        fileInput.addEventListener('change', function(this: HTMLInputElement) {
+            if (!this.files || this.files.length === 0) return;
+            const fileInfos: FileInfo[] = [];
+            let totalSize = 0;
+            for (let i = 0; i < this.files.length; i++) {
+                const file = this.files[i];
+                if (file) {
+                    fileInfos.push({
+                        fileName: file.name,
+                        size: formatBytes(file.size),
+                        sizeInBytes: file.size
+                    });
+                    totalSize += file.size;
+                }
+            }
+            let error: Error | undefined;
+            if (this.dataset.rxFileUploadMaxSize) {
+                const maxSize = parseInt(this.dataset.rxFileUploadMaxSize, 10);
+                if (!isNaN(maxSize) && maxSize > 0 && totalSize > maxSize) {
+                    // Create appropriate error message
+                    if (this.files.length === 1 && fileInfos[0]) {
+                        error = new Error(`File "${fileInfos[0].fileName}" exceeds maximum size of ${formatBytes(maxSize)}`);
+                    } else {
+                        error = new Error(`Selected files exceed the maximum allowed size of ${formatBytes(maxSize)}`);
+                    }
+                }
+            }
+            if (this._rxCallbacks?.onFileSelected) {
+                this._rxCallbacks.onFileSelected(fileInfos, error);
+            }
+            if (_callbacks.onFileSelected) {
+                _callbacks.onFileSelected(this, fileInfos, error);
+            }
+            if (error) {
+                sendError(this, error);
+                this.value = '';
+                if (this.dataset.rxFileUploadProgressId) {
+                    const progressElement = document.getElementById(this.dataset.rxFileUploadProgressId);
+                    if (progressElement && progressElement instanceof HTMLProgressElement) {
+                        progressElement.value = 0;
+                    }
+                }
+            }
+        });
     }
 
     // event handlers
@@ -1738,15 +1794,63 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         return headers;
     }
     
+    function formatBytes(bytes: number): string {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
+        const value = bytes / Math.pow(k, i);
+        const formatted = value % 1 === 0 ? value.toString() : value.toFixed(2).replace(/\.?0+$/, '');
+        return formatted + ' ' + sizes[i];
+    }
+    
     async function processFileUploads(filesMap: Map<string, File>, _ele: HTMLElement, options?: Options, signal?: AbortSignal): Promise<void> {
         const uploads: Promise<void>[] = [];
         const activeXHRs: XMLHttpRequest[] = [];
         let signalAborted = false;
+        function resetProgress(fileInput: HTMLInputElement): void {
+            if (fileInput.dataset.rxFileUploadProgressId) {
+                const progressElement = document.getElementById(fileInput.dataset.rxFileUploadProgressId);
+                if (progressElement && progressElement instanceof HTMLProgressElement) {
+                    progressElement.value = 0;
+                }
+            }
+        }
         const abortHandler = (): void => {
             signalAborted = true;
             activeXHRs.forEach(xhr => xhr.abort());
         };
         signal?.addEventListener('abort', abortHandler);
+        const inputFileGroups = new Map<HTMLInputElement, Array<File>>();
+        filesMap.forEach((file: File, name: string): void => {
+            const fileInput = document.querySelector(`input[type="file"][name="${name}"][data-rx-action]`) as HTMLInputElement;
+            if (!fileInput) return;
+            
+            if (!inputFileGroups.has(fileInput)) {
+                inputFileGroups.set(fileInput, []);
+            }
+            inputFileGroups.get(fileInput)!.push(file);
+        });
+        for (const [fileInput, files] of inputFileGroups) {
+            if (fileInput.dataset.rxFileUploadMaxSize) {
+                const maxSize = parseInt(fileInput.dataset.rxFileUploadMaxSize, 10);
+                if (!isNaN(maxSize) && maxSize > 0) {
+                    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+                    if (totalSize > maxSize) {
+                        const error = new Error(
+                            files.length === 1 && files[0]
+                                ? `File "${files[0].name}" exceeds maximum size of ${formatBytes(maxSize)}`
+                                : `Total size of ${files.length} files (${formatBytes(totalSize)}) exceeds maximum of ${formatBytes(maxSize)}`
+                        );
+                        sendError(fileInput, error);
+                        resetProgress(fileInput);
+                        return; // Don't upload any files
+                    }
+                } else if (maxSize !== 0) {
+                    console.warn(`Invalid max size "${fileInput.dataset.rxFileUploadMaxSize}" for file input`);
+                }
+            }
+        }
         filesMap.forEach((file: File, name: string): void => {
             const fileInput = document.querySelector(`input[type="file"][name="${name}"][data-rx-action]`) as HTMLInputElement;
             if (!fileInput) return;
@@ -1757,6 +1861,29 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     const xhr = new XMLHttpRequest();
                     activeXHRs.push(xhr);
                     let aborted = false;
+                    if (fileInput.dataset.rxFileUploadTimeout) {
+                        const timeout = parseInt(fileInput.dataset.rxFileUploadTimeout, 10);
+                        if (!isNaN(timeout) && timeout > 0) {
+                            xhr.timeout = timeout;
+                        } else if (timeout === 0) {
+                            xhr.timeout = 0; // Explicit 0 means no timeout
+                        } else {
+                            console.warn(`Invalid timeout "${fileInput.dataset.rxFileUploadTimeout}" for file input, using no timeout`);
+                            xhr.timeout = 0;
+                        }
+                    } else {
+                        xhr.timeout = 0; // Default: no timeout
+                    }
+                    xhr.ontimeout = () => {
+                        resetProgress(fileInput);
+                        const index = activeXHRs.indexOf(xhr);
+                        if (index > -1) activeXHRs.splice(index, 1);
+                        if (!aborted) {
+                            const error = new Error(`Upload timeout for "${file.name}" after ${xhr.timeout}ms`);
+                            sendError(fileInput, error);
+                            reject(error);
+                        }
+                    };
                     xhr.upload.onprogress = (e: ProgressEvent) => {
                         if (aborted) return;
                         if (e.lengthComputable) {
@@ -1785,12 +1912,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         if (aborted) return;
                         const index = activeXHRs.indexOf(xhr);
                         if (index > -1) activeXHRs.splice(index, 1);
-                        if (fileInput.dataset.rxFileUploadProgressId) {
-                            const progressElement = document.getElementById(fileInput.dataset.rxFileUploadProgressId) as HTMLProgressElement;
-                            if (progressElement) {
-                                progressElement.value = 0;
-                            }
-                        }
+                        resetProgress(fileInput); // Use helper function
                         const body = (xhr.status === 204 || xhr.status === 205) 
                             ? null 
                             : xhr.responseText;
@@ -1802,20 +1924,22 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         responseProcessor(fileInput, response).then(resolve).catch(reject);
                     };
                     xhr.onerror = () => {
+                        resetProgress(fileInput);
                         const index = activeXHRs.indexOf(xhr);
                         if (index > -1) activeXHRs.splice(index, 1);
                         if (!aborted) {
-                            const error = new Error('Upload failed');
+                            const error = new Error(`Failed to upload "${file.name}": Network error`);
                             sendError(fileInput, error);
                             reject(error);
                         }
                     };
                     xhr.onabort = () => {
+                        resetProgress(fileInput);
                         const index = activeXHRs.indexOf(xhr);
                         if (index > -1) activeXHRs.splice(index, 1);
                         if (!aborted && !signalAborted) {
                             aborted = true;
-                            const error = new Error('Upload aborted');
+                            const error = new Error(`Upload aborted for "${file.name}"`);
                             sendError(fileInput, error);
                             reject(error);
                         }
