@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace RazorX.Framework;
@@ -15,20 +16,30 @@ public record FocusElementTrigger(string ElementId, bool PositionCursorEnd);
 public record SetStateTrigger(string Key, string Value, string Scope, bool UpdateUrl = false);
 public record ToastTrigger(string Message, string Type, int Duration, string VerticalPosition, string HorizontalPosition, bool ClickToDismiss);
 
+public class RxDriverOptions {
+    /// <summary>
+    /// When true, registers JSON converters for form data encoding.
+    /// Default is true to match razorx client default behavior.
+    /// Set to false if you're not using JSON-encoded form data.
+    /// </summary>
+    public bool AddJsonConverters { get; set; } = true;
+}
+
 public static class RxDriverServices {
-    public static void AddRxDriver(this IServiceCollection services) {
-        if (!services.Any(x => x.ServiceType == typeof(HtmlRenderer))) {
-            services.AddScoped<HtmlRenderer>();            
+    public static void AddRxDriver(this IServiceCollection services, Action<RxDriverOptions>? configureOptions = null) {
+        var options = new RxDriverOptions();
+        configureOptions?.Invoke(options);
+        services.TryAddScoped<HtmlRenderer>();
+        services.TryAddScoped<IHtmlRendererWrapper>(factory => {
+            return new HtmlRendererWrapper(
+                factory.GetRequiredService<HtmlRenderer>(),
+                factory.GetRequiredService<ILogger<HtmlRootComponentWrapper>>());
+        });
+        services.TryAddScoped<IRxDriver, RxDriver>();
+        if (options.AddJsonConverters) {
+            services.TryAddSingleton<IHttpContextAccessor, HttpContextAccessor>();
+            services.ConfigureOptions<RxJsonOptions>();
         }
-        if (!services.Any(x => x.ServiceType == typeof(IHtmlRendererWrapper))) {
-            services.AddScoped<IHtmlRendererWrapper>(factory => {
-                return new HtmlRendererWrapper(
-                    factory.GetRequiredService<HtmlRenderer>(),
-                    factory.GetRequiredService<ILogger<HtmlRootComponentWrapper>>());
-            });         
-        }
-        services.AddScoped<IRxDriver, RxDriver>();
-        services.ConfigureOptions<RxJsonOptions>();
     }
 
     public static bool IsRxRequest(this HttpRequest request) {

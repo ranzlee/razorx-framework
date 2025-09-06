@@ -23,9 +23,9 @@ public static class RxAntiforgeryExtensions {
     /// <summary>
     /// Adds RazorX Antiforgery options to the service collection
     /// </summary>
-    public static IServiceCollection AddRxAntiforgery(this IServiceCollection services, Action<RxAntiforgeryOptions>? configure = null) {
+    public static IServiceCollection AddRxAntiforgery(this IServiceCollection services, Action<RxAntiforgeryOptions>? configureOptions = null) {
         services.Configure<RxAntiforgeryOptions>(options => {
-            configure?.Invoke(options);
+            configureOptions?.Invoke(options);
         });
         return services;
     }
