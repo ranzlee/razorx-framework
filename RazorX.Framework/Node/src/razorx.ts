@@ -27,106 +27,385 @@ declare global {
     }
 }
 
+/**
+ * Main RazorX framework interface providing initialization and callback management.
+ * @remarks
+ * This is the primary API for interacting with the RazorX client-side framework.
+ * The framework must be initialized before use.
+ */
 export type RazorX = {
+    /**
+     * Initializes the RazorX framework and begins processing the document.
+     * @param options - Optional configuration for framework behavior
+     * @remarks
+     * - Sets up MutationObserver for dynamic DOM changes
+     * - Processes all existing elements with data-rx attributes
+     * - Must be called once per page load
+     * - Subsequent calls are ignored with a debug message
+     * @example
+     * ```typescript
+     * razorx.init({
+     *   encodeRequestFormDataAsJson: true,
+     *   addCookieToRequestHeader: 'RequestVerificationToken'
+     * });
+     * ```
+     */
     init: (options?: Options) => void,
+    /**
+     * Registers global callbacks for framework lifecycle events.
+     * @param callbacks - Document-level callback handlers
+     * @remarks
+     * Callbacks are additive - calling multiple times adds new callbacks
+     * without removing existing ones.
+     */
     addCallbacks: (callbacks: DocumentCallbacks) => void,
 }
 
+/**
+ * Configuration options for the RazorX framework.
+ * @remarks
+ * All options are optional and have sensible defaults.
+ * Options are set during initialization and cannot be changed afterward.
+ */
 export type Options = {
+    /**
+     * Cookie name(s) to include in request headers for CSRF protection.
+     * @remarks
+     * Can be a single cookie name or array of names.
+     * Cookie values are added to the request header with the same name.
+     * @example
+     * ```typescript
+     * addCookieToRequestHeader: 'RequestVerificationToken'
+     * // or
+     * addCookieToRequestHeader: ['Token1', 'Token2']
+     * ```
+     */
     addCookieToRequestHeader?: string | string[],
-    encodeRequestFormDataAsJson?: boolean, //true
+    /**
+     * Whether to encode form data as JSON before sending.
+     * @default true
+     * @remarks
+     * When true, FormData is converted to JSON with Content-Type: application/json.
+     * When false, FormData is sent as-is (multipart/form-data or application/x-www-form-urlencoded).
+     * Files are always extracted and uploaded separately regardless of this setting.
+     */
+    encodeRequestFormDataAsJson?: boolean,
+    /**
+     * CSS classes for loading indicator states.
+     * @remarks
+     * Applied to elements specified by data-rx-loading-indicator attribute.
+     */
     loadingIndicatorClasses?: {
-        hidden?: string,  // Default: 'rx-loading-hidden'
-        visible?: string  // Default: 'rx-loading-visible'
+        /** Class applied when element is not loading @default 'rx-loading-hidden' */
+        hidden?: string,
+        /** Class applied when element is loading @default 'rx-loading-visible' */
+        visible?: string
     },
+    /**
+     * CSS classes for toast notifications.
+     * @remarks
+     * Customize the appearance and positioning of toast messages.
+     * All classes are optional and have framework defaults.
+     */
     toastClasses?: {
-        base?: string,        // Default: 'rx-toast'
-        info?: string,        // Default: 'rx-toast-info'
-        success?: string,     // Default: 'rx-toast-success'
-        warning?: string,     // Default: 'rx-toast-warning'
-        error?: string,       // Default: 'rx-toast-error'
-        // Position classes (9 zones)
-        topLeft?: string,     // Default: 'rx-toast-top-left'
-        topMiddle?: string,   // Default: 'rx-toast-top-middle'
-        topRight?: string,    // Default: 'rx-toast-top-right'
-        centerLeft?: string,  // Default: 'rx-toast-center-left'
-        centerMiddle?: string,// Default: 'rx-toast-center-middle'
-        centerRight?: string, // Default: 'rx-toast-center-right'
-        bottomLeft?: string,  // Default: 'rx-toast-bottom-left'
-        bottomMiddle?: string,// Default: 'rx-toast-bottom-middle'
-        bottomRight?: string  // Default: 'rx-toast-bottom-right'
+        /** Base class for all toasts @default 'rx-toast' */
+        base?: string,
+        /** Info toast type @default 'rx-toast-info' */
+        info?: string,
+        /** Success toast type @default 'rx-toast-success' */
+        success?: string,
+        /** Warning toast type @default 'rx-toast-warning' */
+        warning?: string,
+        /** Error toast type @default 'rx-toast-error' */
+        error?: string,
+        /** Top-left position @default 'rx-toast-top-left' */
+        topLeft?: string,
+        /** Top-center position @default 'rx-toast-top-middle' */
+        topMiddle?: string,
+        /** Top-right position @default 'rx-toast-top-right' */
+        topRight?: string,
+        /** Center-left position @default 'rx-toast-center-left' */
+        centerLeft?: string,
+        /** Center position @default 'rx-toast-center-middle' */
+        centerMiddle?: string,
+        /** Center-right position @default 'rx-toast-center-right' */
+        centerRight?: string,
+        /** Bottom-left position @default 'rx-toast-bottom-left' */
+        bottomLeft?: string,
+        /** Bottom-center position @default 'rx-toast-bottom-middle' */
+        bottomMiddle?: string,
+        /** Bottom-right position @default 'rx-toast-bottom-right' */
+        bottomRight?: string
     }
 }
 
+/**
+ * Information about a selected file.
+ * @remarks
+ * Provided to file selection callbacks for user feedback.
+ */
 export type FileInfo = {
+    /** The name of the file */
     fileName: string,
+    /** Human-readable file size (e.g., "1.5 MB") */
     size: string,
+    /** Exact file size in bytes */
     sizeInBytes: number
 }
 
+/**
+ * Document-level callbacks for global framework lifecycle events.
+ * @remarks
+ * These callbacks apply to all RazorX elements in the document.
+ * Use ElementCallbacks for element-specific behavior.
+ * All callbacks are optional.
+ */
 export type DocumentCallbacks = {
+    /**
+     * Called before the document is initially processed.
+     * @remarks Useful for setup tasks before RazorX begins processing.
+     */
     beforeDocumentProcessed?: () => void,
+    /**
+     * Called after the document has been fully processed.
+     * @remarks All initial RazorX elements have been configured.
+     */
     afterDocumentProcessed?: () => void,
-    beforeInitializeElement?: (element: HTMLElement) => boolean, //return false to cancel
-    afterInitializeElement?: (element: HTMLElement) => void, //return false to cancel
-    beforeFetch?: (triggerElement: HTMLElement, requestConfiguration: RequestConfiguration) => void, 
+    /**
+     * Called before an element with data-rx attributes is initialized.
+     * @param element - The element about to be initialized
+     * @returns Return false to prevent initialization of this element
+     */
+    beforeInitializeElement?: (element: HTMLElement) => boolean,
+    /**
+     * Called after an element has been initialized with triggers.
+     * @param element - The newly initialized element
+     */
+    afterInitializeElement?: (element: HTMLElement) => void,
+    /**
+     * Called before a fetch request is sent.
+     * @param triggerElement - The element that triggered the request
+     * @param requestConfiguration - The request configuration (can be modified)
+     * @remarks
+     * Modify headers, body, or call abort() to cancel the request.
+     * This is the last chance to modify the request before sending.
+     */
+    beforeFetch?: (triggerElement: HTMLElement, requestConfiguration: RequestConfiguration) => void,
+    /**
+     * Called after a fetch response is received.
+     * @param triggerElement - The element that triggered the request
+     * @param requestDetail - The final request details that were sent
+     * @param response - The fetch response object
+     */
     afterFetch?: (triggerElement: HTMLElement, requestDetail: RequestDetail, response: Response) => void,
+    /**
+     * Called before the DOM is updated with a fragment.
+     * @param triggerElement - The element that triggered the update
+     * @param mergeElement - The target element to be updated
+     * @param strategy - The merge strategy to be applied
+     * @returns Return false to cancel the DOM update
+     */
     beforeDocumentUpdate?: (triggerElement: HTMLElement, mergeElement: HTMLElement, strategy: MergeStrategyType) => boolean,
+    /**
+     * Called after the DOM has been updated.
+     * @param triggerElement - The element that triggered the update
+     */
     afterDocumentUpdate?: (triggerElement: HTMLElement) => void
+    /**
+     * Called when a new element with data-rx attributes is added to the DOM.
+     * @param addedElement - The newly added element
+     * @remarks Fired by MutationObserver when elements are dynamically added.
+     */
     onElementAdded?: (addedElement: HTMLElement) => void,
+    /**
+     * Called after an element has been morphed (intelligently updated).
+     * @param morphedElement - The element that was morphed
+     * @remarks Only fired when using the 'morph' merge strategy.
+     */
     onElementMorphed?: (morphedElement: HTMLElement) => void,
+    /**
+     * Called when an element with data-rx attributes is removed from the DOM.
+     * @param removedElement - The element being removed
+     * @remarks Used for cleanup of event listeners and observers.
+     */
     onElementRemoved?: (removedElement: HTMLElement) => void,
+    /**
+     * Called when an error occurs during trigger processing.
+     * @param triggerElement - The element where the error occurred
+     * @param error - The error that was caught
+     */
     onElementTriggerError?: (triggerElement: HTMLElement, error: unknown) => void,
+    /**
+     * Called during file upload progress.
+     * @param fileInput - The file input element
+     * @param progressContext - Upload progress information
+     * @remarks Useful for displaying upload progress bars.
+     */
     onFileUploadProgress?: (fileInput: HTMLInputElement, progressContext: FileUploadProgressContext) => void,
+    /**
+     * Called when files are selected in a file input.
+     * @param fileInput - The file input element
+     * @param files - Array of selected file information
+     * @param error - Error if file selection failed
+     */
     onFileSelected?: (fileInput: HTMLInputElement, files: FileInfo[], error?: Error) => void,
 }
 
+/**
+ * Element-specific callbacks for individual RazorX elements.
+ * @remarks
+ * These callbacks are attached to specific elements and only fire for that element.
+ * Set via element._rxCallbacks property.
+ * All callbacks are optional.
+ */
 export type ElementCallbacks = {
-    beforeFetch?: (requestConfiguration: RequestConfiguration) => void, 
+    /**
+     * Called before this element sends a fetch request.
+     * @param requestConfiguration - The request configuration (can be modified)
+     * @remarks Call abort() to cancel the request.
+     */
+    beforeFetch?: (requestConfiguration: RequestConfiguration) => void,
+    /**
+     * Called after this element receives a fetch response.
+     * @param requestDetail - The final request details that were sent
+     * @param response - The fetch response object
+     */
     afterFetch?: (requestDetail: RequestDetail, response: Response) => void,
+    /**
+     * Called before this element triggers a DOM update.
+     * @param mergeElement - The target element to be updated
+     * @param strategy - The merge strategy to be applied
+     * @returns Return false to cancel the DOM update
+     */
     beforeDocumentUpdate?: (mergeElement: HTMLElement, strategy: MergeStrategyType) => boolean,
+    /**
+     * Called after this element has triggered a DOM update.
+     */
     afterDocumentUpdate?: () => void,
+    /**
+     * Called when an error occurs during this element's trigger processing.
+     * @param error - The error that was caught
+     */
     onElementTriggerError?: (error: unknown) => void,
+    /**
+     * Called during file upload progress for this element's file input.
+     * @param progressContext - Upload progress information
+     */
     onFileUploadProgress?: (progressContext: FileUploadProgressContext) => void,
+    /**
+     * Called when files are selected in this element's file input.
+     * @param files - Array of selected file information
+     * @param error - Error if file selection failed
+     */
     onFileSelected?: (files: FileInfo[], error?: Error) => void,
 }
 
+/**
+ * Configuration object passed to beforeFetch callbacks.
+ * @remarks
+ * Allows inspection and modification of the request before it's sent.
+ * Call abort() to cancel the request.
+ */
 export type RequestConfiguration = {
+    /** The DOM event that triggered this request */
     trigger: Event,
+    /** The URL or path for the request */
     action: string,
+    /** The HTTP method to use */
     method: HttpMethod,
+    /** Request headers (can be modified) */
     headers: Headers,
+    /** Request body (FormData or JSON string) */
     body: FormData | string | undefined,
+    /**
+     * Aborts the request before it's sent.
+     * @param reason - Optional reason for aborting
+     */
     abort: (reason?: string) => void
 }
 
+/**
+ * Final request details passed to fetch().
+ * @remarks
+ * Read-only snapshot of the request that was actually sent.
+ * Provided to afterFetch callbacks.
+ */
 export type RequestDetail = {
+    /** The URL or path for the request */
     action: string,
+    /** The HTTP method used */
     method: HttpMethod,
+    /** How redirects are handled */
     redirect: FetchRedirect,
+    /** Request body that was sent */
     body: FormData | string | undefined,
+    /** Request headers that were sent */
     headers: Headers,
+    /** AbortSignal for the request */
     signal: AbortSignal,
 }
 
+/**
+ * File upload progress information.
+ * @remarks
+ * Provided to onFileUploadProgress callbacks during file uploads.
+ */
 export type FileUploadProgressContext = {
+    /** The file being uploaded */
     file: File,
+    /** Bytes uploaded so far */
     loaded: number,
+    /** Total file size in bytes */
     total: number,
+    /** Upload percentage (0-100) */
     percentage: number,
 }
 
+/**
+ * Defines how a fragment should be merged into the DOM.
+ * @remarks
+ * Sent by the server in the rx-merge response header.
+ */
 export type MergeStrategy = {
+    /** ID of the target element to update */
     target: string,
+    /** The merge strategy to apply */
     strategy: MergeStrategyType
 }
 
+/**
+ * Supported HTTP methods for RazorX requests.
+ */
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
+/**
+ * Fetch API redirect handling modes.
+ * @see https://developer.mozilla.org/en-US/docs/Web/API/Request/redirect
+ */
 export type FetchRedirect = "follow" | "error" | "manual";
 
+/**
+ * DOM merge strategies for fragment updates.
+ * @remarks
+ * - InsertPosition: DOM standard positions (beforebegin, afterbegin, beforeend, afterend)
+ * - swap: Replace entire target element
+ * - swapInner: Replace target's innerHTML
+ * - morph: Intelligent diff-based update using Idiomorph
+ * - remove: Remove the target element
+ */
 export type MergeStrategyType = InsertPosition | "swap" | "swapInner" | "morph" | "remove";
 
+/**
+ * RazorX-specific response headers sent by the server.
+ * @remarks
+ * These headers control client-side behavior after receiving a response.
+ * - rx-merge: Fragment merge instructions (JSON)
+ * - rx-morph-ignore-active: Preserve active element value during morph
+ * - rx-trigger-close-dialog: Close a dialog element (JSON)
+ * - rx-trigger-focus-element: Focus an element (JSON)
+ * - rx-trigger-set-state: Set browser storage state (JSON)
+ * - rx-trigger-toast: Display a toast notification (JSON)
+ */
 export type RxResponseHeaders = 
     "rx-merge" | 
     "rx-morph-ignore-active" | 
@@ -135,61 +414,160 @@ export type RxResponseHeaders =
     "rx-trigger-set-state" |
     "rx-trigger-toast";
 
+/**
+ * Types of special triggers that fire automatically.
+ * @remarks
+ * - initialized: Fires once when element is added to DOM
+ * - poll: Fires repeatedly at specified intervals
+ * - revealed: Fires when element enters viewport
+ */
 export type SpecialTriggerType = 'initialized' | 'poll' | 'revealed';
 
+/**
+ * Base configuration for special triggers.
+ */
 export type SpecialTriggerConfig = {
+    /** The type of special trigger */
     type: SpecialTriggerType;
 }
 
+/**
+ * Configuration for initialized triggers.
+ * @remarks
+ * Fires once when the element is added to the DOM.
+ * Useful for loading initial content or starting animations.
+ */
 export type InitializedTrigger = SpecialTriggerConfig & {
+    /** Trigger type discriminator */
     type: 'initialized';
-    delay?: number; // Optional delay in milliseconds before triggering
+    /** Optional delay in milliseconds before triggering @default 0 */
+    delay?: number;
 }
 
+/**
+ * Configuration for polling triggers.
+ * @remarks
+ * Fires repeatedly at specified intervals.
+ * Useful for real-time updates or monitoring.
+ * Automatically cleaned up when element is removed.
+ */
 export type PollTrigger = SpecialTriggerConfig & {
+    /** Trigger type discriminator */
     type: 'poll';
-    interval?: number; // Optional, default 1000ms
+    /** Polling interval in milliseconds @default 1000 */
+    interval?: number;
 }
 
+/**
+ * Configuration for revealed triggers.
+ * @remarks
+ * Fires when the element enters the viewport.
+ * Uses IntersectionObserver for efficient detection.
+ * Useful for lazy loading or scroll-triggered animations.
+ */
 export type RevealedTrigger = SpecialTriggerConfig & {
+    /** Trigger type discriminator */
     type: 'revealed';
-    margin?: string; // Optional, default "0px"
+    /** Root margin for intersection observer @default "0px" */
+    margin?: string;
 }
 
+/**
+ * Union type of all special trigger configurations.
+ */
 export type SpecialTrigger = InitializedTrigger | PollTrigger | RevealedTrigger;
 
+/**
+ * Definition of a trigger that can be either a DOM event name or special trigger.
+ * @remarks
+ * Used in data-rx-trigger attribute parsing.
+ * @example
+ * ```html
+ * <!-- DOM event -->
+ * <button data-rx-trigger="click">Click me</button>
+ * 
+ * <!-- Special trigger -->
+ * <div data-rx-trigger='[{"type":"poll","interval":5000}]'>Poll every 5s</div>
+ * ```
+ */
 export type TriggerDefinition = string | SpecialTrigger;
 
+/**
+ * Server trigger to close a dialog element.
+ * @remarks
+ * Sent via rx-trigger-close-dialog response header.
+ */
 export type RxCloseDialogTrigger = {
+    /** ID of the dialog element to close */
     dialogId: string,
+    /** Optional data to pass to close handler */
     onCloseData?: string,
+    /** Optional form ID to reset after closing */
     resetFormId?: string
 }
 
+/**
+ * Server trigger to focus an element.
+ * @remarks
+ * Sent via rx-trigger-focus-element response header.
+ */
 export type RxFocusElementTrigger = {
+    /** ID of the element to focus */
     elementId: string,
+    /** Whether to position cursor at end of content */
     positionCursorEnd: boolean,
 }
 
+/**
+ * Server trigger to set browser storage state.
+ * @remarks
+ * Sent via rx-trigger-set-state response header.
+ * State can be included in subsequent requests via data-rx-include-state.
+ */
 export type RxSetStateTrigger = {
+    /** Storage type: Session (sessionStorage) or Persistent (localStorage) */
     scope: "Session" | "Persistent"
+    /** Storage key name */
     key: string,
+    /** Value to store (null to remove) */
     value?: string | null,
+    /** Whether to update URL query parameters */
     updateUrl?: boolean,
 }
 
+/**
+ * Toast notification types affecting visual style.
+ */
 export type ToastType = "Info" | "Success" | "Warning" | "Error";
 
+/**
+ * Vertical positioning for toast notifications.
+ */
 export type ToastVerticalPosition = "Top" | "Center" | "Bottom";
 
+/**
+ * Horizontal positioning for toast notifications.
+ */
 export type ToastHorizontalPosition = "Left" | "Middle" | "Right";
 
+/**
+ * Server trigger to display a toast notification.
+ * @remarks
+ * Sent via rx-trigger-toast response header.
+ * Multiple toasts can be displayed simultaneously.
+ */
 export type RxToastTrigger = {
+    /** The message to display */
     message: string,
+    /** Toast type for styling */
     type: ToastType,
+    /** Display duration in milliseconds */
     duration: number,
+    /** Vertical screen position */
     verticalPosition: ToastVerticalPosition,
+    /** Horizontal screen position */
     horizontalPosition: ToastHorizontalPosition,
+    /** Whether clicking dismisses the toast */
     clickToDismiss: boolean
 }
 
@@ -2339,4 +2717,34 @@ const razorxProto: unknown = {
     addCallbacks: Object.freeze(_addCallbacks)
 }
 
+/**
+ * The main RazorX framework object.
+ * @remarks
+ * This is the primary entry point for the RazorX client-side framework.
+ * Import this object to initialize and configure RazorX in your application.
+ * 
+ * @example
+ * ```typescript
+ * import { razorx } from './razorx';
+ * 
+ * // Initialize with default options
+ * razorx.init();
+ * 
+ * // Or with custom options
+ * razorx.init({
+ *   encodeRequestFormDataAsJson: true,
+ *   addCookieToRequestHeader: 'RequestVerificationToken'
+ * });
+ * 
+ * // Add global callbacks
+ * razorx.addCallbacks({
+ *   beforeFetch: (element, config) => {
+ *     console.log('Request starting:', config.action);
+ *   },
+ *   afterFetch: (element, detail, response) => {
+ *     console.log('Request completed:', response.status);
+ *   }
+ * });
+ * ```
+ */
 export const razorx = razorxProto as RazorX;

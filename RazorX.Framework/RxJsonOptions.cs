@@ -129,6 +129,14 @@ public abstract class FormValueJsonConverter<T>(
     }
 }
 
+/// <summary>
+/// JSON converter that handles both single values and arrays for form data binding.
+/// </summary>
+/// <typeparam name="T">The element type of the collection.</typeparam>
+/// <remarks>
+/// This converter is automatically registered by the framework when AddJsonConverters is enabled.
+/// It allows form fields to be submitted as either single values or arrays.
+/// </remarks>
 public sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<IEnumerable<T>> {
     // Handle null values so our Write method gets called
     public override bool HandleNull => true;
@@ -214,6 +222,13 @@ public sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAc
 
 }
 
+/// <summary>
+/// JSON converter for DateOnly values from form data.
+/// </summary>
+/// <remarks>
+/// Automatically registered by the framework when AddJsonConverters is enabled.
+/// Handles string-to-DateOnly conversion for form submissions.
+/// </remarks>
 public sealed class DateOnlyJsonConverter(IHttpContextAccessor hca, ILogger logger)
     : FormValueJsonConverter<DateOnly>(hca, logger) {
     protected override string ConverterName => nameof(DateOnlyJsonConverter);
@@ -223,6 +238,13 @@ public sealed class DateOnlyJsonConverter(IHttpContextAccessor hca, ILogger logg
         => writer.WriteStringValue(value.ToDateTime(TimeOnly.MinValue));
 }
 
+/// <summary>
+/// JSON converter for DateTime values from form data.
+/// </summary>
+/// <remarks>
+/// Automatically registered by the framework when AddJsonConverters is enabled.
+/// Handles string-to-DateTime conversion for form submissions.
+/// </remarks>
 public sealed class DateTimeJsonConverter(IHttpContextAccessor hca, ILogger logger)
     : FormValueJsonConverter<DateTime>(hca, logger) {
     protected override string ConverterName => nameof(DateTimeJsonConverter);
@@ -232,6 +254,13 @@ public sealed class DateTimeJsonConverter(IHttpContextAccessor hca, ILogger logg
         => writer.WriteStringValue(value);
 }
 
+/// <summary>
+/// JSON converter for boolean values from form data.
+/// </summary>
+/// <remarks>
+/// Automatically registered by the framework when AddJsonConverters is enabled.
+/// Handles string-to-bool conversion including "true", "false", "on", "off" values.
+/// </remarks>
 public sealed class BooleanJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger) : JsonConverter<bool> {
     // Handle null values so our Write method gets called
     public override bool HandleNull => true;
@@ -284,6 +313,13 @@ public sealed class BooleanJsonConverter(IHttpContextAccessor httpContextAccesso
     }
 }
 
+/// <summary>
+/// JSON converter for integer values from form data.
+/// </summary>
+/// <remarks>
+/// Automatically registered by the framework when AddJsonConverters is enabled.
+/// Handles string-to-int conversion for form submissions.
+/// </remarks>
 public sealed class IntJsonConverter(IHttpContextAccessor hca, ILogger logger)
     : FormValueJsonConverter<int>(hca, logger) {
     protected override string ConverterName => nameof(IntJsonConverter);
@@ -293,6 +329,13 @@ public sealed class IntJsonConverter(IHttpContextAccessor hca, ILogger logger)
         => writer.WriteNumberValue(value);
 }
 
+/// <summary>
+/// JSON converter for long integer values from form data.
+/// </summary>
+/// <remarks>
+/// Automatically registered by the framework when AddJsonConverters is enabled.
+/// Handles string-to-long conversion for form submissions.
+/// </remarks>
 public sealed class LongJsonConverter(IHttpContextAccessor hca, ILogger logger)
     : FormValueJsonConverter<long>(hca, logger) {
     protected override string ConverterName => nameof(LongJsonConverter);
@@ -302,6 +345,13 @@ public sealed class LongJsonConverter(IHttpContextAccessor hca, ILogger logger)
         => writer.WriteNumberValue(value);
 }
 
+/// <summary>
+/// JSON converter for short integer values from form data.
+/// </summary>
+/// <remarks>
+/// Automatically registered by the framework when AddJsonConverters is enabled.
+/// Handles string-to-short conversion for form submissions.
+/// </remarks>
 public sealed class ShortJsonConverter(IHttpContextAccessor hca, ILogger logger)
     : FormValueJsonConverter<short>(hca, logger) {
     protected override string ConverterName => nameof(ShortJsonConverter);
@@ -311,6 +361,13 @@ public sealed class ShortJsonConverter(IHttpContextAccessor hca, ILogger logger)
         => writer.WriteNumberValue(value);
 }
 
+/// <summary>
+/// JSON converter for decimal values from form data.
+/// </summary>
+/// <remarks>
+/// Automatically registered by the framework when AddJsonConverters is enabled.
+/// Handles string-to-decimal conversion for form submissions.
+/// </remarks>
 public sealed class DecimalJsonConverter(IHttpContextAccessor hca, ILogger logger)
     : FormValueJsonConverter<decimal>(hca, logger) {
     protected override string ConverterName => nameof(DecimalJsonConverter);
@@ -320,6 +377,13 @@ public sealed class DecimalJsonConverter(IHttpContextAccessor hca, ILogger logge
         => writer.WriteNumberValue(value);
 }
 
+/// <summary>
+/// JSON converter for double-precision floating-point values from form data.
+/// </summary>
+/// <remarks>
+/// Automatically registered by the framework when AddJsonConverters is enabled.
+/// Handles string-to-double conversion for form submissions.
+/// </remarks>
 public sealed class DoubleJsonConverter(IHttpContextAccessor hca, ILogger logger)
     : FormValueJsonConverter<double>(hca, logger) {
     protected override string ConverterName => nameof(DoubleJsonConverter);
@@ -329,6 +393,13 @@ public sealed class DoubleJsonConverter(IHttpContextAccessor hca, ILogger logger
         => writer.WriteNumberValue(value);
 }
 
+/// <summary>
+/// JSON converter for single-precision floating-point values from form data.
+/// </summary>
+/// <remarks>
+/// Automatically registered by the framework when AddJsonConverters is enabled.
+/// Handles string-to-float conversion for form submissions.
+/// </remarks>
 public sealed class FloatJsonConverter(IHttpContextAccessor hca, ILogger logger)
     : FormValueJsonConverter<float>(hca, logger) {
     protected override string ConverterName => nameof(FloatJsonConverter);
@@ -338,6 +409,13 @@ public sealed class FloatJsonConverter(IHttpContextAccessor hca, ILogger logger)
         => writer.WriteNumberValue(value);
 }
 
+/// <summary>
+/// JSON converter for character values from form data.
+/// </summary>
+/// <remarks>
+/// Automatically registered by the framework when AddJsonConverters is enabled.
+/// Handles string-to-char conversion for form submissions.
+/// </remarks>
 public sealed class CharJsonConverter(IHttpContextAccessor httpContextAccessor, ILogger logger)
     : FormValueJsonConverter<char>(httpContextAccessor, logger) {
     protected override string ConverterName => nameof(CharJsonConverter);
