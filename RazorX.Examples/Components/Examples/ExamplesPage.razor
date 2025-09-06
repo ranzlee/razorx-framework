@@ -2,7 +2,7 @@
 
 <TodoExample Model="@(Model)"></TodoExample>
 
-<FileUploader />
+<FileUploader Model="@(Model.FileUpload)" />
 
 @code {
     [Parameter] public ExampleModel Model { get; set; } = null!;

@@ -10,9 +10,9 @@ public class TodoModel(int id, string text, bool isComplete) {
     public bool IsComplete { get; set; } = isComplete;
 };
 
-public record ExampleModel(IEnumerable<TodoModel> Todos, int Total, int Completed);
+public record ExampleModel(IEnumerable<TodoModel> Todos, int Total, int Completed, FileUploadModel FileUpload);
 public record TodoFormModel(int Id, string Text, bool IsComplete, bool HasError, bool IsEdit);
-public record FileUploadModel(string FileId, string FileName);
+public record FileUploadModel(string FileId, string FileName, string NewFileName, Stream? File);
 
 public class ExamplesHandler : RequestHandler {
     public override void MapRoutes(IEndpointRouteBuilder router) {
@@ -31,9 +31,10 @@ public class ExamplesHandler : RequestHandler {
     }
 
     private static readonly List<TodoModel> Todos = [];
+    private static FileUploadModel Upload = new(string.Empty, string.Empty, string.Empty, null);
 
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver, string filter = "") {
-        return await rxDriver.RenderPage<App, ExamplesHead, ExamplesPage, ExampleModel>(context, new ExampleModel([], 0, 0), "RazorX - Examples");
+        return await rxDriver.RenderPage<App, ExamplesHead, ExamplesPage, ExampleModel>(context, new ExampleModel([], 0, 0, Upload), "RazorX - Examples");
     }
 
     public static async Task<IResult> NextTodos(HttpContext context, IRxDriver rxDriver, int id, string filter = "") {
@@ -183,9 +184,12 @@ public class ExamplesHandler : RequestHandler {
     [RequestSizeLimit(long.MaxValue)]
     [RequestFormLimits(MultipartBodyLengthLimit = long.MaxValue)]
     public static async Task<IResult> FileUpload(HttpContext context, IRxDriver rxDriver, IFormFile uploadedFile) {
+        var s = new MemoryStream();
+        await uploadedFile.CopyToAsync(s);
+        Upload = new(Guid.NewGuid().ToString(), uploadedFile.FileName, string.Empty, s);
         return await rxDriver
             .With(context)
-            .AddFragment<FileResponse, FileUploadModel>(new FileUploadModel(Guid.NewGuid().ToString(), uploadedFile.FileName), "file-upload-container", FragmentMergeStrategyType.Swap)
+            .AddFragment<FileResponse, FileUploadModel>(Upload, "file-upload-container", FragmentMergeStrategyType.Swap)
             .Render();
     }
 
@@ -196,10 +200,17 @@ public class ExamplesHandler : RequestHandler {
                 .AddTriggerToast("File is required", ToastType.Error)
                 .Render();
         }
+        if (string.IsNullOrWhiteSpace(model.NewFileName)) {
+            return await rxDriver
+                .With(context)
+                .AddTriggerToast("A new file name was not provided", ToastType.Warning)
+                .Render();
+        }
+        Upload = Upload with { FileName = model.NewFileName, NewFileName = model.NewFileName };
         return await rxDriver
             .With(context)
             .AddTriggerToast("Form submitted successfully!", ToastType.Success)
-            .AddFragment<FileUploadFormSubmitted, FileUploadModel>(model, "file-upload-form", FragmentMergeStrategyType.Swap)
+            .AddFragment<FileUploadFormSubmitted, FileUploadModel>(Upload, "file-upload-form", FragmentMergeStrategyType.Swap)
             .Render();
     }
 }

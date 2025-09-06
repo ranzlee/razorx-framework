@@ -237,6 +237,8 @@ const _elementTriggerState: WeakMap<HTMLElement, ElementTriggerState> = new Weak
 
 const _delegatedActionConfigs: WeakMap<HTMLElement, DelegatedActionConfig> = new WeakMap();
 
+const _elementOriginalDisabledState: WeakMap<HTMLElement, Set<Element>> = new WeakMap();
+
 const _activeLoadingIndicators: Map<string, Set<string>> = new Map();
 
 const _activeToasts: Map<string, ToastState> = new Map();
@@ -286,6 +288,100 @@ const _addCallbacks = (callbacks: DocumentCallbacks): void => {
     _callbacks.onFileUploadProgress = callbacks.onFileUploadProgress;
     _callbacks.onFileSelected = callbacks.onFileSelected;
 }
+
+// ============================================================================
+// Event Dispatching System
+// ============================================================================
+
+const _dispatchBeforeDocumentProcessed = (): void => {
+    document.dispatchEvent(new CustomEvent('rx:before-document-processed'));
+}
+
+const _dispatchAfterDocumentProcessed = (): void => {
+    document.dispatchEvent(new CustomEvent('rx:after-document-processed'));
+}
+
+const _dispatchBeforeInitializeElement = (element: HTMLElement): CustomEvent => {
+    const event = new CustomEvent('rx:before-initialize-element', {
+        detail: { element },
+        cancelable: true
+    });
+    document.dispatchEvent(event);
+    return event;
+}
+
+const _dispatchAfterInitializeElement = (element: HTMLElement): void => {
+    document.dispatchEvent(new CustomEvent('rx:after-initialize-element', {
+        detail: { element }
+    }));
+}
+
+const _dispatchBeforeFetch = (triggerElement: HTMLElement, requestConfiguration: RequestConfiguration): void => {
+    document.dispatchEvent(new CustomEvent('rx:before-fetch', {
+        detail: { triggerElement, requestConfiguration }
+    }));
+}
+
+const _dispatchAfterFetch = (triggerElement: HTMLElement, requestDetail: RequestDetail, response: Response): void => {
+    document.dispatchEvent(new CustomEvent('rx:after-fetch', {
+        detail: { triggerElement, requestDetail, response }
+    }));
+}
+
+const _dispatchBeforeDocumentUpdate = (triggerElement: HTMLElement, mergeElement: HTMLElement, strategy: MergeStrategyType): CustomEvent => {
+    const event = new CustomEvent('rx:before-document-update', {
+        detail: { triggerElement, mergeElement, strategy },
+        cancelable: true
+    });
+    document.dispatchEvent(event);
+    return event;
+}
+
+const _dispatchAfterDocumentUpdate = (triggerElement: HTMLElement): void => {
+    document.dispatchEvent(new CustomEvent('rx:after-document-update', {
+        detail: { triggerElement }
+    }));
+}
+
+const _dispatchOnElementAdded = (addedElement: HTMLElement): void => {
+    document.dispatchEvent(new CustomEvent('rx:element-added', {
+        detail: { element: addedElement }
+    }));
+}
+
+const _dispatchOnElementMorphed = (morphedElement: HTMLElement): void => {
+    document.dispatchEvent(new CustomEvent('rx:element-morphed', {
+        detail: { element: morphedElement }
+    }));
+}
+
+const _dispatchOnElementRemoved = (removedElement: HTMLElement): void => {
+    document.dispatchEvent(new CustomEvent('rx:element-removed', {
+        detail: { element: removedElement }
+    }));
+}
+
+const _dispatchOnElementTriggerError = (triggerElement: HTMLElement, error: unknown): void => {
+    document.dispatchEvent(new CustomEvent('rx:element-trigger-error', {
+        detail: { triggerElement, error }
+    }));
+}
+
+const _dispatchOnFileUploadProgress = (fileInput: HTMLInputElement, progressContext: FileUploadProgressContext): void => {
+    document.dispatchEvent(new CustomEvent('rx:file-upload-progress', {
+        detail: { fileInput, progressContext }
+    }));
+}
+
+const _dispatchOnFileSelected = (fileInput: HTMLInputElement, files: FileInfo[], error?: Error): void => {
+    document.dispatchEvent(new CustomEvent('rx:file-selected', {
+        detail: { fileInput, files, error }
+    }));
+}
+
+// ============================================================================
+// End Event Dispatching System
+// ============================================================================
 
 const _isFirefox = navigator.userAgent.toLowerCase().includes("firefox");
 
@@ -371,6 +467,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (_callbacks.onElementRemoved) {
                     _callbacks.onElementRemoved(node);
                 }
+                _dispatchOnElementRemoved(node);
             });
             rec.addedNodes.forEach((node: Node): void => { 
                 if (!(node instanceof HTMLElement)) {
@@ -390,6 +487,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (_callbacks.onElementAdded) {
                     _callbacks.onElementAdded(node);
                 }
+                _dispatchOnElementAdded(node);
             });
         });
     });
@@ -678,6 +776,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     function addTriggers(ele: HTMLElement): void {
         if (ele.dataset.rxAction && (!_callbacks.beforeInitializeElement || _callbacks.beforeInitializeElement(ele))) {
+            const beforeEvent = _dispatchBeforeInitializeElement(ele);
+            if (beforeEvent.defaultPrevented) {
+                return;
+            }
             configureElement(ele);
             if (!(ele instanceof HTMLInputElement && ele.type === 'file')) {
                 setTriggers(ele);
@@ -685,6 +787,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (_callbacks.afterInitializeElement) {
                 _callbacks.afterInitializeElement(ele);
             }
+            _dispatchAfterInitializeElement(ele);
         }
         const children = ele.children;
         if (children?.length <= 0) {
@@ -844,6 +947,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (_callbacks.onFileSelected) {
                 _callbacks.onFileSelected(this, fileInfos, error);
             }
+            _dispatchOnFileSelected(this, fileInfos, error);
             if (error) {
                 sendError(this, error);
                 this.value = '';
@@ -864,10 +968,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (_callbacks.beforeDocumentProcessed) {
             _callbacks.beforeDocumentProcessed();
         }
+        _dispatchBeforeDocumentProcessed();
         addTriggers(document.body);
         if (_callbacks.afterDocumentProcessed) {
             _callbacks.afterDocumentProcessed();
         }
+        _dispatchAfterDocumentProcessed();
     }
 
     function elementDelegateActionEventHandler(this: HTMLElement): void {
@@ -1107,7 +1213,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     filesToRemove.forEach(key => {
                         (request.body as FormData).delete(key);
                     });
-                    if (options?.encodeRequestFormDataAsJson === undefined || options.encodeRequestFormDataAsJson === true) {
+                    // Don't encode to JSON yet if we have files - we'll need the FormData later
+                    if (!hasFiles && (options?.encodeRequestFormDataAsJson === undefined || options.encodeRequestFormDataAsJson === true)) {
                         encodeBodyAsJson(request);
                     }
                 }
@@ -1125,15 +1232,22 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (_callbacks.beforeFetch) {
                     _callbacks.beforeFetch(ele, config);
                 }
+                _dispatchBeforeFetch(ele, config);
                 if (ac.signal.aborted) {
                     return;
                 }
                 if (hasFiles) {
+                    const originalFormData = request.body as FormData;
                     await processFileUploads(filesMap, ele, options, ac.signal);
                     if (form) {
                         try {
-                            request.body = new FormData(form, evt instanceof SubmitEvent ? evt.submitter : null);
-                            // Re-encode as JSON after recollection
+                            const newFormData = new FormData(form, evt instanceof SubmitEvent ? evt.submitter : null);
+                            originalFormData.forEach((value: FormDataEntryValue, key: string): void => {
+                                if (!newFormData.has(key)) {
+                                    newFormData.append(key, value);
+                                }
+                            });
+                            request.body = newFormData;
                             if (options?.encodeRequestFormDataAsJson === undefined || options.encodeRequestFormDataAsJson === true) {
                                 encodeBodyAsJson(request);
                             }
@@ -1142,6 +1256,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                             console.error(errorMsg, formError);
                             sendError(ele, new Error(errorMsg));
                             return;
+                        }
+                    } else {
+                        request.body = originalFormData;
+                        if (options?.encodeRequestFormDataAsJson === undefined || options.encodeRequestFormDataAsJson === true) {
+                            encodeBodyAsJson(request);
                         }
                     }
                 }
@@ -1155,6 +1274,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (_callbacks.afterFetch) {
                     _callbacks.afterFetch(ele, request, response);
                 }
+                _dispatchAfterFetch(ele, request, response);
             } finally {
                 _requestRefTracker.delete(ele.id);
                 toggleLoadingIndicator(ele, false);
@@ -1314,6 +1434,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (_callbacks.afterDocumentUpdate) {
                 _callbacks.afterDocumentUpdate(ele);
             }
+            _dispatchAfterDocumentUpdate(ele);
             processFocusElementTrigger(ele, parsedHeaders?.focusElement);
             processToastTrigger(ele, parsedHeaders?.toast);
             return;
@@ -1386,6 +1507,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (_callbacks.onElementTriggerError) {
                     _callbacks.onElementTriggerError(ele, error);
                 }
+                _dispatchOnElementTriggerError(ele, error);
                 continue;
             }
             if (setStateTrigger.scope === "Session") {
@@ -1691,6 +1813,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (_callbacks.onElementTriggerError) {
             _callbacks.onElementTriggerError(ele, err);
         }
+        _dispatchOnElementTriggerError(ele, err);
         console.error(err);
     }
 
@@ -1700,23 +1823,52 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (parentFieldset) {
             targetElement = parentFieldset;
         } else if (ele instanceof HTMLFormElement) {
-            const formControls = ele.querySelectorAll('input, textarea, select, button');
-            formControls.forEach(control => {
-                if (disable) {
-                    control.setAttribute("disabled", "");
-                } else {
-                    control.removeAttribute("disabled");
+            if (disable) {
+                if (!_elementOriginalDisabledState.has(ele)) {
+                    const originallyDisabled = new Set<Element>();
+                    const formControls = ele.querySelectorAll('input, textarea, select, button');
+                    formControls.forEach(control => {
+                        if (control.hasAttribute('disabled')) {
+                            originallyDisabled.add(control);
+                        }
+                    });
+                    if (ele.id) {
+                        const associatedControls = document.querySelectorAll(`[form="${ele.id}"]`);
+                        associatedControls.forEach(control => {
+                            if (control.hasAttribute('disabled')) {
+                                originallyDisabled.add(control);
+                            }
+                        });
+                    }
+                    _elementOriginalDisabledState.set(ele, originallyDisabled);
                 }
-            });
-            if (ele.id) {
-                const associatedControls = document.querySelectorAll(`[form="${ele.id}"]`);
-                associatedControls.forEach(control => {
-                    if (disable) {
+                const formControls = ele.querySelectorAll('input, textarea, select, button');
+                formControls.forEach(control => {
+                    control.setAttribute("disabled", "");
+                });
+                if (ele.id) {
+                    const associatedControls = document.querySelectorAll(`[form="${ele.id}"]`);
+                    associatedControls.forEach(control => {
                         control.setAttribute("disabled", "");
-                    } else {
+                    });
+                }
+            } else {
+                const originallyDisabled = _elementOriginalDisabledState.get(ele);
+                const formControls = ele.querySelectorAll('input, textarea, select, button');
+                formControls.forEach(control => {
+                    if (!originallyDisabled?.has(control)) {
                         control.removeAttribute("disabled");
                     }
                 });
+                if (ele.id) {
+                    const associatedControls = document.querySelectorAll(`[form="${ele.id}"]`);
+                    associatedControls.forEach(control => {
+                        if (!originallyDisabled?.has(control)) {
+                            control.removeAttribute("disabled");
+                        }
+                    });
+                }
+                _elementOriginalDisabledState.delete(ele);
             }
             return; // Exit early for form handling
         } else if (ele instanceof HTMLOptionElement) {
@@ -1734,10 +1886,20 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
         if (targetElement) {
             if (disable) {
+                if (!_elementOriginalDisabledState.has(ele)) {
+                    const originallyDisabled = new Set<Element>();
+                    if (targetElement.hasAttribute('disabled')) {
+                        originallyDisabled.add(targetElement);
+                    }
+                    _elementOriginalDisabledState.set(ele, originallyDisabled);
+                }
                 targetElement.setAttribute("disabled", "");
             } else {
-                targetElement.removeAttribute("disabled");
-                //targetElement.focus();
+                const originallyDisabled = _elementOriginalDisabledState.get(ele);
+                if (!originallyDisabled?.has(targetElement)) {
+                    targetElement.removeAttribute("disabled");
+                }
+                _elementOriginalDisabledState.delete(ele);
             }
         }
     }
@@ -1906,6 +2068,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                             if (_callbacks.onFileUploadProgress) {
                                 _callbacks.onFileUploadProgress(fileInput, progressContext);
                             }
+                            _dispatchOnFileUploadProgress(fileInput, progressContext);
                         }
                     };
                     xhr.onload = () => {
@@ -1984,6 +2147,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (_callbacks.beforeDocumentUpdate && _callbacks.beforeDocumentUpdate(triggerElement, target, r.strategy) === false) {
                 return;
             }
+            const beforeEvent = _dispatchBeforeDocumentUpdate(triggerElement, target, r.strategy);
+            if (beforeEvent.defaultPrevented) {
+                return;
+            }
             target.remove();
         });
     }
@@ -2053,6 +2220,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         if (_callbacks.onElementTriggerError) {
                             _callbacks.onElementTriggerError(triggerElement, error);
                         }
+                        _dispatchOnElementTriggerError(triggerElement, error);
                         continue; // Skip this element but try the next ones
                     }
                     thisEle = inserted;
@@ -2097,6 +2265,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         if (_callbacks.onElementMorphed) {
                             _callbacks.onElementMorphed(oldNode);
                         }
+                        _dispatchOnElementMorphed(oldNode);
                     }
                 }
             });
@@ -2124,6 +2293,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             return;
         }
         if (_callbacks.beforeDocumentUpdate && _callbacks.beforeDocumentUpdate(triggerElement, fragment, mergeStrategy.strategy) === false) {
+            return;
+        }
+        const beforeEvent = _dispatchBeforeDocumentUpdate(triggerElement, fragment, mergeStrategy.strategy);
+        if (beforeEvent.defaultPrevented) {
             return;
         }
         return target;
