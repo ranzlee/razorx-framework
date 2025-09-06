@@ -445,7 +445,7 @@ jobs:
     
     # Generate provenance attestation
     - name: Generate SLSA Provenance
-      uses: actions/attest-build-provenance@v2
+      uses: actions/attest-build-provenance@v3
       with:
         subject-path: '${{ env.PACKAGE_OUTPUT_DIR }}/*.nupkg'
     
