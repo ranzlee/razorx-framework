@@ -7655,9 +7655,13 @@ describe('RazorX Framework API Surface Tests', () => {
         for (const testCase of testCases) {
           onFileSelectedSpy.mockClear()
           
-          // Create a file with specific size
-          const content = new Uint8Array(testCase.size)
-          const file = new File([content], 'test.txt')
+          // Create a file with mocked size (avoid allocating huge arrays)
+          const file = new File([''], 'test.txt')
+          Object.defineProperty(file, 'size', {
+            value: testCase.size,
+            writable: false,
+            configurable: true
+          })
           Object.defineProperty(fileInput, 'files', {
             value: [file],
             writable: false,
