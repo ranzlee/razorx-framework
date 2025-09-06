@@ -311,7 +311,7 @@ public class RxAntiforgeryTests {
         _mockAntiforgery.ShouldThrowOnValidation = true;
 
         // Act & Assert
-        await Assert.ThrowsExceptionAsync<AntiforgeryValidationException>(() =>
+        await Assert.ThrowsExactlyAsync<AntiforgeryValidationException>(() =>
             _middleware.InvokeAsync(_httpContext, _mockAntiforgery, _logger, options));
     }
 

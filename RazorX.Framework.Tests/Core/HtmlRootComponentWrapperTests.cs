@@ -53,7 +53,7 @@ public class HtmlRootComponentWrapperTests {
         var wrapper = new HtmlRootComponentWrapper(invalidComponent, _logger);
 
         // Act & Assert
-        var ex = Assert.ThrowsException<InvalidOperationException>(() => wrapper.ToHtmlString());
+        var ex = Assert.ThrowsExactly<InvalidOperationException>(() => wrapper.ToHtmlString());
         Assert.IsTrue(ex.Message.Contains("ToHtmlString method not found"));
     }
 
@@ -94,7 +94,7 @@ public class HtmlRootComponentWrapperTests {
         var wrapper = new HtmlRootComponentWrapper(throwingComponent, _logger);
 
         // Act & Assert
-        var ex = Assert.ThrowsException<InvalidOperationException>(() => wrapper.ToHtmlString());
+        var ex = Assert.ThrowsExactly<InvalidOperationException>(() => wrapper.ToHtmlString());
         Assert.AreEqual("ToHtmlString failed", ex.Message);
     }
 

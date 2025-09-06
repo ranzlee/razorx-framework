@@ -4,7 +4,6 @@ var builder = WebApplication.CreateBuilder(args);
 var services = builder.Services;
 
 services.AddRxDriver();
-services.AddHttpContextAccessor();
 services.AddAntiforgery();
 services.AddRxAntiforgery();
 services.AddProblemDetails();

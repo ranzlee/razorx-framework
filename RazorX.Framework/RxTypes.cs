@@ -3,10 +3,40 @@ using Microsoft.AspNetCore.Routing;
 namespace RazorX.Framework;
 
 /// <summary>
-/// Interface for a class that contains endpoints.
+/// Abstract base class for defining HTTP request handlers in RazorX.Framework.
 /// </summary>
+/// <remarks>
+/// Inherit from this class to define route handlers for your application.
+/// The framework automatically discovers and registers all RequestHandler implementations at startup.
+/// Each handler should map its routes in the MapRoutes method.
+/// </remarks>
+/// <example>
+/// <code>
+/// public class ProductHandler : RequestHandler {
+///     public override void MapRoutes(IEndpointRouteBuilder router) {
+///         router.MapGet("/products", GetProducts);
+///         router.MapPost("/products", CreateProduct);
+///     }
+///     
+///     private static async Task&lt;IResult&gt; GetProducts(IRxDriver driver, HttpContext context) {
+///         // Handler implementation
+///     }
+/// }
+/// </code>
+/// </example>
 public abstract class RequestHandler {
+    /// <summary>
+    /// Protected constructor to prevent direct instantiation.
+    /// </summary>
     protected RequestHandler() { }
+    /// <summary>
+    /// Maps HTTP routes for this handler.
+    /// </summary>
+    /// <param name="router">The endpoint route builder to add routes to.</param>
+    /// <remarks>
+    /// This method is called during application startup.
+    /// Use the router parameter to map your endpoints using MapGet, MapPost, etc.
+    /// </remarks>
     public abstract void MapRoutes(IEndpointRouteBuilder router);
 }
 
@@ -28,18 +58,60 @@ public interface IComponentModel<TModel> {
     TModel Model { get; set; }
 }
 
+/// <summary>
+/// Defines strategies for merging HTML fragments into the DOM.
+/// </summary>
+/// <remarks>
+/// These strategies control how the client-side JavaScript updates the DOM
+/// when receiving fragment responses from the server.
+/// </remarks>
 public enum FragmentMergeStrategyType {
+    /// <summary>
+    /// Replaces the entire target element with the fragment content.
+    /// </summary>
     Swap = 0,
+    /// <summary>
+    /// Replaces only the inner HTML of the target element, preserving the element itself.
+    /// </summary>
     SwapInner = 1,
+    /// <summary>
+    /// Inserts the fragment as the first child of the target element.
+    /// </summary>
     AppendAfterBegin = 2,
+    /// <summary>
+    /// Inserts the fragment immediately after the target element.
+    /// </summary>
     AppendAfterEnd = 3,
+    /// <summary>
+    /// Inserts the fragment immediately before the target element.
+    /// </summary>
     AppendBeforeBegin = 4,
+    /// <summary>
+    /// Inserts the fragment as the last child of the target element.
+    /// </summary>
     AppendBeforeEnd = 5,
+    /// <summary>
+    /// Intelligently morphs the target element to match the fragment,
+    /// preserving element state where possible (uses Idiomorph algorithm).
+    /// </summary>
     Morph = 6
 }
 
+/// <summary>
+/// Defines the storage scope for client-side state management.
+/// </summary>
+/// <remarks>
+/// Determines whether state values are stored in session storage
+/// (cleared when the browser tab closes) or local storage (persists across sessions).
+/// </remarks>
 public enum MetadataScope {
+    /// <summary>
+    /// Stores values in session storage (cleared when the browser tab closes).
+    /// </summary>
     Session = 0,
+    /// <summary>
+    /// Stores values in local storage (persists across browser sessions).
+    /// </summary>
     Persistent = 1
 }
 

@@ -33,7 +33,7 @@ public class RxDriverTests {
         _rxDriver.Dispose();
 
         // Assert
-        var exception = Assert.ThrowsException<ObjectDisposedException>(() => _rxDriver.With(_httpContext));
+        var exception = Assert.ThrowsExactly<ObjectDisposedException>(() => _rxDriver.With(_httpContext));
         Assert.AreEqual("RxDriver", exception.ObjectName);
     }
 
@@ -43,7 +43,7 @@ public class RxDriverTests {
         await _rxDriver.DisposeAsync();
 
         // Assert
-        var exception = Assert.ThrowsException<ObjectDisposedException>(() => _rxDriver.With(_httpContext));
+        var exception = Assert.ThrowsExactly<ObjectDisposedException>(() => _rxDriver.With(_httpContext));
         Assert.AreEqual("RxDriver", exception.ObjectName);
     }
 
@@ -105,7 +105,7 @@ public class RxDriverTests {
         _rxDriver.Dispose();
 
         // Act & Assert
-        var exception = Assert.ThrowsException<ObjectDisposedException>(() => _rxDriver.With(_httpContext));
+        var exception = Assert.ThrowsExactly<ObjectDisposedException>(() => _rxDriver.With(_httpContext));
         Assert.AreEqual("RxDriver", exception.ObjectName);
     }
 
@@ -213,7 +213,7 @@ public class RxDriverTests {
         cts.Cancel();
         
         // Act & Assert
-        await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => 
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => 
             _rxDriver.RenderPage<TestRootComponent, TestPageComponent>(
                 _httpContext, "Test Title", cts.Token));
     }
@@ -468,7 +468,7 @@ public class RxDriverTests {
         var builder = _rxDriver.With(_httpContext);
 
         // Act & Assert
-        var exception = Assert.ThrowsException<ArgumentException>(() => 
+        var exception = Assert.ThrowsExactly<ArgumentException>(() => 
             builder.AddTriggerSetState("invalid key!", "value"));
         Assert.IsTrue(exception.Message.Contains("State key 'invalid key!' contains invalid characters"));
     }
@@ -479,7 +479,7 @@ public class RxDriverTests {
         var builder = _rxDriver.With(_httpContext);
 
         // Act & Assert
-        var exception = Assert.ThrowsException<ArgumentException>(() => 
+        var exception = Assert.ThrowsExactly<ArgumentException>(() => 
             builder.AddTriggerSetState("", "value"));
         Assert.IsTrue(exception.Message.Contains("State key cannot be null or empty"));
     }
@@ -491,7 +491,7 @@ public class RxDriverTests {
 
         // Act & Assert
         builder.AddTriggerSetState("test-key", "value1");
-        var exception = Assert.ThrowsException<InvalidOperationException>(() => 
+        var exception = Assert.ThrowsExactly<InvalidOperationException>(() => 
             builder.AddTriggerSetState("test-key", "value2"));
         Assert.IsTrue(exception.Message.Contains("State key 'test-key' has already been set"));
     }
@@ -510,7 +510,7 @@ public class RxDriverTests {
         };
 
         // Act & Assert
-        var exception = Assert.ThrowsException<InvalidOperationException>(() => 
+        var exception = Assert.ThrowsExactly<InvalidOperationException>(() => 
             builder.AddTriggerSetStateBatch(state, MetadataScope.Session));
         Assert.IsTrue(exception.Message.Contains("State key 'key1' has already been set"));
     }
@@ -525,7 +525,7 @@ public class RxDriverTests {
         var builder = _rxDriver.With(_httpContext);
 
         // Act & Assert
-        var exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => 
+        var exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => 
             builder.AddFragment<TestFragmentComponent>("test").Render());
         Assert.IsTrue(exception.Message.Contains("Fragment and trigger operations require rx-request header"));
     }
@@ -542,7 +542,7 @@ public class RxDriverTests {
         await builder.Render();
 
         // Assert
-        var exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(() => 
+        var exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => 
             builder.Render());
         Assert.IsTrue(exception.Message.Contains("Render has already been called"));
     }

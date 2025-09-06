@@ -6,15 +6,47 @@ using Microsoft.Extensions.Logging;
 
 namespace RazorX.Framework;
 
-// Interface for wrapping HtmlRenderer since it's sealed and cannot be mocked directly
+/// <summary>
+/// Wrapper interface for ASP.NET Core's HtmlRenderer to enable testing and abstraction.
+/// </summary>
+/// <remarks>
+/// This interface wraps the sealed HtmlRenderer class from ASP.NET Core,
+/// allowing it to be mocked in tests and providing an abstraction layer.
+/// Automatically registered by AddRxDriver() when configuring services.
+/// </remarks>
 public interface IHtmlRendererWrapper : IAsyncDisposable, IDisposable {
+    /// <summary>
+    /// Gets the dispatcher object used for component rendering synchronization.
+    /// </summary>
     object Dispatcher { get; }
+    /// <summary>
+    /// Renders a component of the specified type to HTML.
+    /// </summary>
+    /// <param name="componentType">The type of the component to render.</param>
+    /// <param name="parameters">The parameters to pass to the component.</param>
+    /// <returns>A wrapper containing the rendered HTML content.</returns>
     ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync(Type componentType, ParameterView parameters);
+    /// <summary>
+    /// Renders a component of the specified generic type to HTML.
+    /// </summary>
+    /// <typeparam name="TComponent">The type of the component to render.</typeparam>
+    /// <param name="parameters">The parameters to pass to the component.</param>
+    /// <returns>A wrapper containing the rendered HTML content.</returns>
     ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync<TComponent>(ParameterView parameters) where TComponent : IComponent;
 }
 
-// Interface for wrapping HtmlRootComponent
+/// <summary>
+/// Wrapper interface for the rendered HTML content of a component.
+/// </summary>
+/// <remarks>
+/// This interface provides access to the HTML string representation
+/// of a rendered Blazor component.
+/// </remarks>
 public interface IHtmlRootComponentWrapper {
+    /// <summary>
+    /// Converts the rendered component to an HTML string.
+    /// </summary>
+    /// <returns>The HTML representation of the rendered component.</returns>
     string ToHtmlString();
 }
 
