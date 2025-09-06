@@ -9,6 +9,6 @@ public class HomeHandler : RequestHandler {
     }
 
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver) {
-        return await rxDriver.RenderPage<App, HomeHead, HomePage>(context, "RazorX - Home");
+        return await rxDriver.RenderPage<App, HomePage>(context, "RazorX - Home");
     }
 }
