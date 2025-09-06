@@ -726,8 +726,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             console.warn(`Polling already active for element ${ele.id}`);
             return;
         }
-        const pollInterval = interval || 1000;
+        let pollInterval = interval || 1000;
         if (pollInterval <= 0) {
+            pollInterval = 1000;
             console.warn(`Invalid poll interval ${pollInterval} for element ${ele.id}. Using default 1000ms.`);
         }
         const evt = new CustomEvent('poll', { detail: { type: 'poll', interval: pollInterval } });
