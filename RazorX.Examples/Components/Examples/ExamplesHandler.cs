@@ -27,7 +27,8 @@ public class ExamplesHandler : RequestHandler {
         router.MapGet("/search-todos", SearchTodos);
         router.MapGet("/poll-test", PollTest);
         router.MapPost("/file-upload", FileUpload);
-        router.MapPost("/file-upload-form-submit", FileUploadFormSubmit);
+        router.MapPost("/file-form-submit", FileUploadFormSubmit);
+        router.MapDelete("/file-reset", FileUploadReset);
     }
 
     private static readonly List<TodoModel> Todos = [];
@@ -189,7 +190,7 @@ public class ExamplesHandler : RequestHandler {
         Upload = new(Guid.NewGuid().ToString(), uploadedFile.FileName, string.Empty, s);
         return await rxDriver
             .With(context)
-            .AddFragment<FileResponse, FileUploadModel>(Upload, "file-upload-container", FragmentMergeStrategyType.Swap)
+            .AddFragment<FileUploaded, FileUploadModel>(Upload, "file-upload-container", FragmentMergeStrategyType.Swap)
             .Render();
     }
 
@@ -210,7 +211,17 @@ public class ExamplesHandler : RequestHandler {
         return await rxDriver
             .With(context)
             .AddTriggerToast("Form submitted successfully!", ToastType.Success)
-            .AddFragment<FileUploadFormSubmitted, FileUploadModel>(Upload, "file-upload-form", FragmentMergeStrategyType.Swap)
+            .AddFragment<FileUploaded, FileUploadModel>(Upload, "file-form", FragmentMergeStrategyType.Swap)
+            .Render();
+    }
+
+    public static async Task<IResult> FileUploadReset(HttpContext context, IRxDriver rxDriver) {
+        var fullReset = !string.IsNullOrWhiteSpace(Upload.NewFileName);
+        Upload = new(string.Empty, string.Empty, string.Empty, null);
+        return await rxDriver
+            .With(context)
+            .AddTriggerToast("File upload was reset", ToastType.Success)
+            .AddFragment<FileForm, FileUploadModel>(Upload, fullReset ? "file-upload-container" : "file-form", FragmentMergeStrategyType.Swap)
             .Render();
     }
 }

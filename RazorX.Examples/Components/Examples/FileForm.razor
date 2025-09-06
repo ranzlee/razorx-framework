@@ -1,10 +1,10 @@
 @implements IComponentModel<FileUploadModel>
 
-<form id="file-upload-form" 
-    data-rx-action="/file-upload-form-submit" 
+<form id="file-form" 
+    data-rx-action="/file-form-submit" 
     data-rx-method="POST"
     data-rx-disable-in-flight
-    data-rx-loading-indicator="file-saving">
+    data-rx-loading-indicator="file-form-saving">
     @if (string.IsNullOrWhiteSpace(Model.FileId)) {
         <div id="file-upload-container">
             <input 
@@ -15,8 +15,7 @@
                 data-rx-file-upload-progress-id="file-upload-progress"
                 data-rx-file-upload-max-size="314572800">
             <progress id="file-upload-progress" value="0" max="100" />
-            <div id="file-size-error" style="color: red;">
-            </div>
+            <div id="file-size-error" class="pico-color-red-500"></div>
             <script>
                 (function(){
                     document.addEventListener("rx:file-selected", (evt) => {
@@ -37,7 +36,7 @@
             </script>
         </div>
     } else {
-        <FileResponse Model="@(Model)" />
+        <FileUploaded Model="@(Model)" />
     }
     @if (string.IsNullOrWhiteSpace(Model.NewFileName)) {
         <div>
@@ -45,7 +44,7 @@
         </div>
         <button type="submit">
             Submit Form
-            <span id="file-saving" aria-busy="true" class="rx-loading-hidden"></span>
+            <span id="file-form-saving" aria-busy="true" class="rx-loading-hidden"></span>
         </button>
     }
 </form>

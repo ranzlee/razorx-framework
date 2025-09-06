@@ -1,0 +1,21 @@
+@implements IComponentModel<FileUploadModel>
+
+<div id="file-upload-container" class="grid">
+    <div>@(Model.FileName)</div>
+    <div class="flex justify-right">
+        <button 
+            type="button" 
+            id="delete-file" 
+            class="outline"
+            data-rx-action="/file-reset"
+            data-rx-method="DELETE">
+            Remove
+        </button>
+    </div>
+    <input name="@(nameof(Model.FileId))" type="hidden" value="@(Model.FileId)">
+</div>
+<br>
+
+@code {
+    [Parameter] public FileUploadModel Model { get; set; } = null!;
+}
