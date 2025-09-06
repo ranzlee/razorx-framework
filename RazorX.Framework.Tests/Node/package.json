@@ -9,6 +9,9 @@
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:coverage:watch": "vitest --coverage",
+    "test:coverage:report": "vitest run --coverage --reporter=verbose",
+    "test:coverage:check": "vitest run --coverage --reporter=basic",
     "test:ci": "vitest run --reporter=verbose",
     "test:silent": "vitest run --reporter=basic"
   },

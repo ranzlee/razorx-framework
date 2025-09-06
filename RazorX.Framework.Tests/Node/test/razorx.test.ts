@@ -7513,10 +7513,10 @@ describe('RazorX Framework API Surface Tests', () => {
         })
         
         // Mock the fetch to capture the request body
-        let capturedBody = ''
-        mockFetch.mockImplementation(async (url: string, options: any) => {
-          capturedBody = options.body || ''
-          return new Response('', { status: 204 })
+        let capturedBody: BodyInit | null | undefined = ''
+        mockFetch.mockImplementation(async (_url: string, options: RequestInit) => {
+          capturedBody = options.body
+          return new Response(null, { status: 204 })
         })
         
         const submitEvent = new Event('submit', { bubbles: true, cancelable: true })
@@ -7680,6 +7680,343 @@ describe('RazorX Framework API Surface Tests', () => {
         }
       })
     })
+  })
+
+  describe('Storage Error Handling', () => {
+    interface MockStorageObject {
+      getItem: Mock
+      setItem: Mock
+      removeItem: Mock
+      clear: Mock
+      key: Mock
+      length: number
+    }
+    
+    let mockSessionStorage: MockStorageObject
+    let mockLocalStorage: MockStorageObject
+    let originalSessionStorage: Storage
+    let originalLocalStorage: Storage
+
+    beforeEach(() => {
+      // Initialize razorx
+      razorx.init()
+      
+      // Store originals
+      originalSessionStorage = globalThis.sessionStorage
+      originalLocalStorage = globalThis.localStorage
+
+      // Create mock storage that can throw errors
+      mockSessionStorage = {
+        getItem: vi.fn(),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(),
+        length: 0
+      }
+
+      mockLocalStorage = {
+        getItem: vi.fn(),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(),
+        length: 0
+      }
+
+      Object.defineProperty(globalThis, 'sessionStorage', {
+        value: mockSessionStorage,
+        writable: true,
+        configurable: true
+      })
+
+      Object.defineProperty(globalThis, 'localStorage', {
+        value: mockLocalStorage,
+        writable: true,
+        configurable: true
+      })
+    })
+
+    afterEach(() => {
+      // Restore originals
+      Object.defineProperty(globalThis, 'sessionStorage', {
+        value: originalSessionStorage,
+        writable: true,
+        configurable: true
+      })
+
+      Object.defineProperty(globalThis, 'localStorage', {
+        value: originalLocalStorage,
+        writable: true,
+        configurable: true
+      })
+    })
+
+    test('handles sessionStorage.getItem errors when reading state', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      // Setup storage to throw on specific key
+      mockSessionStorage.getItem.mockImplementation((key: string) => {
+        if (key === 'filter') {
+          throw new Error('Storage access denied')
+        }
+        return null
+      })
+
+      const buttonId = getUniqueId('button')
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-include-state': '["filter"]'
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse())
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to read sessionStorage key'),
+        expect.any(String)
+      )
+
+      warnSpy.mockRestore()
+    })
+
+    test('handles localStorage.getItem errors when sessionStorage is empty', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      mockSessionStorage.getItem.mockReturnValue(null)
+      mockLocalStorage.getItem.mockImplementation((key: string) => {
+        if (key === 'theme') {
+          throw new Error('Storage quota exceeded')
+        }
+        return null
+      })
+
+      const buttonId = getUniqueId('button')
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-include-state': '["theme"]'
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse())
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to read localStorage key'),
+        expect.any(String)
+      )
+
+      warnSpy.mockRestore()
+    })
+
+
+
+
+
+
+
+  })
+
+  describe('Response Header Parsing Errors', () => {
+    beforeEach(() => {
+      // Initialize razorx
+      razorx.init()
+    })
+
+    test('handles malformed rx-merge header JSON', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      const buttonId = getUniqueId('button')
+      const targetId = getUniqueId('target')
+      
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click'
+      })
+      
+      const target = createElementWithId('div', targetId)
+      
+      document.body.appendChild(button)
+      document.body.appendChild(target)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => {
+        return new Response(`<div id="${targetId}">Updated</div>`, {
+          status: 200,
+          headers: new Headers({
+            'rx-merge': '{"target": "#' + targetId + '", "strategy": invalid json}'
+          })
+        })
+      })
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse "rx-merge" header as JSON'),
+        expect.anything()
+      )
+
+      errorSpy.mockRestore()
+    })
+
+    test('handles malformed rx-trigger-set-state header JSON', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      const buttonId = getUniqueId('button')
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click'
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => {
+        return new Response(null, {
+          status: 204,
+          headers: new Headers({
+            'rx-trigger-set-state': '{"key": "test", invalid json}'
+          })
+        })
+      })
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse "rx-trigger-set-state" header as JSON'),
+        expect.anything()
+      )
+
+      errorSpy.mockRestore()
+    })
+
+    test('handles malformed rx-trigger-close-dialog header JSON', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      const buttonId = getUniqueId('button')
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click'
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => {
+        return new Response(null, {
+          status: 204,
+          headers: new Headers({
+            'rx-trigger-close-dialog': '{invalid: json'
+          })
+        })
+      })
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse "rx-trigger-close-dialog" header as JSON'),
+        expect.anything()
+      )
+
+      errorSpy.mockRestore()
+    })
+
+    test('handles malformed rx-trigger-focus-element header JSON', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      const buttonId = getUniqueId('button')
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click'
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => {
+        return new Response(null, {
+          status: 204,
+          headers: new Headers({
+            'rx-trigger-focus-element': '{"selector": "#input" invalid}'
+          })
+        })
+      })
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse "rx-trigger-focus-element" header as JSON'),
+        expect.anything()
+      )
+
+      errorSpy.mockRestore()
+    })
+
+    test('handles malformed rx-trigger-toast header JSON', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      const buttonId = getUniqueId('button')
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click'
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => {
+        return new Response(null, {
+          status: 204,
+          headers: new Headers({
+            'rx-trigger-toast': '{"message": "test" invalid json}'
+          })
+        })
+      })
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse "rx-trigger-toast" header as JSON'),
+        expect.anything()
+      )
+
+      errorSpy.mockRestore()
+    })
+
+
+
+
+
   })
 
 })
