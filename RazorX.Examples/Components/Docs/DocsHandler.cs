@@ -9,6 +9,6 @@ public class DocsHandler : RequestHandler {
     }
 
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver) {
-        return await rxDriver.RenderPage<App, DocsHead, DocsPage>(context, "RazorX - Docs");
+        return await rxDriver.RenderPage<App, DocsPage>(context, "RazorX - Docs");
     }
 }

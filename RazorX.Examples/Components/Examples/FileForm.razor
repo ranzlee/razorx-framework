@@ -1,0 +1,54 @@
+@implements IComponentModel<FileUploadModel>
+
+<form id="file-form" 
+    data-rx-action="/file-form-submit" 
+    data-rx-method="POST"
+    data-rx-disable-in-flight
+    data-rx-loading-indicator="file-form-saving">
+    @if (string.IsNullOrWhiteSpace(Model.FileId)) {
+        <div id="file-upload-container">
+            <input 
+                id="file-upload-input" 
+                name="uploadedFile"
+                type="file" 
+                data-rx-action="/file-upload" 
+                data-rx-file-upload-progress-id="file-upload-progress"
+                data-rx-file-upload-max-size="314572800">
+            <progress id="file-upload-progress" value="0" max="100" />
+            <div id="file-size-error" class="pico-color-red-500"></div>
+            <script>
+                (function(){
+                    document.addEventListener("rx:file-selected", (evt) => {
+                        if (evt.detail.fileInput.id === "file-upload-input") {
+                            var msg = document.getElementById("file-size-error");
+                            if (evt.detail.error) {
+                                msg.innerText = evt.detail.error.message;
+                                evt.detail.fileInput.setAttribute("aria-invalid", "true");
+                                evt.detail.fileInput.setAttribute("aria-describedby", msg.id);
+                            } else {
+                                msg.innerText = "";
+                                evt.detail.fileInput.removeAttribute("aria-invalid");
+                                evt.detail.fileInput.removeAttribute("aria-describedby");
+                            }
+                        }
+                    })
+                })()
+            </script>
+        </div>
+    } else {
+        <FileUploaded Model="@(Model)" />
+    }
+    @if (string.IsNullOrWhiteSpace(Model.NewFileName)) {
+        <div>
+            <input type="text" name="@(nameof(Model.NewFileName))" placeholder="New file name" aria-label="New file name" autocomplete="off">
+        </div>
+        <button type="submit">
+            Submit Form
+            <span id="file-form-saving" aria-busy="true" class="rx-loading-hidden"></span>
+        </button>
+    }
+</form>
+
+@code {
+    [Parameter] public FileUploadModel Model { get; set; } = null!;
+}

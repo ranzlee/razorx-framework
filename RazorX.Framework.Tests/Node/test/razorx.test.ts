@@ -23,7 +23,6 @@ interface ExtendedDocument {
   rxMutationObserver?: MutationObserver
 }
 
-
 // Extend global interfaces for test environment
 declare global {
   interface Window {
@@ -181,7 +180,6 @@ describe('RazorX Framework API Surface Tests', () => {
       },
       writable: true
     })
-
 
     // Clear any existing RazorX state
     const rxDoc = document as unknown as RxDocument
@@ -3463,7 +3461,6 @@ describe('RazorX Framework API Surface Tests', () => {
         expect(mockFetch).toHaveBeenCalledWith('/single-string-test', expect.any(Object))
       })
 
-
       test('existing special triggers as object - initialized', async () => {
         // Arrange - Test initialized trigger
         const initId = getUniqueId('init-string-elem')
@@ -5723,8 +5720,6 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(requestCount).toBe(2)
     })
 
-
-
     test('modal dialog workflow with focus management', async () => {
       // Arrange
       // Track modal state for test verification
@@ -5792,7 +5787,6 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(modalState).toBe('open')
     }, 10000)
   })
-
 
   describe('Script Processing', () => {
     beforeEach(() => {
@@ -6848,7 +6842,6 @@ describe('RazorX Framework API Surface Tests', () => {
       }
     })
 
-
     test('toast with duration 0 does not auto-dismiss', async () => {
       // Arrange
       vi.useFakeTimers()
@@ -6952,8 +6945,6 @@ describe('RazorX Framework API Surface Tests', () => {
       toast = document.querySelector('[popover]') as HTMLElement
       expect(toast).toBeTruthy()
     })
-
-
 
     test('toast removed via MutationObserver cleans up properly', async () => {
       // Test that toast can be removed and cleanup happens without errors
@@ -7129,7 +7120,6 @@ describe('RazorX Framework API Surface Tests', () => {
       document.createElement = originalCreateElement
     })
 
-
     test('toast with custom classes via init options', async () => {
       // Clear existing setup and reinitialize with custom classes
       const rxDoc = document as unknown as RxDocument
@@ -7179,5 +7169,858 @@ describe('RazorX Framework API Surface Tests', () => {
     })
   })
 
+  describe('File Upload Feature', () => {
+    beforeEach(() => {
+      // Initialize razorx framework
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+    
+    describe('File Input Configuration & Validation', () => {
+      test('file input cannot have data-rx-method attribute', () => {
+        const fileInputId = getUniqueId('file-input')
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload',
+          'data-rx-method': 'POST'
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        
+        // Should throw error during configuration
+        expect(() => triggerMutationObserver([fileInput])).toThrow('cannot have data-rx-method attribute')
+      })
+      
+      test('file input cannot have data-rx-trigger attribute', () => {
+        const fileInputId = getUniqueId('file-input')
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload',
+          'data-rx-trigger': 'change'
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        
+        expect(() => triggerMutationObserver([fileInput])).toThrow('cannot have data-rx-trigger attribute')
+      })
+      
+      test('file input cannot have data-rx-debounce attribute', () => {
+        const fileInputId = getUniqueId('file-input')
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload',
+          'data-rx-debounce': '500'
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        
+        expect(() => triggerMutationObserver([fileInput])).toThrow('cannot have data-rx-debounce attribute')
+      })
+      
+      test('file input cannot have data-rx-disable-in-flight attribute', () => {
+        const fileInputId = getUniqueId('file-input')
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload',
+          'data-rx-disable-in-flight': ''
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        
+        expect(() => triggerMutationObserver([fileInput])).toThrow('cannot have data-rx-disable-in-flight attribute')
+      })
+      
+      test('file input with valid configuration processes correctly', () => {
+        const fileInputId = getUniqueId('file-input')
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload'
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        
+        // Should not throw
+        expect(() => triggerMutationObserver([fileInput])).not.toThrow()
+      })
+      
+      test('file input validates progress element exists', () => {
+        const fileInputId = getUniqueId('file-input')
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload',
+          'data-rx-file-upload-progress-id': 'non-existent-progress'
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        
+        expect(() => triggerMutationObserver([fileInput])).toThrow('references non-existent progress element')
+      })
+      
+      test('file input validates progress element is HTMLProgressElement', () => {
+        const fileInputId = getUniqueId('file-input')
+        const divId = getUniqueId('not-progress')
+        
+        const div = createElementWithId('div', divId)
+        document.body.appendChild(div)
+        
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload',
+          'data-rx-file-upload-progress-id': divId
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        
+        expect(() => triggerMutationObserver([fileInput])).toThrow('must reference a <progress> element')
+      })
+      
+      test('file input with valid progress element configures correctly', () => {
+        const fileInputId = getUniqueId('file-input')
+        const progressId = getUniqueId('progress')
+        
+        const progress = createElementWithId('progress', progressId)
+        document.body.appendChild(progress)
+        
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload',
+          'data-rx-file-upload-progress-id': progressId
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        
+        expect(() => triggerMutationObserver([fileInput])).not.toThrow()
+      })
+    })
+    
+    describe('File Selection & Size Validation', () => {
+      test('onFileSelected callback fires with correct FileInfo data', async () => {
+        const onFileSelectedSpy = vi.fn()
+        razorx.addCallbacks({ onFileSelected: onFileSelectedSpy })
+        
+        const fileInputId = getUniqueId('file-input')
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload'
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        triggerMutationObserver([fileInput])
+        
+        // Create a mock file
+        const file = new File(['test content'], 'test.txt', { type: 'text/plain' })
+        Object.defineProperty(fileInput, 'files', {
+          value: [file],
+          writable: false
+        })
+        
+        // Trigger change event
+        const changeEvent = new Event('change')
+        fileInput.dispatchEvent(changeEvent)
+        
+        await waitForDOMUpdates()
+        
+        expect(onFileSelectedSpy).toHaveBeenCalledWith(
+          fileInput,
+          expect.arrayContaining([
+            expect.objectContaining({
+              fileName: 'test.txt',
+              size: '12 Bytes',
+              sizeInBytes: 12
+            })
+          ]),
+          undefined
+        )
+      })
+      
+      test('file size validation against data-rx-file-upload-max-size', async () => {
+        const onFileSelectedSpy = vi.fn()
+        razorx.addCallbacks({ onFileSelected: onFileSelectedSpy })
+        
+        const fileInputId = getUniqueId('file-input')
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload',
+          'data-rx-file-upload-max-size': '10' // 10 bytes max
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        triggerMutationObserver([fileInput])
+        
+        // Create a file larger than max size
+        const file = new File(['test content that is too large'], 'test.txt', { type: 'text/plain' })
+        Object.defineProperty(fileInput, 'files', {
+          value: [file],
+          writable: false
+        })
+        
+        // Trigger change event
+        const changeEvent = new Event('change')
+        fileInput.dispatchEvent(changeEvent)
+        
+        await waitForDOMUpdates()
+        
+        // Should call onFileSelected with error
+        expect(onFileSelectedSpy).toHaveBeenCalledWith(
+          fileInput,
+          expect.any(Array),
+          expect.objectContaining({
+            message: expect.stringContaining('exceeds maximum size')
+          })
+        )
+      })
+      
+      test('multiple files total size validation', async () => {
+        const onFileSelectedSpy = vi.fn()
+        razorx.addCallbacks({ onFileSelected: onFileSelectedSpy })
+        
+        const fileInputId = getUniqueId('file-input')
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'multiple': '',
+          'data-rx-action': '/upload',
+          'data-rx-file-upload-max-size': '20' // 20 bytes max total
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        triggerMutationObserver([fileInput])
+        
+        // Create multiple files that exceed total size
+        const file1 = new File(['content1'], 'file1.txt', { type: 'text/plain' })
+        const file2 = new File(['content2'], 'file2.txt', { type: 'text/plain' })
+        const file3 = new File(['content3'], 'file3.txt', { type: 'text/plain' })
+        
+        Object.defineProperty(fileInput, 'files', {
+          value: [file1, file2, file3],
+          writable: false
+        })
+        
+        // Trigger change event
+        const changeEvent = new Event('change')
+        fileInput.dispatchEvent(changeEvent)
+        
+        await waitForDOMUpdates()
+        
+        expect(onFileSelectedSpy).toHaveBeenCalledWith(
+          fileInput,
+          expect.any(Array),
+          expect.objectContaining({
+            message: expect.stringContaining('exceed')
+          })
+        )
+      })
+      
+      test('file input value cleared on size validation error', async () => {
+        const fileInputId = getUniqueId('file-input')
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload',
+          'data-rx-file-upload-max-size': '5'
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        triggerMutationObserver([fileInput])
+        
+        // Mock the value property
+        let inputValue = ''
+        Object.defineProperty(fileInput, 'value', {
+          get: () => inputValue,
+          set: (v) => { inputValue = v },
+          configurable: true
+        })
+        
+        const file = new File(['too large content'], 'test.txt', { type: 'text/plain' })
+        Object.defineProperty(fileInput, 'files', {
+          value: [file],
+          writable: false
+        })
+        
+        inputValue = 'C:\\fakepath\\test.txt'
+        
+        const changeEvent = new Event('change')
+        fileInput.dispatchEvent(changeEvent)
+        
+        await waitForDOMUpdates()
+        
+        expect(inputValue).toBe('')
+      })
+      
+      test('progress element reset on file size error', async () => {
+        const fileInputId = getUniqueId('file-input')
+        const progressId = getUniqueId('progress')
+        
+        const progress = createElementWithId('progress', progressId) as HTMLProgressElement
+        progress.value = 50
+        document.body.appendChild(progress)
+        
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload',
+          'data-rx-file-upload-progress-id': progressId,
+          'data-rx-file-upload-max-size': '5'
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        triggerMutationObserver([fileInput])
+        
+        const file = new File(['too large content'], 'test.txt', { type: 'text/plain' })
+        Object.defineProperty(fileInput, 'files', {
+          value: [file],
+          writable: false
+        })
+        
+        const changeEvent = new Event('change')
+        fileInput.dispatchEvent(changeEvent)
+        
+        await waitForDOMUpdates()
+        
+        expect(progress.value).toBe(0)
+      })
+    })
+    
+    describe('FormData & Request Processing', () => {
+      test('files extracted from FormData before JSON encoding', async () => {
+        const formId = getUniqueId('form')
+        const fileInputId = getUniqueId('file-input')
+        const textInputId = getUniqueId('text-input')
+        
+        const form = createElementWithId('form', formId, {
+          'data-rx-action': '/submit',
+          'data-rx-trigger': 'submit'
+        }) as HTMLFormElement
+        
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'name': 'testfile',
+          'data-rx-action': '/upload'
+        }) as HTMLInputElement
+        
+        const textInput = createElementWithId('input', textInputId, {
+          'type': 'text',
+          'name': 'textfield',
+          'value': 'test value'
+        }) as HTMLInputElement
+        
+        form.appendChild(fileInput)
+        form.appendChild(textInput)
+        document.body.appendChild(form)
+        processNewElements()
+        
+        const file = new File(['content'], 'test.txt')
+        Object.defineProperty(fileInput, 'files', {
+          value: [file],
+          writable: false
+        })
+        
+        // Mock the fetch to capture the request body
+        let capturedBody: BodyInit | null | undefined = ''
+        mockFetch.mockImplementation(async (_url: string, options: RequestInit) => {
+          capturedBody = options.body
+          return new Response(null, { status: 204 })
+        })
+        
+        const submitEvent = new Event('submit', { bubbles: true, cancelable: true })
+        form.dispatchEvent(submitEvent)
+        
+        await waitForDOMUpdates()
+        
+        // Check that the final request body is JSON and contains only the text field
+        const bodyJson = JSON.parse(capturedBody)
+        expect(bodyJson.textfield).toBe('test value')
+        expect(bodyJson.testfile).toBeUndefined()
+      })
+    })
+    
+    describe('Event Dispatching', () => {
+      test('rx:file-selected event dispatched on file selection', async () => {
+        const eventSpy = vi.fn()
+        document.addEventListener('rx:file-selected', eventSpy)
+        
+        const fileInputId = getUniqueId('file-input')
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload'
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        triggerMutationObserver([fileInput])
+        
+        const file = new File(['content'], 'test.txt')
+        Object.defineProperty(fileInput, 'files', {
+          value: [file],
+          writable: false
+        })
+        
+        const changeEvent = new Event('change')
+        fileInput.dispatchEvent(changeEvent)
+        
+        await waitForDOMUpdates()
+        
+        expect(eventSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'rx:file-selected',
+            detail: expect.objectContaining({
+              fileInput: fileInput,
+              files: expect.arrayContaining([
+                expect.objectContaining({
+                  fileName: 'test.txt'
+                })
+              ])
+            })
+          })
+        )
+        
+        document.removeEventListener('rx:file-selected', eventSpy)
+      })
+    })
+    
+    describe('Form Disable/Enable State Tracking', () => {
+      
+      test('multiple disable/enable cycles maintain original state', async () => {
+        const formId = getUniqueId('form')
+        const inputId = getUniqueId('input')
+        const disabledId = getUniqueId('disabled')
+        
+        const form = createElementWithId('form', formId, {
+          'data-rx-action': '/submit',
+          'data-rx-trigger': 'submit',
+          'data-rx-disable-in-flight': ''
+        }) as HTMLFormElement
+        
+        const input = createElementWithId('input', inputId, {
+          'type': 'text',
+          'name': 'input'
+        }) as HTMLInputElement
+        
+        const disabled = createElementWithId('input', disabledId, {
+          'type': 'text',
+          'name': 'disabled',
+          'disabled': ''
+        }) as HTMLInputElement
+        
+        form.appendChild(input)
+        form.appendChild(disabled)
+        document.body.appendChild(form)
+        processNewElements()
+        
+        mockFetch.mockImplementation(mockSuccessResponse())
+        
+        // First submission
+        let submitEvent = new Event('submit', { bubbles: true, cancelable: true })
+        form.dispatchEvent(submitEvent)
+        await waitForDOMUpdates()
+        
+        expect(input.disabled).toBe(false)
+        expect(disabled.disabled).toBe(true)
+        
+        // Second submission
+        submitEvent = new Event('submit', { bubbles: true, cancelable: true })
+        form.dispatchEvent(submitEvent)
+        await waitForDOMUpdates()
+        
+        // Should still maintain original states
+        expect(input.disabled).toBe(false)
+        expect(disabled.disabled).toBe(true)
+      })
+    })
+    
+    describe('Helper Functions', () => {
+      test('formatBytes function formats various file sizes correctly', () => {
+        // Access internal formatBytes via file input behavior
+        const fileInputId = getUniqueId('file-input')
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'data-rx-action': '/upload'
+        }) as HTMLInputElement
+        
+        document.body.appendChild(fileInput)
+        triggerMutationObserver([fileInput])
+        
+        // Test various file sizes through the onFileSelected callback
+        const onFileSelectedSpy = vi.fn()
+        razorx.addCallbacks({ onFileSelected: onFileSelectedSpy })
+        
+        // Create files of various sizes
+        const testCases = [
+          { size: 0, expected: '0 Bytes' },
+          { size: 512, expected: '512 Bytes' },
+          { size: 1024, expected: '1 KB' },
+          { size: 1536, expected: '1.5 KB' },
+          { size: 1048576, expected: '1 MB' },
+          { size: 1572864, expected: '1.5 MB' },
+          { size: 1073741824, expected: '1 GB' },
+          { size: 1099511627776, expected: '1 TB' }
+        ]
+        
+        for (const testCase of testCases) {
+          onFileSelectedSpy.mockClear()
+          
+          // Create a file with mocked size (avoid allocating huge arrays)
+          const file = new File([''], 'test.txt')
+          Object.defineProperty(file, 'size', {
+            value: testCase.size,
+            writable: false,
+            configurable: true
+          })
+          Object.defineProperty(fileInput, 'files', {
+            value: [file],
+            writable: false,
+            configurable: true
+          })
+          
+          const changeEvent = new Event('change')
+          fileInput.dispatchEvent(changeEvent)
+          
+          expect(onFileSelectedSpy).toHaveBeenCalledWith(
+            fileInput,
+            expect.arrayContaining([
+              expect.objectContaining({
+                size: testCase.expected,
+                sizeInBytes: testCase.size
+              })
+            ]),
+            undefined
+          )
+        }
+      })
+    })
+  })
+
+  describe('Storage Error Handling', () => {
+    interface MockStorageObject {
+      getItem: Mock
+      setItem: Mock
+      removeItem: Mock
+      clear: Mock
+      key: Mock
+      length: number
+    }
+    
+    let mockSessionStorage: MockStorageObject
+    let mockLocalStorage: MockStorageObject
+    let originalSessionStorage: Storage
+    let originalLocalStorage: Storage
+
+    beforeEach(() => {
+      // Initialize razorx
+      razorx.init()
+      
+      // Store originals
+      originalSessionStorage = globalThis.sessionStorage
+      originalLocalStorage = globalThis.localStorage
+
+      // Create mock storage that can throw errors
+      mockSessionStorage = {
+        getItem: vi.fn(),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(),
+        length: 0
+      }
+
+      mockLocalStorage = {
+        getItem: vi.fn(),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(),
+        length: 0
+      }
+
+      Object.defineProperty(globalThis, 'sessionStorage', {
+        value: mockSessionStorage,
+        writable: true,
+        configurable: true
+      })
+
+      Object.defineProperty(globalThis, 'localStorage', {
+        value: mockLocalStorage,
+        writable: true,
+        configurable: true
+      })
+    })
+
+    afterEach(() => {
+      // Restore originals
+      Object.defineProperty(globalThis, 'sessionStorage', {
+        value: originalSessionStorage,
+        writable: true,
+        configurable: true
+      })
+
+      Object.defineProperty(globalThis, 'localStorage', {
+        value: originalLocalStorage,
+        writable: true,
+        configurable: true
+      })
+    })
+
+    test('handles sessionStorage.getItem errors when reading state', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      // Setup storage to throw on specific key
+      mockSessionStorage.getItem.mockImplementation((key: string) => {
+        if (key === 'filter') {
+          throw new Error('Storage access denied')
+        }
+        return null
+      })
+
+      const buttonId = getUniqueId('button')
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-include-state': '["filter"]'
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse())
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to read sessionStorage key'),
+        expect.any(String)
+      )
+
+      warnSpy.mockRestore()
+    })
+
+    test('handles localStorage.getItem errors when sessionStorage is empty', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      
+      mockSessionStorage.getItem.mockReturnValue(null)
+      mockLocalStorage.getItem.mockImplementation((key: string) => {
+        if (key === 'theme') {
+          throw new Error('Storage quota exceeded')
+        }
+        return null
+      })
+
+      const buttonId = getUniqueId('button')
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click',
+        'data-rx-include-state': '["theme"]'
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse())
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to read localStorage key'),
+        expect.any(String)
+      )
+
+      warnSpy.mockRestore()
+    })
+
+
+
+
+
+
+
+  })
+
+  describe('Response Header Parsing Errors', () => {
+    beforeEach(() => {
+      // Initialize razorx
+      razorx.init()
+    })
+
+    test('handles malformed rx-merge header JSON', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      const buttonId = getUniqueId('button')
+      const targetId = getUniqueId('target')
+      
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click'
+      })
+      
+      const target = createElementWithId('div', targetId)
+      
+      document.body.appendChild(button)
+      document.body.appendChild(target)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => {
+        return new Response(`<div id="${targetId}">Updated</div>`, {
+          status: 200,
+          headers: new Headers({
+            'rx-merge': '{"target": "#' + targetId + '", "strategy": invalid json}'
+          })
+        })
+      })
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse "rx-merge" header as JSON'),
+        expect.anything()
+      )
+
+      errorSpy.mockRestore()
+    })
+
+    test('handles malformed rx-trigger-set-state header JSON', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      const buttonId = getUniqueId('button')
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click'
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => {
+        return new Response(null, {
+          status: 204,
+          headers: new Headers({
+            'rx-trigger-set-state': '{"key": "test", invalid json}'
+          })
+        })
+      })
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse "rx-trigger-set-state" header as JSON'),
+        expect.anything()
+      )
+
+      errorSpy.mockRestore()
+    })
+
+    test('handles malformed rx-trigger-close-dialog header JSON', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      const buttonId = getUniqueId('button')
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click'
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => {
+        return new Response(null, {
+          status: 204,
+          headers: new Headers({
+            'rx-trigger-close-dialog': '{invalid: json'
+          })
+        })
+      })
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse "rx-trigger-close-dialog" header as JSON'),
+        expect.anything()
+      )
+
+      errorSpy.mockRestore()
+    })
+
+    test('handles malformed rx-trigger-focus-element header JSON', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      const buttonId = getUniqueId('button')
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click'
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => {
+        return new Response(null, {
+          status: 204,
+          headers: new Headers({
+            'rx-trigger-focus-element': '{"selector": "#input" invalid}'
+          })
+        })
+      })
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse "rx-trigger-focus-element" header as JSON'),
+        expect.anything()
+      )
+
+      errorSpy.mockRestore()
+    })
+
+    test('handles malformed rx-trigger-toast header JSON', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      
+      const buttonId = getUniqueId('button')
+      const button = createElementWithId('button', buttonId, {
+        'data-rx-action': '/test',
+        'data-rx-trigger': 'click'
+      })
+      
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => {
+        return new Response(null, {
+          status: 204,
+          headers: new Headers({
+            'rx-trigger-toast': '{"message": "test" invalid json}'
+          })
+        })
+      })
+
+      const clickEvent = new MouseEvent('click', { bubbles: true })
+      button.dispatchEvent(clickEvent)
+
+      await waitForDOMUpdates()
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse "rx-trigger-toast" header as JSON'),
+        expect.anything()
+      )
+
+      errorSpy.mockRestore()
+    })
+
+
+
+
+
+  })
 
 })

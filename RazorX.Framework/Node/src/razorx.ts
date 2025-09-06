@@ -18,6 +18,9 @@ declare global {
             rxDelegateActionTo?: string //data-rx-delegate-action-to transfer action and method to another element
             rxIncludeState?: string //data-rx-include-state
             rxLoadingIndicator?: string //data-rx-loading-indicator
+            rxFileUploadProgressId?: string //data-rx-file-upload-progress-id - ID of progress element (only valid on file inputs)
+            rxFileUploadTimeout?: string //data-rx-file-upload-timeout - Timeout in milliseconds for file upload (only valid on file inputs)
+            rxFileUploadMaxSize?: string //data-rx-file-upload-max-size - Maximum file size in bytes (only valid on file inputs)
         },
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
         _rxCallbacks?: ElementCallbacks,
@@ -55,6 +58,12 @@ export type Options = {
     }
 }
 
+export type FileInfo = {
+    fileName: string,
+    size: string,
+    sizeInBytes: number
+}
+
 export type DocumentCallbacks = {
     beforeDocumentProcessed?: () => void,
     afterDocumentProcessed?: () => void,
@@ -68,6 +77,8 @@ export type DocumentCallbacks = {
     onElementMorphed?: (morphedElement: HTMLElement) => void,
     onElementRemoved?: (removedElement: HTMLElement) => void,
     onElementTriggerError?: (triggerElement: HTMLElement, error: unknown) => void,
+    onFileUploadProgress?: (fileInput: HTMLInputElement, progressContext: FileUploadProgressContext) => void,
+    onFileSelected?: (fileInput: HTMLInputElement, files: FileInfo[], error?: Error) => void,
 }
 
 export type ElementCallbacks = {
@@ -76,6 +87,8 @@ export type ElementCallbacks = {
     beforeDocumentUpdate?: (mergeElement: HTMLElement, strategy: MergeStrategyType) => boolean,
     afterDocumentUpdate?: () => void,
     onElementTriggerError?: (error: unknown) => void,
+    onFileUploadProgress?: (progressContext: FileUploadProgressContext) => void,
+    onFileSelected?: (files: FileInfo[], error?: Error) => void,
 }
 
 export type RequestConfiguration = {
@@ -94,6 +107,13 @@ export type RequestDetail = {
     body: FormData | string | undefined,
     headers: Headers,
     signal: AbortSignal,
+}
+
+export type FileUploadProgressContext = {
+    file: File,
+    loaded: number,
+    total: number,
+    percentage: number,
 }
 
 export type MergeStrategy = {
@@ -217,6 +237,8 @@ const _elementTriggerState: WeakMap<HTMLElement, ElementTriggerState> = new Weak
 
 const _delegatedActionConfigs: WeakMap<HTMLElement, DelegatedActionConfig> = new WeakMap();
 
+const _elementOriginalDisabledState: WeakMap<HTMLElement, Set<Element>> = new WeakMap();
+
 const _activeLoadingIndicators: Map<string, Set<string>> = new Map();
 
 const _activeToasts: Map<string, ToastState> = new Map();
@@ -263,7 +285,103 @@ const _addCallbacks = (callbacks: DocumentCallbacks): void => {
     _callbacks.onElementMorphed = callbacks.onElementMorphed;
     _callbacks.onElementRemoved = callbacks.onElementRemoved;
     _callbacks.onElementTriggerError = callbacks.onElementTriggerError;
+    _callbacks.onFileUploadProgress = callbacks.onFileUploadProgress;
+    _callbacks.onFileSelected = callbacks.onFileSelected;
 }
+
+// ============================================================================
+// Event Dispatching System
+// ============================================================================
+
+const _dispatchBeforeDocumentProcessed = (): void => {
+    document.dispatchEvent(new CustomEvent('rx:before-document-processed'));
+}
+
+const _dispatchAfterDocumentProcessed = (): void => {
+    document.dispatchEvent(new CustomEvent('rx:after-document-processed'));
+}
+
+const _dispatchBeforeInitializeElement = (element: HTMLElement): CustomEvent => {
+    const event = new CustomEvent('rx:before-initialize-element', {
+        detail: { element },
+        cancelable: true
+    });
+    document.dispatchEvent(event);
+    return event;
+}
+
+const _dispatchAfterInitializeElement = (element: HTMLElement): void => {
+    document.dispatchEvent(new CustomEvent('rx:after-initialize-element', {
+        detail: { element }
+    }));
+}
+
+const _dispatchBeforeFetch = (triggerElement: HTMLElement, requestConfiguration: RequestConfiguration): void => {
+    document.dispatchEvent(new CustomEvent('rx:before-fetch', {
+        detail: { triggerElement, requestConfiguration }
+    }));
+}
+
+const _dispatchAfterFetch = (triggerElement: HTMLElement, requestDetail: RequestDetail, response: Response): void => {
+    document.dispatchEvent(new CustomEvent('rx:after-fetch', {
+        detail: { triggerElement, requestDetail, response }
+    }));
+}
+
+const _dispatchBeforeDocumentUpdate = (triggerElement: HTMLElement, mergeElement: HTMLElement, strategy: MergeStrategyType): CustomEvent => {
+    const event = new CustomEvent('rx:before-document-update', {
+        detail: { triggerElement, mergeElement, strategy },
+        cancelable: true
+    });
+    document.dispatchEvent(event);
+    return event;
+}
+
+const _dispatchAfterDocumentUpdate = (triggerElement: HTMLElement): void => {
+    document.dispatchEvent(new CustomEvent('rx:after-document-update', {
+        detail: { triggerElement }
+    }));
+}
+
+const _dispatchOnElementAdded = (addedElement: HTMLElement): void => {
+    document.dispatchEvent(new CustomEvent('rx:element-added', {
+        detail: { element: addedElement }
+    }));
+}
+
+const _dispatchOnElementMorphed = (morphedElement: HTMLElement): void => {
+    document.dispatchEvent(new CustomEvent('rx:element-morphed', {
+        detail: { element: morphedElement }
+    }));
+}
+
+const _dispatchOnElementRemoved = (removedElement: HTMLElement): void => {
+    document.dispatchEvent(new CustomEvent('rx:element-removed', {
+        detail: { element: removedElement }
+    }));
+}
+
+const _dispatchOnElementTriggerError = (triggerElement: HTMLElement, error: unknown): void => {
+    document.dispatchEvent(new CustomEvent('rx:element-trigger-error', {
+        detail: { triggerElement, error }
+    }));
+}
+
+const _dispatchOnFileUploadProgress = (fileInput: HTMLInputElement, progressContext: FileUploadProgressContext): void => {
+    document.dispatchEvent(new CustomEvent('rx:file-upload-progress', {
+        detail: { fileInput, progressContext }
+    }));
+}
+
+const _dispatchOnFileSelected = (fileInput: HTMLInputElement, files: FileInfo[], error?: Error): void => {
+    document.dispatchEvent(new CustomEvent('rx:file-selected', {
+        detail: { fileInput, files, error }
+    }));
+}
+
+// ============================================================================
+// End Event Dispatching System
+// ============================================================================
 
 const _isFirefox = navigator.userAgent.toLowerCase().includes("firefox");
 
@@ -349,6 +467,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (_callbacks.onElementRemoved) {
                     _callbacks.onElementRemoved(node);
                 }
+                _dispatchOnElementRemoved(node);
             });
             rec.addedNodes.forEach((node: Node): void => { 
                 if (!(node instanceof HTMLElement)) {
@@ -368,6 +487,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (_callbacks.onElementAdded) {
                     _callbacks.onElementAdded(node);
                 }
+                _dispatchOnElementAdded(node);
             });
         });
     });
@@ -606,8 +726,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             console.warn(`Polling already active for element ${ele.id}`);
             return;
         }
-        const pollInterval = interval || 1000;
+        let pollInterval = interval || 1000;
         if (pollInterval <= 0) {
+            pollInterval = 1000;
             console.warn(`Invalid poll interval ${pollInterval} for element ${ele.id}. Using default 1000ms.`);
         }
         const evt = new CustomEvent('poll', { detail: { type: 'poll', interval: pollInterval } });
@@ -656,11 +777,18 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     function addTriggers(ele: HTMLElement): void {
         if (ele.dataset.rxAction && (!_callbacks.beforeInitializeElement || _callbacks.beforeInitializeElement(ele))) {
+            const beforeEvent = _dispatchBeforeInitializeElement(ele);
+            if (beforeEvent.defaultPrevented) {
+                return;
+            }
             configureElement(ele);
-            setTriggers(ele);
+            if (!(ele instanceof HTMLInputElement && ele.type === 'file')) {
+                setTriggers(ele);
+            }
             if (_callbacks.afterInitializeElement) {
                 _callbacks.afterInitializeElement(ele);
             }
+            _dispatchAfterInitializeElement(ele);
         }
         const children = ele.children;
         if (children?.length <= 0) {
@@ -741,6 +869,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             elementCallbacks.beforeDocumentUpdate = callbacks.beforeDocumentUpdate;
             elementCallbacks.beforeFetch = callbacks.beforeFetch;
             elementCallbacks.onElementTriggerError = callbacks.onElementTriggerError;
+            elementCallbacks.onFileUploadProgress = callbacks.onFileUploadProgress;
+            elementCallbacks.onFileSelected = callbacks.onFileSelected;
         }
         Object.defineProperty(ele, "addRxCallbacks", {
             value: addCallbacks,
@@ -750,21 +880,101 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             value: elementCallbacks,
             writable: false,
         });
+        if (ele instanceof HTMLInputElement && ele.type === 'file') {
+            configureFileInput(ele);
+            return;
+        }
+    }
+    
+    function configureFileInput(fileInput: HTMLInputElement): void {
+        const invalidRxAttributes: (keyof typeof fileInput.dataset)[] = [
+            'rxMethod',
+            'rxTrigger', 
+            'rxAllowEventDefault',
+            'rxDisableInFlight',
+            'rxDebounce',
+            'rxDisableQueueing',
+            'rxDelegateActionTo',
+            'rxIncludeState',
+            'rxLoadingIndicator'
+        ];
+        for (const attr of invalidRxAttributes) {
+            if (fileInput.dataset[attr] !== undefined) {
+                const htmlAttr = attr.replace(/([A-Z])/g, '-$1').toLowerCase();
+                const errorMsg = `File input "${fileInput.id}" cannot have data-${htmlAttr} attribute. File inputs only support data-rx-action.`;
+                throw new Error(errorMsg);
+            }
+        }
+        if (fileInput.dataset.rxFileUploadProgressId) {
+            const progressId = fileInput.dataset.rxFileUploadProgressId;
+            const progressElement = document.getElementById(progressId);
+            if (!progressElement) {
+                throw new Error(`File input "${fileInput.id}" references non-existent progress element: ${progressId}`);
+            }
+            if (!(progressElement instanceof HTMLProgressElement)) {
+                throw new Error(`File input "${fileInput.id}" data-rx-file-upload-progress-id must reference a <progress> element, found: <${progressElement.tagName.toLowerCase()}>`);
+            }
+        }
+        fileInput.addEventListener('change', function(this: HTMLInputElement) {
+            if (!this.files || this.files.length === 0) return;
+            const fileInfos: FileInfo[] = [];
+            let totalSize = 0;
+            for (let i = 0; i < this.files.length; i++) {
+                const file = this.files[i];
+                if (file) {
+                    fileInfos.push({
+                        fileName: file.name,
+                        size: formatBytes(file.size),
+                        sizeInBytes: file.size
+                    });
+                    totalSize += file.size;
+                }
+            }
+            let error: Error | undefined;
+            if (this.dataset.rxFileUploadMaxSize) {
+                const maxSize = parseInt(this.dataset.rxFileUploadMaxSize, 10);
+                if (!isNaN(maxSize) && maxSize > 0 && totalSize > maxSize) {
+                    // Create appropriate error message
+                    if (this.files.length === 1 && fileInfos[0]) {
+                        error = new Error(`File "${fileInfos[0].fileName}" exceeds maximum size of ${formatBytes(maxSize)}`);
+                    } else {
+                        error = new Error(`Selected files exceed the maximum allowed size of ${formatBytes(maxSize)}`);
+                    }
+                }
+            }
+            if (this._rxCallbacks?.onFileSelected) {
+                this._rxCallbacks.onFileSelected(fileInfos, error);
+            }
+            if (_callbacks.onFileSelected) {
+                _callbacks.onFileSelected(this, fileInfos, error);
+            }
+            _dispatchOnFileSelected(this, fileInfos, error);
+            if (error) {
+                sendError(this, error);
+                this.value = '';
+                if (this.dataset.rxFileUploadProgressId) {
+                    const progressElement = document.getElementById(this.dataset.rxFileUploadProgressId);
+                    if (progressElement && progressElement instanceof HTMLProgressElement) {
+                        progressElement.value = 0;
+                    }
+                }
+            }
+        });
     }
 
     // event handlers
 
     function DOMContentLoaded(): void {
-        //observe the whole document for changes
         document.rxMutationObserver.observe(document.documentElement, { childList: true, subtree: true });
         if (_callbacks.beforeDocumentProcessed) {
             _callbacks.beforeDocumentProcessed();
         }
-        //process the entire document recursively
+        _dispatchBeforeDocumentProcessed();
         addTriggers(document.body);
         if (_callbacks.afterDocumentProcessed) {
             _callbacks.afterDocumentProcessed();
         }
+        _dispatchAfterDocumentProcessed();
     }
 
     function elementDelegateActionEventHandler(this: HTMLElement): void {
@@ -901,7 +1111,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     async function elementTriggerProcessor(ele: HTMLElement, evt: Event): Promise<void> {
         try {   
             _debouncedRequests.delete(ele.id);
-            // Atomic check-and-add to prevent race conditions
             if (_requestRefTracker.has(ele.id)) {
                 throw new Error(`Element ${ele.id} is already executing a request.`);
             }
@@ -970,10 +1179,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     request.action = url.pathname + url.search;
                 }
                 delete request.body;
-            } else {
-                if (options?.encodeRequestFormDataAsJson === undefined || options.encodeRequestFormDataAsJson === true) {
-                    encodeBodyAsJson(request);
-                }
             }
             const state = collectState(ele);
             if (Object.keys(state).length > 0) {
@@ -986,14 +1191,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 });
                 request.action = url.pathname + url.search;
             }
-            const config: RequestConfiguration = {
-                trigger: evt,
-                action: request.action,
-                method: request.method,
-                body: request.body,
-                headers: request.headers,
-                abort: ac.abort.bind(ac),
-            }
             const disableElement = ele.dataset.rxDisableInFlight?.trim().toLowerCase();
             if (disableElement !== undefined && disableElement !== "" && disableElement !== "true" && disableElement !== "false") {
                 console.warn(`The data-rx-disable-in-flight attribute on element ${ele.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
@@ -1003,14 +1200,70 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (disableElement !== undefined && disableElement !== "false") {
                     toggleDisable(ele, true);
                 }
+                const filesMap = new Map<string, File>();
+                let hasFiles = false;
+                if (request.body instanceof FormData) {
+                    const filesToRemove: string[] = [];
+                    request.body.forEach((value: FormDataEntryValue, key: string) => {
+                        if (value instanceof File && value.size > 0 && value.name !== '') {
+                            filesMap.set(key, value);
+                            filesToRemove.push(key);
+                            hasFiles = true;
+                        }
+                    });
+                    filesToRemove.forEach(key => {
+                        (request.body as FormData).delete(key);
+                    });
+                    // Don't encode to JSON yet if we have files - we'll need the FormData later
+                    if (!hasFiles && (options?.encodeRequestFormDataAsJson === undefined || options.encodeRequestFormDataAsJson === true)) {
+                        encodeBodyAsJson(request);
+                    }
+                }
+                const config: RequestConfiguration = {
+                    trigger: evt,
+                    action: request.action,
+                    method: request.method,
+                    body: request.body,
+                    headers: request.headers,
+                    abort: ac.abort.bind(ac),
+                }
                 if (ele._rxCallbacks!.beforeFetch) {
                     ele._rxCallbacks!.beforeFetch(config);
                 }
                 if (_callbacks.beforeFetch) {
                     _callbacks.beforeFetch(ele, config);
                 }
+                _dispatchBeforeFetch(ele, config);
                 if (ac.signal.aborted) {
                     return;
+                }
+                if (hasFiles) {
+                    const originalFormData = request.body as FormData;
+                    await processFileUploads(filesMap, ele, options, ac.signal);
+                    if (form) {
+                        try {
+                            const newFormData = new FormData(form, evt instanceof SubmitEvent ? evt.submitter : null);
+                            originalFormData.forEach((value: FormDataEntryValue, key: string): void => {
+                                if (!newFormData.has(key)) {
+                                    newFormData.append(key, value);
+                                }
+                            });
+                            request.body = newFormData;
+                            if (options?.encodeRequestFormDataAsJson === undefined || options.encodeRequestFormDataAsJson === true) {
+                                encodeBodyAsJson(request);
+                            }
+                        } catch (formError) {
+                            const errorMsg = 'Form structure was invalidated during file upload. File upload responses should not replace the form element or submit button. Update only the file input area.';
+                            console.error(errorMsg, formError);
+                            sendError(ele, new Error(errorMsg));
+                            return;
+                        }
+                    } else {
+                        request.body = originalFormData;
+                        if (options?.encodeRequestFormDataAsJson === undefined || options.encodeRequestFormDataAsJson === true) {
+                            encodeBodyAsJson(request);
+                        }
+                    }
                 }
                 response = await fetch(request.action, request);
                 if (ac.signal.aborted) {
@@ -1022,6 +1275,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (_callbacks.afterFetch) {
                     _callbacks.afterFetch(ele, request, response);
                 }
+                _dispatchAfterFetch(ele, request, response);
             } finally {
                 _requestRefTracker.delete(ele.id);
                 toggleLoadingIndicator(ele, false);
@@ -1181,6 +1435,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (_callbacks.afterDocumentUpdate) {
                 _callbacks.afterDocumentUpdate(ele);
             }
+            _dispatchAfterDocumentUpdate(ele);
             processFocusElementTrigger(ele, parsedHeaders?.focusElement);
             processToastTrigger(ele, parsedHeaders?.toast);
             return;
@@ -1253,6 +1508,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (_callbacks.onElementTriggerError) {
                     _callbacks.onElementTriggerError(ele, error);
                 }
+                _dispatchOnElementTriggerError(ele, error);
                 continue;
             }
             if (setStateTrigger.scope === "Session") {
@@ -1558,6 +1814,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (_callbacks.onElementTriggerError) {
             _callbacks.onElementTriggerError(ele, err);
         }
+        _dispatchOnElementTriggerError(ele, err);
         console.error(err);
     }
 
@@ -1567,23 +1824,52 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (parentFieldset) {
             targetElement = parentFieldset;
         } else if (ele instanceof HTMLFormElement) {
-            const formControls = ele.querySelectorAll('input, textarea, select, button');
-            formControls.forEach(control => {
-                if (disable) {
-                    control.setAttribute("disabled", "");
-                } else {
-                    control.removeAttribute("disabled");
+            if (disable) {
+                if (!_elementOriginalDisabledState.has(ele)) {
+                    const originallyDisabled = new Set<Element>();
+                    const formControls = ele.querySelectorAll('input, textarea, select, button');
+                    formControls.forEach(control => {
+                        if (control.hasAttribute('disabled')) {
+                            originallyDisabled.add(control);
+                        }
+                    });
+                    if (ele.id) {
+                        const associatedControls = document.querySelectorAll(`[form="${ele.id}"]`);
+                        associatedControls.forEach(control => {
+                            if (control.hasAttribute('disabled')) {
+                                originallyDisabled.add(control);
+                            }
+                        });
+                    }
+                    _elementOriginalDisabledState.set(ele, originallyDisabled);
                 }
-            });
-            if (ele.id) {
-                const associatedControls = document.querySelectorAll(`[form="${ele.id}"]`);
-                associatedControls.forEach(control => {
-                    if (disable) {
+                const formControls = ele.querySelectorAll('input, textarea, select, button');
+                formControls.forEach(control => {
+                    control.setAttribute("disabled", "");
+                });
+                if (ele.id) {
+                    const associatedControls = document.querySelectorAll(`[form="${ele.id}"]`);
+                    associatedControls.forEach(control => {
                         control.setAttribute("disabled", "");
-                    } else {
+                    });
+                }
+            } else {
+                const originallyDisabled = _elementOriginalDisabledState.get(ele);
+                const formControls = ele.querySelectorAll('input, textarea, select, button');
+                formControls.forEach(control => {
+                    if (!originallyDisabled?.has(control)) {
                         control.removeAttribute("disabled");
                     }
                 });
+                if (ele.id) {
+                    const associatedControls = document.querySelectorAll(`[form="${ele.id}"]`);
+                    associatedControls.forEach(control => {
+                        if (!originallyDisabled?.has(control)) {
+                            control.removeAttribute("disabled");
+                        }
+                    });
+                }
+                _elementOriginalDisabledState.delete(ele);
             }
             return; // Exit early for form handling
         } else if (ele instanceof HTMLOptionElement) {
@@ -1601,10 +1887,20 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
         if (targetElement) {
             if (disable) {
+                if (!_elementOriginalDisabledState.has(ele)) {
+                    const originallyDisabled = new Set<Element>();
+                    if (targetElement.hasAttribute('disabled')) {
+                        originallyDisabled.add(targetElement);
+                    }
+                    _elementOriginalDisabledState.set(ele, originallyDisabled);
+                }
                 targetElement.setAttribute("disabled", "");
             } else {
-                targetElement.removeAttribute("disabled");
-                //targetElement.focus();
+                const originallyDisabled = _elementOriginalDisabledState.get(ele);
+                if (!originallyDisabled?.has(targetElement)) {
+                    targetElement.removeAttribute("disabled");
+                }
+                _elementOriginalDisabledState.delete(ele);
             }
         }
     }
@@ -1630,7 +1926,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         let hasProps = false;
         detail.body?.forEach((value: FormDataEntryValue, key: string): void => {
             if (value instanceof Blob) {
-                //skip any input [type=file] for XMLHttpRequest processing
+                //skip any input [type=file]
                 return;
             }
             hasProps = true;
@@ -1648,6 +1944,195 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             detail.body = JSON.stringify(object);
         }
     }
+    
+    function parseXHRHeaders(headersString: string): Headers {
+        const headers = new Headers();
+        const lines = headersString.trim().split(/[\r\n]+/);
+        lines.forEach(line => {
+            const parts = line.split(': ');
+            if (parts.length === 2 && parts[0] && parts[1]) {
+                headers.append(parts[0], parts[1]);
+            }
+        });
+        return headers;
+    }
+    
+    function formatBytes(bytes: number): string {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.min(Math.floor(Math.log(bytes) / Math.log(k)), sizes.length - 1);
+        const value = bytes / Math.pow(k, i);
+        const formatted = value % 1 === 0 ? value.toString() : value.toFixed(2).replace(/\.?0+$/, '');
+        return formatted + ' ' + sizes[i];
+    }
+    
+    async function processFileUploads(filesMap: Map<string, File>, _ele: HTMLElement, options?: Options, signal?: AbortSignal): Promise<void> {
+        const uploads: Promise<void>[] = [];
+        const activeXHRs: XMLHttpRequest[] = [];
+        let signalAborted = false;
+        function resetProgress(fileInput: HTMLInputElement): void {
+            if (fileInput.dataset.rxFileUploadProgressId) {
+                const progressElement = document.getElementById(fileInput.dataset.rxFileUploadProgressId);
+                if (progressElement && progressElement instanceof HTMLProgressElement) {
+                    progressElement.value = 0;
+                }
+            }
+        }
+        const abortHandler = (): void => {
+            signalAborted = true;
+            activeXHRs.forEach(xhr => xhr.abort());
+        };
+        signal?.addEventListener('abort', abortHandler);
+        const inputFileGroups = new Map<HTMLInputElement, Array<File>>();
+        filesMap.forEach((file: File, name: string): void => {
+            const fileInput = document.querySelector(`input[type="file"][name="${name}"][data-rx-action]`) as HTMLInputElement;
+            if (!fileInput) return;
+            
+            if (!inputFileGroups.has(fileInput)) {
+                inputFileGroups.set(fileInput, []);
+            }
+            inputFileGroups.get(fileInput)!.push(file);
+        });
+        for (const [fileInput, files] of inputFileGroups) {
+            if (fileInput.dataset.rxFileUploadMaxSize) {
+                const maxSize = parseInt(fileInput.dataset.rxFileUploadMaxSize, 10);
+                if (!isNaN(maxSize) && maxSize > 0) {
+                    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+                    if (totalSize > maxSize) {
+                        const error = new Error(
+                            files.length === 1 && files[0]
+                                ? `File "${files[0].name}" exceeds maximum size of ${formatBytes(maxSize)}`
+                                : `Total size of ${files.length} files (${formatBytes(totalSize)}) exceeds maximum of ${formatBytes(maxSize)}`
+                        );
+                        sendError(fileInput, error);
+                        resetProgress(fileInput);
+                        return; // Don't upload any files
+                    }
+                } else if (maxSize !== 0) {
+                    console.warn(`Invalid max size "${fileInput.dataset.rxFileUploadMaxSize}" for file input`);
+                }
+            }
+        }
+        filesMap.forEach((file: File, name: string): void => {
+            const fileInput = document.querySelector(`input[type="file"][name="${name}"][data-rx-action]`) as HTMLInputElement;
+            if (!fileInput) return;
+            const uploadData = new FormData();
+            uploadData.append(name, file);
+            uploads.push(
+                new Promise<void>((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    activeXHRs.push(xhr);
+                    let aborted = false;
+                    if (fileInput.dataset.rxFileUploadTimeout) {
+                        const timeout = parseInt(fileInput.dataset.rxFileUploadTimeout, 10);
+                        if (!isNaN(timeout) && timeout > 0) {
+                            xhr.timeout = timeout;
+                        } else if (timeout === 0) {
+                            xhr.timeout = 0; // Explicit 0 means no timeout
+                        } else {
+                            console.warn(`Invalid timeout "${fileInput.dataset.rxFileUploadTimeout}" for file input, using no timeout`);
+                            xhr.timeout = 0;
+                        }
+                    } else {
+                        xhr.timeout = 0; // Default: no timeout
+                    }
+                    xhr.ontimeout = () => {
+                        resetProgress(fileInput);
+                        const index = activeXHRs.indexOf(xhr);
+                        if (index > -1) activeXHRs.splice(index, 1);
+                        if (!aborted) {
+                            const error = new Error(`Upload timeout for "${file.name}" after ${xhr.timeout}ms`);
+                            sendError(fileInput, error);
+                            reject(error);
+                        }
+                    };
+                    xhr.upload.onprogress = (e: ProgressEvent) => {
+                        if (aborted) return;
+                        if (e.lengthComputable) {
+                            const percentComplete = Math.round((e.loaded / e.total) * 100);
+                            if (fileInput.dataset.rxFileUploadProgressId) {
+                                const progressElement = document.getElementById(fileInput.dataset.rxFileUploadProgressId) as HTMLProgressElement;
+                                if (progressElement) {
+                                    progressElement.value = percentComplete;
+                                }
+                            }
+                            const progressContext: FileUploadProgressContext = {
+                                file: file,
+                                loaded: e.loaded,
+                                total: e.total,
+                                percentage: percentComplete
+                            };
+                            if (fileInput._rxCallbacks?.onFileUploadProgress) {
+                                fileInput._rxCallbacks.onFileUploadProgress(progressContext);
+                            }
+                            if (_callbacks.onFileUploadProgress) {
+                                _callbacks.onFileUploadProgress(fileInput, progressContext);
+                            }
+                            _dispatchOnFileUploadProgress(fileInput, progressContext);
+                        }
+                    };
+                    xhr.onload = () => {
+                        if (aborted) return;
+                        const index = activeXHRs.indexOf(xhr);
+                        if (index > -1) activeXHRs.splice(index, 1);
+                        resetProgress(fileInput); // Use helper function
+                        const body = (xhr.status === 204 || xhr.status === 205) 
+                            ? null 
+                            : xhr.responseText;
+                        const response = new Response(body, {
+                            status: xhr.status,
+                            statusText: xhr.statusText,
+                            headers: parseXHRHeaders(xhr.getAllResponseHeaders())
+                        });
+                        responseProcessor(fileInput, response).then(resolve).catch(reject);
+                    };
+                    xhr.onerror = () => {
+                        resetProgress(fileInput);
+                        const index = activeXHRs.indexOf(xhr);
+                        if (index > -1) activeXHRs.splice(index, 1);
+                        if (!aborted) {
+                            const error = new Error(`Failed to upload "${file.name}": Network error`);
+                            sendError(fileInput, error);
+                            reject(error);
+                        }
+                    };
+                    xhr.onabort = () => {
+                        resetProgress(fileInput);
+                        const index = activeXHRs.indexOf(xhr);
+                        if (index > -1) activeXHRs.splice(index, 1);
+                        if (!aborted && !signalAborted) {
+                            aborted = true;
+                            const error = new Error(`Upload aborted for "${file.name}"`);
+                            sendError(fileInput, error);
+                            reject(error);
+                        }
+                    };
+                    xhr.open('POST', fileInput.dataset.rxAction!);
+                    xhr.setRequestHeader('rx-request', '');
+                    if (options?.addCookieToRequestHeader) {
+                        const cookies = Array.isArray(options.addCookieToRequestHeader) 
+                            ? options.addCookieToRequestHeader 
+                            : [options.addCookieToRequestHeader];
+                        cookies.forEach((cookieName: string) => {
+                            const value = `; ${document.cookie}`;
+                            const parts = value.split(`; ${cookieName}=`);
+                            if (parts.length === 2) {
+                                const cookieValue = parts.pop()!.split(";").shift();
+                                if (cookieValue) {
+                                    xhr.setRequestHeader(cookieName, decodeURIComponent(cookieValue));
+                                }
+                            }
+                        });
+                    }
+                    xhr.responseType = 'text';
+                    xhr.send(uploadData);
+                })
+            );
+        });
+        await Promise.all(uploads);
+        signal?.removeEventListener('abort', abortHandler);
+    }
 
     // response rendering
 
@@ -1661,6 +2146,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 return;
             }
             if (_callbacks.beforeDocumentUpdate && _callbacks.beforeDocumentUpdate(triggerElement, target, r.strategy) === false) {
+                return;
+            }
+            const beforeEvent = _dispatchBeforeDocumentUpdate(triggerElement, target, r.strategy);
+            if (beforeEvent.defaultPrevented) {
                 return;
             }
             target.remove();
@@ -1732,6 +2221,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         if (_callbacks.onElementTriggerError) {
                             _callbacks.onElementTriggerError(triggerElement, error);
                         }
+                        _dispatchOnElementTriggerError(triggerElement, error);
                         continue; // Skip this element but try the next ones
                     }
                     thisEle = inserted;
@@ -1776,6 +2266,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         if (_callbacks.onElementMorphed) {
                             _callbacks.onElementMorphed(oldNode);
                         }
+                        _dispatchOnElementMorphed(oldNode);
                     }
                 }
             });
@@ -1803,6 +2294,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             return;
         }
         if (_callbacks.beforeDocumentUpdate && _callbacks.beforeDocumentUpdate(triggerElement, fragment, mergeStrategy.strategy) === false) {
+            return;
+        }
+        const beforeEvent = _dispatchBeforeDocumentUpdate(triggerElement, fragment, mergeStrategy.strategy);
+        if (beforeEvent.defaultPrevented) {
             return;
         }
         return target;

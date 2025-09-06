@@ -7,7 +7,7 @@ export default defineConfig({
     isolate: true,
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'html'],
+      reporter: ['text', 'html', 'lcov', 'json-summary'],
       exclude: [
         'node_modules/**',
         'dist/**',
@@ -16,7 +16,20 @@ export default defineConfig({
         'vitest.config.ts',
         'esbuild.mjs',
         'eslint.config.js'
-      ]
+      ],
+      include: ['src/**/*.ts'],
+      thresholds: {
+        lines: 69,
+        functions: 89,
+        branches: 78,
+        statements: 69
+      },
+      watermarks: {
+        statements: [69, 85],
+        functions: [89, 95],
+        branches: [78, 90],
+        lines: [69, 85]
+      }
     },
     setupFiles: ['./test/setup.ts']
   }
