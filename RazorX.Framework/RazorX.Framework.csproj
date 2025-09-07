@@ -5,6 +5,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     
+    <!-- XML Documentation -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <DocumentationFile>$(OutputPath)$(AssemblyName).xml</DocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+    
     <!-- NuGet Package Properties -->
     <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release' AND '$(CI)' != 'true'">true</GeneratePackageOnBuild>
     <PackageId>RazorX.Framework</PackageId>
