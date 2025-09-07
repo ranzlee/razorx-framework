@@ -1434,6 +1434,13 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             elementTriggerProcessor(ele, evt);
             return;
         }
+        
+        // Check if element is already processing a request before queueing
+        if (_requestRefTracker.has(ele.id)) {
+            console.warn(`Element ${ele.id} is already executing a request. Ignoring duplicate request.`);
+            return;
+        }
+        
         _requestQueue = _requestQueue.finally(async (): Promise<void> => {
             try {
                 await elementTriggerProcessor(ele, evt);
@@ -1489,8 +1496,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     async function elementTriggerProcessor(ele: HTMLElement, evt: Event): Promise<void> {
         try {   
             _debouncedRequests.delete(ele.id);
+            // Safety check: This should be prevented at queue level, but double-check here
             if (_requestRefTracker.has(ele.id)) {
-                throw new Error(`Element ${ele.id} is already executing a request.`);
+                console.warn(`Element ${ele.id} is already executing a request (should have been caught earlier).`);
+                return;
             }
             _requestRefTracker.add(ele.id);
             toggleLoadingIndicator(ele, true);
