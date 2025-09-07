@@ -56,6 +56,7 @@ RazorX.Framework/obj/
 RazorX.Framework/Node/dist
 RazorX.Framework/Node/node_modules
 RazorX.Framework/nupkg
+RazorX.Framework/*.xml
 
 # RazorX.Framework.Tests Project artifacts
 RazorX.Framework.Tests/bin/
