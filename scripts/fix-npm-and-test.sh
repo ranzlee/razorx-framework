@@ -1,8 +1,7 @@
 #!/bin/bash
 # Fix npm issues and run CI tests locally
 
-set -e  # Exit on error
-set -o pipefail  # Exit if any command in a pipeline fails
+set -euo pipefail  # Exit on error, undefined variables, and pipe failures
 
 echo "Fixing npm issues and testing CI build steps..."
 echo "============================================="

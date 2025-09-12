@@ -3,7 +3,7 @@
 # Version Bump Script for RazorX.Framework
 # Usage: ./scripts/bump-version.sh [major|minor|patch|prerelease] [prerelease-label]
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -39,7 +39,7 @@ show_usage() {
 # Get current version from project file
 get_current_version() {
     if [[ -f "$PROJECT_FILE" ]]; then
-        grep -oP '<PackageVersion>\K[^<]+' "$PROJECT_FILE" | head -1
+        grep -oP '<PackageVersion>\K[^<]+' "$PROJECT_FILE" | head -1 || true
     else
         log_error "Project file not found: $PROJECT_FILE"
         exit 1
@@ -51,7 +51,7 @@ parse_version() {
     local version=$1
     local regex='^([0-9]+)\.([0-9]+)\.([0-9]+)(-([a-zA-Z0-9.-]+))?$'
     
-    if [[ $version =~ $regex ]]; then
+    if [[ "$version" =~ $regex ]]; then
         MAJOR="${BASH_REMATCH[1]}"
         MINOR="${BASH_REMATCH[2]}"
         PATCH="${BASH_REMATCH[3]}"
@@ -68,7 +68,7 @@ increment_version() {
     local increment_type=$1
     local prerelease_label=${2:-alpha}
     
-    case $increment_type in
+    case "$increment_type" in
         major)
             MAJOR=$((MAJOR + 1))
             MINOR=0
@@ -266,7 +266,7 @@ main() {
     # Confirm with user
     read -p "Proceed with version bump? (y/N): " -n 1 -r
     echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if [[ ! "$REPLY" =~ ^[Yy]$ ]]; then
         log_info "Version bump cancelled."
         exit 0
     fi
