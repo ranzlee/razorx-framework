@@ -1,8 +1,28 @@
+# Dependabot Configuration for RazorX.Framework
+# ================================================
+# 
+# BRANCHING STRATEGY:
+# - All dependency updates target the 'dev' branch
+# - dev branch = Active development branch where all changes land first
+# - main branch = Stable release branch (receives tested merges from dev)
+# 
+# WORKFLOW:
+# 1. Dependabot creates PRs against dev branch
+# 2. CI/CD runs tests on the PR
+# 3. After review/approval, PR is merged to dev
+# 4. When ready for release, dev is merged to main
+# 5. Pushes to main trigger beta releases to NuGet.org
+# 6. Tagged releases from main create stable versions
+#
+# This dev-first approach ensures all changes are tested
+# in the development branch before reaching production.
+
 version: 2
 updates:
   # NuGet dependencies for .NET projects
   - package-ecosystem: "nuget"
     directory: "/"
+    target-branch: "dev"  # Target dev branch for all dependency updates
     schedule:
       interval: "weekly"
       day: "monday"
@@ -30,6 +50,7 @@ updates:
   # npm dependencies for TypeScript client
   - package-ecosystem: "npm"
     directory: "/RazorX.Framework/Node"
+    target-branch: "dev"  # Target dev branch for all dependency updates
     schedule:
       interval: "weekly"
       day: "monday"
@@ -56,6 +77,7 @@ updates:
   # npm dependencies for test project
   - package-ecosystem: "npm"
     directory: "/RazorX.Framework.Tests/Node"
+    target-branch: "dev"  # Target dev branch for all dependency updates
     schedule:
       interval: "weekly"
       day: "monday"
@@ -81,6 +103,7 @@ updates:
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "dev"  # Target dev branch for all dependency updates
     schedule:
       interval: "weekly"
       day: "monday"

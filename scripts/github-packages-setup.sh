@@ -3,7 +3,7 @@
 # GitHub Packages Setup Script for RazorX.Framework
 # This script helps configure GitHub Packages for both publishing and consuming
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -91,7 +91,7 @@ get_github_token() {
     
     # Check command line argument
     for i in "$@"; do
-        case $i in
+        case "$i" in
             --token=*)
                 token="${i#*=}"
                 shift
@@ -319,7 +319,7 @@ install_package() {
     
     local version=""
     for i in "$@"; do
-        case $i in
+        case "$i" in
             --version=*)
                 version="${i#*=}"
                 shift
@@ -350,7 +350,7 @@ install_package() {
     
     log_info "Running: $install_cmd"
     
-    if $install_cmd; then
+    if eval "$install_cmd"; then
         log_success "Package installed successfully!"
         
         # Check if client files were copied
@@ -429,7 +429,7 @@ clean_sources() {
         log_warning "Found NuGet.config file"
         read -p "Remove NuGet.config? (y/N): " -n 1 -r
         echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
             rm NuGet.config
             log_success "NuGet.config removed"
         fi
@@ -445,7 +445,7 @@ main() {
     local command=${1:-help}
     shift || true
     
-    case $command in
+    case "$command" in
         setup-source|setup)
             check_prerequisites
             setup_nuget_source "$@"

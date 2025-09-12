@@ -1,8 +1,7 @@
 #!/bin/bash
 # Test CI build steps locally to ensure they work
 
-set -e  # Exit on error
-set -o pipefail  # Exit if any command in a pipeline fails
+set -euo pipefail  # Exit on error, undefined variables, and pipe failures
 
 echo "Testing CI build steps locally..."
 echo "================================"
@@ -46,9 +45,10 @@ if [ "$CLEAN_NODE_MODULES" = "true" ]; then
                 find "$dir" -type d -name ".git" -prune -o -type d -print0 2>/dev/null | xargs -0 chmod 755 2>/dev/null || true
                 find "$dir" -type f -print0 2>/dev/null | xargs -0 chmod 644 2>/dev/null || true
                 rm -rf "$dir" 2>/dev/null || {
-                    # Last resort: use sudo (will prompt for password if needed)
-                    echo "Need elevated permissions to remove $dir"
-                    sudo rm -rf "$dir"
+                    # If permissions issue, prompt user to manually remove
+                    echo "ERROR: Cannot remove $dir - insufficient permissions"
+                    echo "Please manually remove it with: sudo rm -rf '$dir'"
+                    exit 1
                 }
             }
         fi
@@ -99,7 +99,7 @@ if [ ! -f "$TSC_PATH" ]; then
     exit 1
 fi
 
-TSC_VERSION=$($TSC_PATH --version 2>&1)
+TSC_VERSION=$($TSC_PATH --version 2>&1) || TSC_VERSION=""
 if [ $? -ne 0 ]; then
     echo "❌ TypeScript not working properly: $TSC_VERSION"
     exit 1
