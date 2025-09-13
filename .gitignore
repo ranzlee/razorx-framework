@@ -41,14 +41,10 @@ artifacts/
 
 # Backup files
 *.backup
+
+# CC
 CLAUDE.md
-TODO.md
-TESTING.md
-STATUS.md
-RECOMMENDATIONS.md
-BRANCH_PROTECTION.md
-DEPLOYMENT.md
-NOTES.txt
+.docs
 
 # RazorX.Framework Project artifacts
 RazorX.Framework/bin/
