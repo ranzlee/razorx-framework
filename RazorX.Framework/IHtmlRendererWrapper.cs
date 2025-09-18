@@ -54,23 +54,31 @@ public interface IHtmlRootComponentWrapper {
 internal class HtmlRendererWrapper(HtmlRenderer htmlRenderer, ILogger<HtmlRootComponentWrapper> logger) : IHtmlRendererWrapper {
     private readonly HtmlRenderer _htmlRenderer = htmlRenderer;
     private readonly ILogger<HtmlRootComponentWrapper> _logger = logger;
-    
+
     public object Dispatcher => _htmlRenderer.Dispatcher;
 
     public async ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync(Type componentType, ParameterView parameters) {
-        var result = await _htmlRenderer.RenderComponentAsync(componentType, parameters).ConfigureAwait(false);
+        // Enforce Microsoft's documented threading requirement: all HtmlRenderer calls must be in dispatcher context
+        var result = await RxDispatcherHelper.InvokeOnDispatcherAsync(_htmlRenderer.Dispatcher, async () => {
+            return await _htmlRenderer.RenderComponentAsync(componentType, parameters).ConfigureAwait(false);
+        }, _logger).ConfigureAwait(false);
+
         return new HtmlRootComponentWrapper(result, _logger);
     }
-    
+
     public async ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync<TComponent>(ParameterView parameters) where TComponent : IComponent {
-        var result = await _htmlRenderer.RenderComponentAsync<TComponent>(parameters).ConfigureAwait(false);
+        // Enforce Microsoft's documented threading requirement: all HtmlRenderer calls must be in dispatcher context
+        var result = await RxDispatcherHelper.InvokeOnDispatcherAsync(_htmlRenderer.Dispatcher, async () => {
+            return await _htmlRenderer.RenderComponentAsync<TComponent>(parameters).ConfigureAwait(false);
+        }, _logger).ConfigureAwait(false);
+
         return new HtmlRootComponentWrapper(result, _logger);
     }
-    
+
     public void Dispose() {
         _htmlRenderer.Dispose();
     }
-    
+
     public ValueTask DisposeAsync() {
         return _htmlRenderer.DisposeAsync();
     }

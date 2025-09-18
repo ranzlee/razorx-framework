@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-using System.Linq.Expressions;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Components;
@@ -453,7 +451,7 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
         
         string output = string.Empty;
 
-        await InvokeOnDispatcher(htmlRenderer.Dispatcher, async () => {
+        await RxDispatcherHelper.InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
             cancellationToken.ThrowIfCancellationRequested();
             var root = await htmlRenderer.RenderComponentAsync(rootComponentType, rootParameters).ConfigureAwait(false);
             output = root.ToHtmlString();
@@ -481,49 +479,6 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
         }
     }
 
-    private static readonly ConcurrentDictionary<Type, Func<object, Func<Task>, Task>?> _invokeAsyncFuncCache = new();
-    
-    internal static Task InvokeOnDispatcher(object dispatcher, Func<Task> workItem, ILogger logger) {
-        try {
-            // Use cached compiled expression for better performance
-            var dispatcherType = dispatcher.GetType();
-            var func = _invokeAsyncFuncCache.GetOrAdd(dispatcherType, type => CreateInvokeAsyncFunc(type, logger));
-            return func?.Invoke(dispatcher, workItem) ?? Task.CompletedTask;
-        }
-        catch (Exception ex) {
-            // Log reflection failure
-            logger.LogError(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
-            throw;
-        }
-    }
-    
-    private static Func<object, Func<Task>, Task>? CreateInvokeAsyncFunc(Type dispatcherType, ILogger logger) {
-        try {
-            var method = dispatcherType.GetMethod("InvokeAsync", [typeof(Func<Task>)]);
-            if (method == null) {
-                logger.LogWarning("InvokeAsync method not found on dispatcher {DispatcherType}", dispatcherType.Name);
-                return null;
-            }
-            // Create compiled expression based on whether method is static or instance
-            var dispatcherParam = Expression.Parameter(typeof(object), "dispatcher");
-            var workItemParam = Expression.Parameter(typeof(Func<Task>), "workItem");
-            Expression call;
-            if (method.IsStatic) {
-                // Static method: DispatcherType.InvokeAsync(workItem)
-                call = Expression.Call(method, workItemParam);
-            } else {
-                // Instance method: ((DispatcherType)dispatcher).InvokeAsync(workItem)
-                var cast = Expression.Convert(dispatcherParam, dispatcherType);
-                call = Expression.Call(cast, method, workItemParam);
-            }
-            var lambda = Expression.Lambda<Func<object, Func<Task>, Task>>(call, dispatcherParam, workItemParam);
-            return lambda.Compile();
-        }
-        catch (Exception ex) {
-            logger.LogWarning(ex, "Failed to create compiled expression for dispatcher {DispatcherType}", dispatcherType.Name);
-            return null;
-        }
-    }
     
     public void Dispose() {
         if (disposed) {
@@ -587,7 +542,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         var parameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
             { nameof(IComponentModel<TModel>.Model), model }
         });
-        renderTasks.Add(RxDriver.InvokeOnDispatcher(htmlRenderer.Dispatcher, async () => {
+        renderTasks.Add(RxDispatcherHelper.InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
             var output = await htmlRenderer.RenderComponentAsync<TComponent>(parameters).ConfigureAwait(false);
             var template = CreateTemplate(targetId, output.ToHtmlString());
             lock (contentLock) {
@@ -605,7 +560,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         CheckRenderingStatus();
         ValidateTargetId(targetId);
-        renderTasks.Add(RxDriver.InvokeOnDispatcher(htmlRenderer.Dispatcher, async () => {
+        renderTasks.Add(RxDispatcherHelper.InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
             var output = await htmlRenderer.RenderComponentAsync<TComponent>(ParameterView.Empty).ConfigureAwait(false);
             var template = CreateTemplate(targetId, output.ToHtmlString());
             lock (contentLock) {
