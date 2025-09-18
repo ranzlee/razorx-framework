@@ -1,0 +1,153 @@
+# Dependabot Auto-merge Workflow
+# ================================
+# 
+# PURPOSE:
+# Automatically merges Dependabot PRs for non-major version updates
+# when all CI/CD checks pass, enabling frictionless dependency management.
+#
+# WORKFLOW:
+# 1. Triggered when Dependabot opens or updates a PR
+# 2. Fetches Dependabot metadata to determine update type
+# 3. Auto-approves patch and minor updates
+# 4. Enables auto-merge (merge when all checks pass)
+# 5. Major updates require manual review
+#
+# SAFETY:
+# - Only runs for Dependabot PRs
+# - Only auto-merges patch and minor updates
+# - Requires all CI/CD checks to pass before merging
+# - Major version updates always require manual review
+
+name: Dependabot Auto-merge
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [dev]  # Only auto-merge to dev branch
+
+permissions:
+  pull-requests: write
+  contents: write
+
+jobs:
+  dependabot-auto-merge:
+    name: Auto-merge Dependabot PRs
+    runs-on: ubuntu-latest
+    # Only run for Dependabot PRs
+    if: github.actor == 'dependabot[bot]'
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+    
+    - name: Fetch Dependabot metadata
+      id: metadata
+      uses: dependabot/fetch-metadata@v2
+      with:
+        github-token: "${{ secrets.GITHUB_TOKEN }}"
+    
+    - name: Determine merge strategy
+      id: strategy
+      run: |
+        echo "🤖 Dependabot PR detected"
+        echo "📦 Dependency: ${{ steps.metadata.outputs.dependency-names }}"
+        echo "🔄 Update type: ${{ steps.metadata.outputs.update-type }}"
+        echo "📊 Compatibility score: ${{ steps.metadata.outputs.compatibility-score }}"
+        
+        # Determine if we should auto-merge
+        if [[ "${{ steps.metadata.outputs.update-type }}" == "version-update:semver-major" ]]; then
+          echo "❗ Major version update - manual review required"
+          echo "should-merge=false" >> $GITHUB_OUTPUT
+        else
+          echo "✅ Patch/minor update - will auto-merge when checks pass"
+          echo "should-merge=true" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Auto-approve PR
+      if: steps.strategy.outputs.should-merge == 'true'
+      run: |
+        gh pr review --approve "$PR_URL"
+        echo "✅ PR approved"
+      env:
+        PR_URL: ${{ github.event.pull_request.html_url }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Enable auto-merge
+      if: steps.strategy.outputs.should-merge == 'true'
+      run: |
+        # Enable auto-merge (will merge when all checks pass)
+        gh pr merge --auto --merge "$PR_URL"
+        echo "🔄 Auto-merge enabled - will merge when all checks pass"
+      env:
+        PR_URL: ${{ github.event.pull_request.html_url }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Add labels
+      if: always()
+      run: |
+        # Add appropriate labels based on update type
+        LABELS="dependencies"
+        
+        # Add update type label
+        case "${{ steps.metadata.outputs.update-type }}" in
+          version-update:semver-major)
+            LABELS="$LABELS,breaking-change"
+            ;;
+          version-update:semver-minor)
+            LABELS="$LABELS,enhancement"
+            ;;
+          version-update:semver-patch)
+            LABELS="$LABELS,patch"
+            ;;
+        esac
+        
+        # Add ecosystem label
+        if [[ "${{ github.event.pull_request.title }}" == *"npm"* ]]; then
+          LABELS="$LABELS,javascript"
+        elif [[ "${{ github.event.pull_request.title }}" == *"nuget"* ]]; then
+          LABELS="$LABELS,nuget"
+        elif [[ "${{ github.event.pull_request.title }}" == *"github-actions"* ]]; then
+          LABELS="$LABELS,github-actions"
+        fi
+        
+        gh pr edit "$PR_URL" --add-label "$LABELS"
+        echo "🏷️ Labels added: $LABELS"
+      env:
+        PR_URL: ${{ github.event.pull_request.html_url }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Comment on PR
+      if: steps.strategy.outputs.should-merge == 'false'
+      run: |
+        gh pr comment "$PR_URL" --body "## ⚠️ Major Version Update Detected
+        
+        This PR updates **${{ steps.metadata.outputs.dependency-names }}** to a new major version.
+        
+        **Manual review required** to ensure breaking changes are handled appropriately.
+        
+        Please review:
+        - [ ] Breaking changes in the changelog
+        - [ ] Required code modifications
+        - [ ] Impact on existing functionality
+        - [ ] Update documentation if needed"
+      env:
+        PR_URL: ${{ github.event.pull_request.html_url }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Summary
+      if: always()
+      run: |
+        echo "## 🤖 Dependabot Auto-merge Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **PR**: #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Dependency**: ${{ steps.metadata.outputs.dependency-names }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Update type**: ${{ steps.metadata.outputs.update-type }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Auto-merge**: ${{ steps.strategy.outputs.should-merge == 'true' && '✅ Enabled' || '❌ Manual review required' }}" >> $GITHUB_STEP_SUMMARY
+        
+        if [[ "${{ steps.strategy.outputs.should-merge }}" == "true" ]]; then
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This PR will be automatically merged once all CI/CD checks pass." >> $GITHUB_STEP_SUMMARY
+        else
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "This PR requires manual review due to major version update." >> $GITHUB_STEP_SUMMARY
+        fi
