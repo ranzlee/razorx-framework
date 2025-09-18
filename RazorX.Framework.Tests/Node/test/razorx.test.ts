@@ -7525,7 +7525,9 @@ describe('RazorX Framework API Surface Tests', () => {
         await waitForDOMUpdates()
         
         // Check that the final request body is JSON and contains only the text field
-        const bodyJson = JSON.parse(capturedBody)
+        expect(typeof capturedBody).toBe('string')
+        expect(capturedBody).toBeTruthy()
+        const bodyJson = JSON.parse(capturedBody as string)
         expect(bodyJson.textfield).toBe('test value')
         expect(bodyJson.testfile).toBeUndefined()
       })
