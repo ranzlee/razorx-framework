@@ -96,7 +96,10 @@ First, create a layout component that implements `IRootComponent`. This serves a
     <link rel="stylesheet" href="/css/razorx.css">
     <script type="module">
         import { razorx } from '/js/razorx.js';
-        razorx.init();
+        razorx.init({
+            // Add CSRF token if using antiforgery
+            addCookieToRequestHeader: "RequestVerificationToken"
+        });
     </script>
     @if (HeadContent != null)
     {
@@ -124,27 +127,65 @@ First, create a layout component that implements `IRootComponent`. This serves a
 
 This pattern allows the server to dynamically control which components are rendered without the layout needing compile-time knowledge of specific page types. When `RenderPage<App, HomePage, HomeModel>()` is called, the framework passes `typeof(HomePage)` as MainContent and the model wrapped in MainContentParameters.
 
-### Step 2: Create a Page Component
+### Step 2: Create Components
 
-Create a page component that will be rendered within the layout:
+Create your page and fragment components. Page components are full views, while fragment components are reusable pieces:
 
 ```razor
-@* Components/Home/HomePage.razor *@
-@implements IComponentModel<HomeModel>
+@* Components/Todo/TodoListPage.razor *@
+@implements IComponentModel<TodoListModel>
 
-<main id="main">
-    <h1>@Model.Title</h1>
-    <p>@Model.Message</p>
-    
-    <button data-rx-action="/api/update"
-            data-rx-method="POST"
-            data-rx-trigger="click">
-        Update Message
+<div id="todo-container">
+    <h1>Todo List</h1>
+
+    <!-- Search with debounce -->
+    <input id="search-todos"
+           type="search"
+           name="filter"
+           data-rx-action="/search-todos"
+           data-rx-trigger="input"
+           data-rx-debounce="400"
+           placeholder="Search todos...">
+
+    <!-- Todo list container -->
+    <div id="todo-list">
+        @foreach (var todo in Model.Todos)
+        {
+            <TodoItem Model="@todo" />
+        }
+    </div>
+
+    <!-- Add new todo button -->
+    <button id="add-todo-btn"
+            data-rx-action="/todo/new"
+            data-rx-method="GET">
+        Add Todo
     </button>
-</main>
+</div>
 
 @code {
-    [Parameter] public HomeModel Model { get; set; } = null!;
+    [Parameter] public TodoListModel Model { get; set; } = null!;
+}
+```
+
+```razor
+@* Components/Todo/TodoItem.razor *@
+@implements IComponentModel<TodoModel>
+
+<article id="todo-item-@Model.Id">
+    <div>@Model.Text</div>
+    <button data-rx-action="/todo/@Model.Id"
+            data-rx-method="DELETE"
+            data-rx-loading-indicator="delete-spinner-@Model.Id">
+        Delete
+        <span id="delete-spinner-@Model.Id"
+              class="rx-loading-hidden"
+              aria-busy="true"></span>
+    </button>
+</article>
+
+@code {
+    [Parameter] public TodoModel Model { get; set; } = null!;
 }
 ```
 
@@ -155,40 +196,116 @@ Create a handler that serves both full page requests and fragment updates:
 ```csharp
 using RazorX.Framework;
 
-// Model definition
-public record HomeModel(string Title, string Message);
+// Model definitions
+public record TodoModel(int Id, string Text, bool IsComplete);
+public record TodoListModel(List<TodoModel> Todos, int TotalCount);
 
-public class HomeHandler : RequestHandler
+public class TodoHandler : RequestHandler
 {
+    private static readonly List<TodoModel> _todos = [];
+
     public override void MapRoutes(IEndpointRouteBuilder router)
     {
-        router.MapGet("/", GetHomePage);
-        router.MapPost("/api/update", UpdateMessage);
+        router.MapGet("/", GetTodoPage);
+        router.MapGet("/search-todos", SearchTodos);
+        router.MapDelete("/todo/{id:int}", DeleteTodo);
+        router.MapGet("/todo/new", GetNewTodoForm);
+        router.MapPost("/todo", CreateTodo);
     }
-    
-    // Full page render (initial load or direct navigation)
-    public static async Task<IResult> GetHomePage(IRxDriver rxDriver, HttpContext context)
+
+    // Full page render (initial load)
+    public static async Task<IResult> GetTodoPage(
+        HttpContext context,
+        IRxDriver rxDriver)
     {
-        var model = new HomeModel("Welcome", "Click the button to update this message");
-        
-        // RenderPage uses the IRootComponent layout for full page renders
-        return await rxDriver.RenderPage<App, HomePage, HomeModel>(
-            context, 
-            model, 
-            "RazorX - Home"
+        var model = new TodoListModel(_todos, _todos.Count);
+
+        return await rxDriver.RenderPage<App, TodoListPage, TodoListModel>(
+            context,
+            model,
+            "Todo List"
         );
     }
-    
-    // Fragment update (AJAX request from client)
-    public static async Task<IResult> UpdateMessage(IRxDriver rxDriver, HttpContext context)
+
+    // Search with fragment updates
+    public static async Task<IResult> SearchTodos(
+        HttpContext context,
+        IRxDriver rxDriver,
+        string filter = "")
     {
-        var model = new HomeModel("Welcome", $"Updated at {DateTime.Now:T}");
-        
-        // Fragment responses update specific parts of the page
+        var filtered = _todos
+            .Where(t => t.Text.Contains(filter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
         return await rxDriver
             .With(context)
-            .AddFragment<HomePage, HomeModel>(model, "main", FragmentMergeStrategyType.Morph)
-            .AddTriggerToast("Message updated!", ToastType.Success)
+            .AddFragment<TodoList, List<TodoModel>>(
+                filtered,
+                "todo-list",
+                FragmentMergeStrategyType.SwapInner)
+            .AddTriggerSetState("filter", filter, MetadataScope.Session, updateUrl: true)
+            .Render();
+    }
+
+    // Delete with element removal
+    public static async Task<IResult> DeleteTodo(
+        HttpContext context,
+        IRxDriver rxDriver,
+        int id)
+    {
+        var todo = _todos.FirstOrDefault(t => t.Id == id);
+        if (todo == null)
+        {
+            return Results.NotFound();
+        }
+
+        _todos.Remove(todo);
+
+        return await rxDriver
+            .With(context)
+            .RemoveElement($"todo-item-{id}")
+            .AddTriggerToast("Todo deleted", ToastType.Success)
+            .Render();
+    }
+
+    // Return a form fragment for creating new todo
+    public static async Task<IResult> GetNewTodoForm(
+        HttpContext context,
+        IRxDriver rxDriver)
+    {
+        return await rxDriver
+            .With(context)
+            .AddFragment<TodoForm>("todo-container", FragmentMergeStrategyType.AppendBeforeEnd)
+            .AddTriggerFocusElement("todo-text-input", positionCursorEnd: true)
+            .Render();
+    }
+
+    // Create todo and update multiple fragments
+    public static async Task<IResult> CreateTodo(
+        HttpContext context,
+        IRxDriver rxDriver,
+        [FromForm] string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return await rxDriver
+                .With(context)
+                .AddTriggerToast("Text is required", ToastType.Error)
+                .Render();
+        }
+
+        var todo = new TodoModel(_todos.Count + 1, text, false);
+        _todos.Add(todo);
+
+        return await rxDriver
+            .With(context)
+            .AddFragment<TodoItem, TodoModel>(
+                todo,
+                "todo-list",
+                FragmentMergeStrategyType.AppendAfterBegin)
+            .RemoveElement("todo-form")
+            .AddTriggerToast("Todo created!", ToastType.Success)
+            .AddTriggerFocusElement("add-todo-btn")
             .Render();
     }
 }
@@ -227,18 +344,34 @@ razorx.init({
 });
 ```
 
-### Notes
+### Important Notes
 
 - **Templating**: RazorX uses Razor Components (.razor files) exclusively. Traditional Razor Pages (.cshtml) are not supported.
-  
-- **Routing**: RazorX uses the `RequestHandler` pattern with minimal APIs by default. Traditional MVC controllers can coexist or be used instead - simply add `services.AddControllers()` and `app.MapControllers()`. Controllers can return Razor Components using the same `IRxDriver` methods.
 
-- **Request Detection**: RazorX automatically detects whether to return a full page or fragment based on the presence of the "rx-request" header, which is added by the client library for AJAX requests.
+- **Routing**: RazorX uses the `RequestHandler` pattern with minimal APIs by default. Traditional MVC controllers can coexist - simply add `services.AddControllers()` and `app.MapControllers()`. Controllers can return Razor Components using the same `IRxDriver` methods.
 
-- **Element IDs**: Any element with a `data-rx-action` attribute must have a unique ID for proper request tracking.
-# Framework Mechanics
+- **Request Detection**: RazorX automatically detects whether to return a full page or fragment based on the presence of the "rx-request" header. You can check this in your handlers using the `IsRxRequest()` extension method:
 
-## Overview
+  ```csharp
+  // Useful for error handling or conditional logic
+  if (context.Request.IsRxRequest())
+  {
+      // This is an AJAX request from RazorX client
+      // Return 202 Accepted with location header for redirects
+      return TypedResults.Accepted("/error");
+  }
+  else
+  {
+      // This is a regular page navigation
+      return TypedResults.Redirect("/error");
+  }
+  ```
+
+- **Element IDs**: Any element with a `data-rx-action` attribute must have a unique ID for proper request tracking. The framework will throw an error if an ID is missing.
+
+- **Special Triggers**: The `initialized`, `poll`, and `revealed` triggers must use GET method. They cannot be debounced and don't support `data-rx-disable-queueing`.
+
+## Framework Mechanics
 
 RazorX.Framework operates on a request-response cycle where the server controls UI updates through HTML fragments and triggers. The framework provides two primary patterns: full page rendering for initial loads and fragment-based updates for interactions.
 
@@ -258,71 +391,97 @@ builder.Services.AddRxDriver();  // Registers IRxDriver and dependencies
 For initial page loads when using Minimal APIs (not needed with MVC/Razor Pages):
 
 ```csharp
-public static async Task<IResult> GetHomePage(
+// Simple page without model
+public static async Task<IResult> Get(
     HttpContext context,
-    IRxDriver driver)
+    IRxDriver rxDriver)
 {
-    var model = new HomePageModel {
-        Title = "Welcome",
-        Items = await LoadItemsAsync()
-    };
+    return await rxDriver.RenderPage<App, HomePage>(
+        context,
+        "RazorX - Home"
+    );
+}
 
-    // Renders complete HTML page with layout
-    return await driver.RenderPage<RootLayout, HomePage, HomePageModel>(
+// Page with model
+public static async Task<IResult> Get(
+    HttpContext context,
+    IRxDriver rxDriver)
+{
+    var model = new ExampleModel(
+        Todos: _todos,
+        Total: _todos.Count,
+        Completed: _todos.Count(t => t.IsComplete),
+        FileUpload: new FileUploadModel()
+    );
+
+    return await rxDriver.RenderPage<App, ExamplesPage, ExampleModel>(
         context,
         model,
-        title: "Home"
+        "RazorX - Examples"
     );
 }
 
 // With custom head content
-return await driver.RenderPage<RootLayout, CustomHead, HomePage, HomePageModel>(
+return await rxDriver.RenderPage<App, CustomHead, HomePage, HomePageModel>(
     context,
     model,
     title: "Home"
-);
-
-// Without a model
-return await driver.RenderPage<RootLayout, AboutPage>(
-    context,
-    title: "About"
 );
 ```
 
 ### Response Builder Pattern
 
-The response builder provides a fluent API for composing AJAX responses with fragments and triggers:
+The response builder provides a fluent API for composing AJAX responses with fragments and triggers. Here's a real example from a todo application:
 
 ```csharp
-public static async Task<IResult> HandleAction(
+// Example: Creating a new todo with multiple UI updates
+public static async Task<IResult> NewTodo(
     HttpContext context,
-    IRxDriver driver,
-    UpdateRequest request)
+    IRxDriver rxDriver,
+    TodoFormModel model)
 {
-    // Start building response
-    return await driver
+    // Validate input
+    if (string.IsNullOrWhiteSpace(model.Text))
+    {
+        return await rxDriver
+            .With(context)
+            .AddTriggerToast("Validation error!", ToastType.Error)
+            .AddFragment<TodoForm, TodoFormModel>(
+                model with { HasError = true },
+                "todo-form",
+                FragmentMergeStrategyType.Swap)
+            .Render();
+    }
+
+    // Create the todo
+    var todo = new TodoModel(NextId(), model.Text, false);
+    _todos.Add(todo);
+
+    // Build response with multiple updates
+    return await rxDriver
         .With(context)
-
-        // Add fragments to update DOM
-        .AddFragment<ItemList, ItemListModel>(
-            model: new ItemListModel { Items = items },
-            targetId: "item-list",
-            fragmentMergeStrategy: FragmentMergeStrategyType.Morph
-        )
-
-        // Add notification fragment
-        .AddFragment<NotificationBanner>(
-            targetId: "notifications",
-            fragmentMergeStrategy: FragmentMergeStrategyType.SwapInner
-        )
-
-        // Trigger side effects
-        .AddTriggerToast("Items updated successfully", ToastType.Success)
-        .AddTriggerFocusElement("search-input", positionCursorEnd: true)
-        .AddTriggerSetState("lastUpdate", DateTime.Now.ToString(), MetadataScope.Session)
-
-        // Render the response
-        .Render(ignoreActiveElementValueOnMorph: true);
+        // Close the modal dialog
+        .AddTriggerCloseDialog("new-todo-modal")
+        // Focus back to the trigger button
+        .AddTriggerFocusElement("new-todo-button")
+        // Show success message
+        .AddTriggerToast("Todo created successfully!", ToastType.Success)
+        // Reset the form for next use
+        .AddFragment<TodoForm, TodoFormModel>(
+            new TodoFormModel(0, "", false, false, false),
+            "new-todo-form",
+            FragmentMergeStrategyType.Swap)
+        // Add the new todo to the list
+        .AddFragment<TodoItem, TodoModel>(
+            todo,
+            "todo-list",
+            FragmentMergeStrategyType.AppendAfterBegin)
+        // Update the count
+        .AddFragment<TodoCount, (int Total, int Completed)>(
+            (_todos.Count, _todos.Count(t => t.IsComplete)),
+            "todo-count",
+            FragmentMergeStrategyType.Swap)
+        .Render();
 }
 ```
 
@@ -538,33 +697,97 @@ Include browser storage values in request:
 ### Delegation
 
 #### `data-rx-delegate-action-to`
-Transfer action to another element:
-```html
-<tr data-rx-action="/api/items/1"
-    data-rx-trigger="click"
-    data-rx-delegate-action-to="row-menu">
-    <td>Item 1</td>
-</tr>
+Transfer action to another element (useful for confirmation dialogs):
+```razor
+@* TodoItem.razor - Delete button delegates to confirmation modal *@
+<button id="delete-todo-trigger-@Model.Id"
+        data-rx-action="/todo/@Model.Id"
+        data-rx-method="DELETE"
+        data-rx-delegate-action-to="delete-todo-modal-ok">
+    Delete
+</button>
 
-<div id="row-menu">
-    <!-- Receives the delegated action -->
-</div>
+@* In the modal dialog *@
+<dialog id="delete-todo-modal">
+    <article>
+        <h2>Delete Todo</h2>
+        <p>Are you sure you want to delete this todo?</p>
+        <footer>
+            <button id="delete-todo-modal-close" class="secondary">Cancel</button>
+            <!-- This button receives the delegated action -->
+            <button id="delete-todo-modal-ok" data-rx-include-state="filter">OK</button>
+        </footer>
+    </article>
+</dialog>
 ```
 
-### File Upload Attributes
+When the delete button is clicked:
+1. The confirmation modal opens (via JavaScript)
+2. The action is delegated to the OK button
+3. If OK is clicked, the DELETE request is sent
+4. The modal closes and the todo is removed
 
-For file inputs only:
+### File Upload with Progress and Validation
 
-```html
-<input type="file"
-       name="documents"
-       data-rx-action="/api/upload"
-       data-rx-file-upload-max-size="5242880"
-       data-rx-file-upload-timeout="60000"
-       data-rx-file-upload-progress-id="upload-progress">
+```razor
+@* FileForm.razor - Complete file upload implementation *@
+<input
+    id="file-upload-input"
+    name="uploadedFile"
+    type="file"
+    data-rx-action="/file-upload"
+    data-rx-file-upload-progress-id="file-upload-progress"
+    data-rx-file-upload-max-size="314572800">
 
-<progress id="upload-progress" max="100" value="0"></progress>
+<progress id="file-upload-progress" value="0" max="100" />
+<div id="file-size-error" class="error-message"></div>
+
+<script>
+    // Listen for file selection events
+    document.addEventListener("rx:file-selected", (evt) => {
+        if (evt.detail.fileInput.id === "file-upload-input") {
+            var msg = document.getElementById("file-size-error");
+            if (evt.detail.error) {
+                // Show validation error
+                msg.innerText = evt.detail.error.message;
+                evt.detail.fileInput.setAttribute("aria-invalid", "true");
+            } else {
+                // Clear any errors
+                msg.innerText = "";
+                evt.detail.fileInput.removeAttribute("aria-invalid");
+            }
+        }
+    });
+</script>
 ```
+
+```csharp
+// Handler for file upload
+[RequestSizeLimit(long.MaxValue)]
+[RequestFormLimits(MultipartBodyLengthLimit = long.MaxValue)]
+public static async Task<IResult> FileUpload(
+    HttpContext context,
+    IRxDriver rxDriver,
+    IFormFile uploadedFile)
+{
+    // Process file
+    var stream = new MemoryStream();
+    await uploadedFile.CopyToAsync(stream);
+
+    var model = new FileUploadModel(
+        Guid.NewGuid().ToString(),
+        uploadedFile.FileName,
+        stream);
+
+    // Update UI with uploaded file info
+    return await rxDriver
+        .With(context)
+        .AddFragment<FileUploaded, FileUploadModel>(
+            model,
+            "file-upload-container",
+            FragmentMergeStrategyType.Swap)
+        .Render();
+}
 
 ## Special Triggers
 
@@ -573,14 +796,20 @@ Beyond DOM events, RazorX supports automatic triggers:
 ### Initialized Trigger
 Fires once when element enters DOM:
 ```html
-<!-- Immediate -->
-<div data-rx-action="/api/data"
-     data-rx-trigger='{"type":"initialized"}'>
-
-<!-- With delay -->
-<div data-rx-action="/api/data"
-     data-rx-trigger='{"type":"initialized","delay":1000}'>
+<!-- Example from TodoExample.razor -->
+<div id="content"
+     data-rx-method="GET"
+     data-rx-action="/search-todos"
+     data-rx-trigger='{ "type": "initialized", "delay": 100 }'
+     data-rx-include-state="filter">
+    <!-- Content loads here after 100ms delay -->
+</div>
 ```
+
+This is commonly used to:
+- Load initial data after page render
+- Restore previous state from browser storage
+- Trigger deferred content loading
 
 ### Poll Trigger
 Repeats at intervals:
@@ -616,76 +845,231 @@ Fires when element enters viewport:
 
 ### Search with Debounce
 ```html
-<input type="search"
-       placeholder="Search products..."
-       data-rx-action="/api/search"
-       data-rx-trigger="input"
-       data-rx-debounce="300"
-       data-rx-loading-indicator="search-spinner">
-```
-
-### Infinite Scroll
-```html
-<div class="scroll-container">
-    <div id="items">...</div>
-
-    <div data-rx-action="/api/items/next"
-         data-rx-trigger='{"type":"revealed","margin":"100px"}'
-         data-rx-include-state="page">
-        Loading more...
-    </div>
-</div>
-```
-
-### Modal Form
-```html
-<dialog id="edit-modal">
-    <form data-rx-action="/api/items/update"
-          data-rx-method="PUT"
-          data-rx-disable-in-flight>
-        <!-- Form fields -->
-        <button type="submit">Save</button>
-    </form>
-</dialog>
+<!-- Actual implementation from TodoSearch.razor -->
+<input id="search-todos"
+      type="search"
+      name="filter"
+      value="@Model"
+      data-rx-method="GET"
+      data-rx-action="/search-todos"
+      data-rx-debounce="400"
+      data-rx-trigger="input"
+      placeholder="Search"
+      aria-label="Search"
+      autocomplete="off">
 ```
 
 ```csharp
-// Server response after save
-return await driver
-    .With(context)
-    .AddFragment<ItemRow, Item>(updatedItem, $"item-{item.Id}",
-                                 FragmentMergeStrategyType.Morph)
-    .AddTriggerCloseDialog("edit-modal", resetFormId: "edit-form")
-    .AddTriggerToast("Item updated", ToastType.Success)
-    .Render();
+// Handler for search with state persistence
+public static async Task<IResult> SearchTodos(
+    HttpContext context,
+    IRxDriver rxDriver,
+    string filter = "")
+{
+    var filtered = _todos
+        .Where(x => x.Text.Contains(filter, StringComparison.OrdinalIgnoreCase))
+        .OrderByDescending(x => x.Id)
+        .Take(5);
+
+    var driver = rxDriver
+        .With(context)
+        // Persist search filter in session and URL
+        .AddTriggerSetState("filter", filter, MetadataScope.Session, updateUrl: true)
+        // Update search box to reflect current filter
+        .AddFragment<TodoSearch, string>(filter, "search-todos", FragmentMergeStrategyType.Morph)
+        // Replace list contents with filtered results
+        .AddFragment<TodoList, IEnumerable<TodoModel>>(filtered, "todo-list", FragmentMergeStrategyType.SwapInner)
+        // Update count to reflect filtered results
+        .AddFragment<TodoCount, (int, int)>(GetCount(), "todo-count", FragmentMergeStrategyType.Swap);
+
+    // Show filter notification only when filter is active
+    if (!string.IsNullOrWhiteSpace(filter))
+    {
+        driver.AddTriggerToast("Filter applied!", ToastType.Warning, 3500, ToastVerticalPosition.Top, ToastHorizontalPosition.Left);
+    }
+
+    return await driver.Render();
+}
+
+### Infinite Scroll
+```razor
+@* TodoItem.razor with revealed trigger for infinite scroll *@
+@implements IComponentModel<TodoModel>
+
+<article id="todo-item-@Model.Id"
+    data-rx-action="@(SetRevealedTrigger ? $"/todo/next/{Model.Id}" : false)"
+    data-rx-trigger="@(SetRevealedTrigger ? "{ \"type\": \"revealed\", \"margin\": \"0px 0px 300px 0px\" }" : false)"
+    data-rx-include-state="filter">
+    <!-- Todo content -->
+    @Model.Text
+</article>
+
+@code {
+    [Parameter] public TodoModel Model { get; set; } = null!;
+    [Parameter] public bool SetRevealedTrigger { get; set; }
+}
 ```
 
-### Real-time Dashboard
+```csharp
+// Handler for loading more items
+public static async Task<IResult> NextTodos(
+    HttpContext context,
+    IRxDriver rxDriver,
+    int id,
+    string filter = "")
+{
+    // Get next page of todos before this ID
+    var page = _todos
+        .Where(x => x.Id < id && x.Text.Contains(filter, StringComparison.InvariantCultureIgnoreCase))
+        .OrderByDescending(x => x.Id)
+        .Take(5);
+
+    return await rxDriver
+        .With(context)
+        // Append new items to the end of the list
+        .AddFragment<TodoList, IEnumerable<TodoModel>>(
+            page,
+            "todo-list",
+            FragmentMergeStrategyType.AppendBeforeEnd)
+        // Show notification that items loaded
+        .AddTriggerToast("More todos loaded!", ToastType.Info, 3500, ToastVerticalPosition.Bottom, ToastHorizontalPosition.Right)
+        .Render();
+}
+
+### Modal Forms with Loading States
+```razor
+@* TodoForm.razor - Reusable form component *@
+@implements IComponentModel<TodoFormModel>
+
+<form id="@(Model.IsEdit ? "edit-todo-form" : "new-todo-form")"
+    method="dialog"
+    data-rx-method="@(Model.IsEdit ? "PUT" : "POST")"
+    data-rx-action="@(Model.IsEdit ? $"/todo/{Model.Id}" : "/todo")"
+    data-rx-loading-indicator="@(Model.IsEdit ? "edit-loading" : false)"
+    data-rx-disable-in-flight
+    novalidate>
+    <textarea
+        id="todo-text-@Model.Id"
+        name="Text"
+        placeholder="Describe something you need to do..."
+        aria-label="Description of TODO"
+        aria-invalid="@(Model.HasError ? "true" : false)"
+        aria-describedby="todo-help">
+        @Model.Text
+    </textarea>
+    <small id="todo-help">Required</small>
+</form>
+
+@code {
+    [Parameter] public TodoFormModel Model { get; set; } = null!;
+}
+```
+
+```csharp
+// Handler with loading state and validation
+public static async Task<IResult> SaveTodo(
+    HttpContext context,
+    IRxDriver rxDriver,
+    TodoFormModel model,
+    int id)
+{
+    // Simulate processing delay
+    await Task.Delay(700);
+
+    // Validate
+    if (string.IsNullOrWhiteSpace(model.Text))
+    {
+        return await rxDriver
+            .With(context)
+            .AddTriggerToast("Validation error!", ToastType.Error)
+            .AddFragment<TodoForm, TodoFormModel>(
+                model with { HasError = true, IsEdit = true },
+                "edit-todo-form",
+                FragmentMergeStrategyType.Swap)
+            .Render();
+    }
+
+    var todo = _todos.FirstOrDefault(x => x.Id == id);
+    if (todo == null)
+    {
+        return Results.NotFound();
+    }
+
+    todo.Text = model.Text;
+
+    return await rxDriver
+        .With(context)
+        // Close the modal
+        .AddTriggerCloseDialog("edit-todo-modal")
+        // Focus back to the trigger
+        .AddTriggerFocusElement($"edit-todo-trigger-{id}")
+        // Show success message
+        .AddTriggerToast("Todo updated successfully!", ToastType.Success)
+        // Show loading indicator in form container
+        .AddFragment<TodoFormLoading>("edit-todo-form-container", FragmentMergeStrategyType.SwapInner)
+        // Update the todo item in the list
+        .AddFragment<TodoItem, TodoModel>(todo, $"todo-item-{todo.Id}", FragmentMergeStrategyType.Swap)
+        .Render();
+}
+
+### Polling for Updates
 ```html
+<!-- Poll endpoint every 4 seconds -->
+<div id="poll-test"
+     data-rx-action="/poll-test"
+     data-rx-trigger='{ "type": "poll", "interval": 4000 }'>
+</div>
+
+<!-- Initialize and then poll -->
 <div id="dashboard"
      data-rx-action="/api/dashboard/metrics"
      data-rx-trigger='[
          {"type":"initialized"},
          {"type":"poll","interval":10000}
      ]'>
-    <!-- Metrics display -->
+    <!-- Metrics display updates every 10 seconds -->
 </div>
 ```
 
-### Progressive Enhancement
-```html
-<!-- Works without JavaScript -->
-<form action="/search" method="get">
-    <input name="q"
-           data-rx-action="/api/search"
-           data-rx-trigger="input"
-           data-rx-debounce="300">
-    <button type="submit">Search</button>
-</form>
+**Important Notes on Special Triggers:**
+- Special triggers (initialized, poll, revealed) must use GET method
+- They don't respond to debounce or disable-queueing attributes
+- Poll intervals continue until element is removed from DOM
+- Revealed triggers fire once when element enters viewport
 
-<div id="search-results">
-    <!-- Results render here -->
-</div>
+### Form with Dialog Pattern
+```razor
+@* Modal dialog with form *@
+<dialog id="new-todo-modal">
+    <article>
+        <h2>New Todo</h2>
+        <TodoForm Model="@(new TodoFormModel())" />
+        <footer>
+            <!-- Cancel button resets form via AJAX -->
+            <button id="new-todo-modal-close"
+                    type="button"
+                    class="secondary"
+                    data-rx-method="GET"
+                    data-rx-action="/new-todo-reset">
+                Cancel
+            </button>
+            <!-- Submit button submits the form -->
+            <button id="new-todo-save" form="new-todo-form">Save</button>
+        </footer>
+    </article>
+</dialog>
+
+<script>
+    // Handle modal open/close
+    (function(){
+        const modal = document.getElementById("new-todo-modal");
+        const trigger = document.getElementById("new-todo-modal-trigger");
+        const dismiss = document.getElementById("new-todo-modal-close");
+
+        trigger.onclick = () => modal.showModal();
+        dismiss.onclick = () => modal.close();
+    })()
+</script>
 ```
 
 ## Request Lifecycle
@@ -712,30 +1096,80 @@ return await driver
 
 ## Error Handling
 
-Errors (4xx/5xx responses) replace the entire page content:
+RazorX distinguishes between regular navigation and AJAX requests for error handling:
 
 ```csharp
-// Custom error response
-if (!isValid) {
-    return Results.BadRequest(new {
-        error = "Validation failed",
-        fields = validationErrors
+// In Program.cs - Configure error handling
+app.UseExceptionHandler(handler => {
+    handler.Run(context => {
+        // Check if this is an AJAX request
+        IResult result = context.Request.IsRxRequest()
+            ? TypedResults.Accepted("/error?code=500")  // Returns 202 with location header
+            : TypedResults.Redirect("/error?code=500");  // Regular redirect
+        return result.ExecuteAsync(context);
     });
-}
+});
 
-// Framework displays as formatted JSON or text
+// In handler - Return error for missing resource
+public static async Task<IResult> EditTodo(
+    HttpContext context,
+    IRxDriver rxDriver,
+    int id)
+{
+    var todo = _todos.FirstOrDefault(x => x.Id == id);
+    if (todo == null)
+    {
+        // For AJAX requests, return 202 Accepted with location header
+        // Client will navigate to error page
+        return TypedResults.Accepted("/error?code=404");
+    }
+
+    // Process normally...
+}
 ```
+
+For validation errors in AJAX requests, use the response builder:
+
+```csharp
+if (string.IsNullOrWhiteSpace(model.Text))
+{
+    return await rxDriver
+        .With(context)
+        .AddTriggerToast("Validation error!", ToastType.Error)
+        .AddFragment<TodoForm, TodoFormModel>(
+            model with { HasError = true },
+            "todo-form",
+            FragmentMergeStrategyType.Swap)
+        .Render();
+}
 
 ## No-Content Responses
 
-For actions without UI updates:
+For actions without UI updates (triggers only):
 
 ```csharp
-return await driver
-    .With(context)
-    .AddTriggerToast("Saved to drafts", ToastType.Info)
-    .Render();  // Returns 204 with triggers only
-```
+// Example: Poll endpoint that just checks status
+public static IResult PollTest()
+{
+    // Return 204 No Content - no UI updates needed
+    return TypedResults.NoContent();
+}
+
+// Or use response builder with triggers only
+public static async Task<IResult> SaveDraft(
+    HttpContext context,
+    IRxDriver rxDriver,
+    DraftModel model)
+{
+    // Save draft...
+
+    // Return 204 with only triggers, no fragments
+    return await rxDriver
+        .With(context)
+        .AddTriggerToast("Draft saved", ToastType.Info)
+        .AddTriggerSetState("draftId", model.Id, MetadataScope.Session)
+        .Render();
+}
 
 ## View Transitions API
 
