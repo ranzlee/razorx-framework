@@ -619,8 +619,8 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
 
     public IRxResponseBuilder AddTriggerToast(
         string message,
-        ToastType type = ToastType.Info,
-        int duration = 5000,
+        ToastType type = ToastType.Success,
+        int duration = 3500,
         ToastVerticalPosition verticalPosition = ToastVerticalPosition.Top,
         ToastHorizontalPosition horizontalPosition = ToastHorizontalPosition.Right,
         bool clickToDismiss = true
