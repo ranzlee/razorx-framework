@@ -236,3 +236,514 @@ razorx.init({
 - **Request Detection**: RazorX automatically detects whether to return a full page or fragment based on the presence of the "rx-request" header, which is added by the client library for AJAX requests.
 
 - **Element IDs**: Any element with a `data-rx-action` attribute must have a unique ID for proper request tracking.
+# Framework Mechanics
+
+## Overview
+
+RazorX.Framework operates on a request-response cycle where the server controls UI updates through HTML fragments and triggers. The framework provides two primary patterns: full page rendering for initial loads and fragment-based updates for interactions.
+
+## Server-Side: RxDriver
+
+### Dependency Injection
+
+The `IRxDriver` is the core orchestration engine, registered as a scoped service:
+
+```csharp
+// Program.cs
+builder.Services.AddRxDriver();  // Registers IRxDriver and dependencies
+```
+
+### Full Page Rendering
+
+For initial page loads when using Minimal APIs (not needed with MVC/Razor Pages):
+
+```csharp
+public static async Task<IResult> GetHomePage(
+    HttpContext context,
+    IRxDriver driver)
+{
+    var model = new HomePageModel {
+        Title = "Welcome",
+        Items = await LoadItemsAsync()
+    };
+
+    // Renders complete HTML page with layout
+    return await driver.RenderPage<RootLayout, HomePage, HomePageModel>(
+        context,
+        model,
+        title: "Home"
+    );
+}
+
+// With custom head content
+return await driver.RenderPage<RootLayout, CustomHead, HomePage, HomePageModel>(
+    context,
+    model,
+    title: "Home"
+);
+
+// Without a model
+return await driver.RenderPage<RootLayout, AboutPage>(
+    context,
+    title: "About"
+);
+```
+
+### Response Builder Pattern
+
+The response builder provides a fluent API for composing AJAX responses with fragments and triggers:
+
+```csharp
+public static async Task<IResult> HandleAction(
+    HttpContext context,
+    IRxDriver driver,
+    UpdateRequest request)
+{
+    // Start building response
+    return await driver
+        .With(context)
+
+        // Add fragments to update DOM
+        .AddFragment<ItemList, ItemListModel>(
+            model: new ItemListModel { Items = items },
+            targetId: "item-list",
+            fragmentMergeStrategy: FragmentMergeStrategyType.Morph
+        )
+
+        // Add notification fragment
+        .AddFragment<NotificationBanner>(
+            targetId: "notifications",
+            fragmentMergeStrategy: FragmentMergeStrategyType.SwapInner
+        )
+
+        // Trigger side effects
+        .AddTriggerToast("Items updated successfully", ToastType.Success)
+        .AddTriggerFocusElement("search-input", positionCursorEnd: true)
+        .AddTriggerSetState("lastUpdate", DateTime.Now.ToString(), MetadataScope.Session)
+
+        // Render the response
+        .Render(ignoreActiveElementValueOnMorph: true);
+}
+```
+
+## Fragment Merge Strategies
+
+The framework provides 7 strategies for updating the DOM:
+
+### 1. **Swap** (Default)
+Replaces the entire target element:
+```csharp
+.AddFragment<Component, Model>(model, "target-id", FragmentMergeStrategyType.Swap)
+```
+```html
+<!-- Before -->
+<div id="target-id">Old content</div>
+
+<!-- After -->
+<div id="new-id">New content</div>
+```
+
+### 2. **SwapInner**
+Replaces only the inner content:
+```csharp
+.AddFragment<Component, Model>(model, "target-id", FragmentMergeStrategyType.SwapInner)
+```
+```html
+<!-- Before -->
+<div id="target-id">Old content</div>
+
+<!-- After -->
+<div id="target-id">New content</div>
+```
+
+### 3. **Morph**
+Intelligently updates using DOM diffing (preserves state):
+```csharp
+.AddFragment<Component, Model>(model, "target-id", FragmentMergeStrategyType.Morph)
+```
+- Preserves focus, scroll position, and form values
+- Minimizes DOM mutations
+- Best for complex updates
+
+### 4-7. **Positional Inserts**
+```csharp
+// Insert as first child
+.AddFragment<Alert>(id, FragmentMergeStrategyType.AppendAfterBegin)
+
+// Insert as last child
+.AddFragment<Item>(id, FragmentMergeStrategyType.AppendBeforeEnd)
+
+// Insert before target
+.AddFragment<Header>(id, FragmentMergeStrategyType.AppendBeforeBegin)
+
+// Insert after target
+.AddFragment<Footer>(id, FragmentMergeStrategyType.AppendAfterEnd)
+```
+
+### Remove Strategy
+Remove elements from the DOM:
+```csharp
+.RemoveElement("old-modal")
+.RemoveElement("temporary-message")
+```
+
+## Response Triggers
+
+Triggers execute client-side actions after DOM updates:
+
+### Toast Notifications
+```csharp
+.AddTriggerToast(
+    message: "Profile updated successfully",
+    type: ToastType.Success,
+    duration: 3500,  // milliseconds
+    verticalPosition: ToastVerticalPosition.Top,
+    horizontalPosition: ToastHorizontalPosition.Right,
+    clickToDismiss: true
+)
+```
+
+### Focus Management
+```csharp
+// Focus an element
+.AddTriggerFocusElement("username-input")
+
+// Focus with cursor at end (useful for inputs)
+.AddTriggerFocusElement("search-box", positionCursorEnd: true)
+```
+
+### State Persistence
+```csharp
+// Session storage (cleared on tab close)
+.AddTriggerSetState("currentTab", "products", MetadataScope.Session)
+
+// Local storage (persists across sessions)
+.AddTriggerSetState("theme", "dark", MetadataScope.Persistent)
+
+// Update URL query parameters
+.AddTriggerSetState("page", "2", MetadataScope.Session, updateUrl: true)
+
+// Set multiple states
+.AddTriggerSetStateBatch(new Dictionary<string, string> {
+    ["filter"] = "active",
+    ["sort"] = "date"
+}, MetadataScope.Session, updateUrl: true)
+```
+
+### Dialog Control
+```csharp
+.AddTriggerCloseDialog(
+    dialogId: "edit-modal",
+    onCloseData: "saved",  // Passed to dialog close handler
+    resetFormId: "edit-form"  // Optional form to reset
+)
+```
+
+## Client Attributes Reference
+
+### Core Action Attributes
+
+#### `data-rx-action`
+The URL/path for the AJAX request:
+```html
+<button data-rx-action="/api/items/create">Add Item</button>
+<div data-rx-action="/notifications/latest">...</div>
+```
+
+#### `data-rx-method`
+HTTP method (defaults: GET for most elements, POST for forms):
+```html
+<button data-rx-action="/api/items/1" data-rx-method="DELETE">Delete</button>
+<form data-rx-action="/api/items" data-rx-method="PUT">...</form>
+```
+
+#### `data-rx-trigger`
+Event that triggers the request:
+```html
+<!-- Single trigger -->
+<input data-rx-action="/search" data-rx-trigger="input">
+
+<!-- JSON array for multiple triggers -->
+<div data-rx-action="/update" data-rx-trigger='["click", "keyup"]'>
+
+<!-- Default triggers -->
+<!-- form: submit, input/select/textarea: change, others: click -->
+```
+
+### Request Modifiers
+
+#### `data-rx-debounce`
+Delay before sending request (milliseconds):
+```html
+<input data-rx-action="/search"
+       data-rx-trigger="input"
+       data-rx-debounce="500">
+```
+
+#### `data-rx-disable-in-flight`
+Disable element during request:
+```html
+<button data-rx-action="/process"
+        data-rx-disable-in-flight>Process</button>
+
+<!-- Disables entire form -->
+<form data-rx-action="/submit"
+      data-rx-disable-in-flight>...</form>
+```
+
+#### `data-rx-disable-queueing`
+Skip request queue (parallel requests):
+```html
+<button data-rx-action="/parallel-task"
+        data-rx-disable-queueing>Run</button>
+```
+
+#### `data-rx-allow-event-default`
+Don't prevent default browser behavior:
+```html
+<a href="/fallback"
+   data-rx-action="/api/action"
+   data-rx-allow-event-default>Link</a>
+```
+
+### UI Feedback
+
+#### `data-rx-loading-indicator`
+Show/hide element during request:
+```html
+<button data-rx-action="/slow-task"
+        data-rx-loading-indicator="spinner">
+    Process
+</button>
+
+<div id="spinner" class="rx-loading-hidden">
+    Loading...
+</div>
+```
+
+### State Management
+
+#### `data-rx-include-state`
+Include browser storage values in request:
+```html
+<!-- Single key -->
+<form data-rx-action="/filter"
+      data-rx-include-state="theme">
+
+<!-- Multiple keys -->
+<div data-rx-action="/dashboard"
+     data-rx-include-state='["theme", "locale", "timezone"]'>
+```
+
+### Delegation
+
+#### `data-rx-delegate-action-to`
+Transfer action to another element:
+```html
+<tr data-rx-action="/api/items/1"
+    data-rx-trigger="click"
+    data-rx-delegate-action-to="row-menu">
+    <td>Item 1</td>
+</tr>
+
+<div id="row-menu">
+    <!-- Receives the delegated action -->
+</div>
+```
+
+### File Upload Attributes
+
+For file inputs only:
+
+```html
+<input type="file"
+       name="documents"
+       data-rx-action="/api/upload"
+       data-rx-file-upload-max-size="5242880"
+       data-rx-file-upload-timeout="60000"
+       data-rx-file-upload-progress-id="upload-progress">
+
+<progress id="upload-progress" max="100" value="0"></progress>
+```
+
+## Special Triggers
+
+Beyond DOM events, RazorX supports automatic triggers:
+
+### Initialized Trigger
+Fires once when element enters DOM:
+```html
+<!-- Immediate -->
+<div data-rx-action="/api/data"
+     data-rx-trigger='{"type":"initialized"}'>
+
+<!-- With delay -->
+<div data-rx-action="/api/data"
+     data-rx-trigger='{"type":"initialized","delay":1000}'>
+```
+
+### Poll Trigger
+Repeats at intervals:
+```html
+<!-- Poll every 5 seconds -->
+<div data-rx-action="/api/status"
+     data-rx-trigger='{"type":"poll","interval":5000}'>
+```
+
+### Revealed Trigger
+Fires when element enters viewport:
+```html
+<!-- When visible -->
+<div data-rx-action="/api/lazy-load"
+     data-rx-trigger='{"type":"revealed"}'>
+
+<!-- With margin -->
+<div data-rx-action="/api/lazy-load"
+     data-rx-trigger='{"type":"revealed","margin":"200px"}'>
+```
+
+### Combining Triggers
+```html
+<div data-rx-action="/api/content"
+     data-rx-trigger='[
+         {"type":"initialized","delay":500},
+         "click",
+         {"type":"poll","interval":30000}
+     ]'>
+```
+
+## Common Patterns
+
+### Search with Debounce
+```html
+<input type="search"
+       placeholder="Search products..."
+       data-rx-action="/api/search"
+       data-rx-trigger="input"
+       data-rx-debounce="300"
+       data-rx-loading-indicator="search-spinner">
+```
+
+### Infinite Scroll
+```html
+<div class="scroll-container">
+    <div id="items">...</div>
+
+    <div data-rx-action="/api/items/next"
+         data-rx-trigger='{"type":"revealed","margin":"100px"}'
+         data-rx-include-state="page">
+        Loading more...
+    </div>
+</div>
+```
+
+### Modal Form
+```html
+<dialog id="edit-modal">
+    <form data-rx-action="/api/items/update"
+          data-rx-method="PUT"
+          data-rx-disable-in-flight>
+        <!-- Form fields -->
+        <button type="submit">Save</button>
+    </form>
+</dialog>
+```
+
+```csharp
+// Server response after save
+return await driver
+    .With(context)
+    .AddFragment<ItemRow, Item>(updatedItem, $"item-{item.Id}",
+                                 FragmentMergeStrategyType.Morph)
+    .AddTriggerCloseDialog("edit-modal", resetFormId: "edit-form")
+    .AddTriggerToast("Item updated", ToastType.Success)
+    .Render();
+```
+
+### Real-time Dashboard
+```html
+<div id="dashboard"
+     data-rx-action="/api/dashboard/metrics"
+     data-rx-trigger='[
+         {"type":"initialized"},
+         {"type":"poll","interval":10000}
+     ]'>
+    <!-- Metrics display -->
+</div>
+```
+
+### Progressive Enhancement
+```html
+<!-- Works without JavaScript -->
+<form action="/search" method="get">
+    <input name="q"
+           data-rx-action="/api/search"
+           data-rx-trigger="input"
+           data-rx-debounce="300">
+    <button type="submit">Search</button>
+</form>
+
+<div id="search-results">
+    <!-- Results render here -->
+</div>
+```
+
+## Request Lifecycle
+
+1. **Element Configuration**: Element with `data-rx-action` is initialized
+2. **Trigger Fires**: User interaction or special trigger activates
+3. **Request Building**:
+   - Collect form data (if applicable)
+   - Include state from `data-rx-include-state`
+   - Add CSRF token from cookie
+   - Set `rx-request` header
+4. **Request Execution**:
+   - Show loading indicator
+   - Disable element (if configured)
+   - Send AJAX request
+5. **Response Processing**:
+   - Parse `rx-merge` header for fragments
+   - Update DOM based on merge strategies
+   - Execute triggers (toast, focus, state, etc.)
+6. **Cleanup**:
+   - Hide loading indicator
+   - Re-enable element
+   - Dispatch completion events
+
+## Error Handling
+
+Errors (4xx/5xx responses) replace the entire page content:
+
+```csharp
+// Custom error response
+if (!isValid) {
+    return Results.BadRequest(new {
+        error = "Validation failed",
+        fields = validationErrors
+    });
+}
+
+// Framework displays as formatted JSON or text
+```
+
+## No-Content Responses
+
+For actions without UI updates:
+
+```csharp
+return await driver
+    .With(context)
+    .AddTriggerToast("Saved to drafts", ToastType.Info)
+    .Render();  // Returns 204 with triggers only
+```
+
+## View Transitions API
+
+RazorX automatically uses the View Transitions API when available:
+
+```csharp
+// Smooth morphing with browser-native transitions
+.AddFragment<Grid, Model>(model, "grid", FragmentMergeStrategyType.Morph)
+```
+
+The framework detects `document.startViewTransition` and wraps updates appropriately.
