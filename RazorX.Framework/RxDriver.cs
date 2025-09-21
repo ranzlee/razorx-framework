@@ -505,7 +505,7 @@ internal record MergeStrategy(string Target, string Strategy);
 internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrapper htmlRenderer, ILogger logger) : IRxResponseBuilder, IDisposable {
     private bool isRendering = false;
     private bool disposed = false;
-    private readonly StringBuilder content = new(capacity: 4096);
+    private readonly StringBuilder content = new(capacity: 16384);
     private readonly Lock contentLock = new();
     private readonly List<Task> renderTasks = [];
     private readonly List<MergeStrategy> mergeStrategies = [];

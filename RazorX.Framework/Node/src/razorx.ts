@@ -574,6 +574,7 @@ export type RxToastTrigger = {
 type ElementTriggerState = {
     triggers: Set<string>;
     intervalId?: ReturnType<typeof setInterval>;
+    timeoutId?: ReturnType<typeof setTimeout>;
     observer?: IntersectionObserver;
 }
 
@@ -1090,9 +1091,22 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     function initializedTrigger(ele: HTMLElement, delay?: number): void {
         const evt = new CustomEvent('initialized', { detail: { type: 'initialized', delay: delay } });
         if (delay && delay > 0) {
-            setTimeout(() => {
-                elementTriggerProcessor(ele, evt);
+            const timeoutId = setTimeout(() => {
+                // Check if element is still connected to the DOM
+                if (ele.isConnected) {
+                    elementTriggerProcessor(ele, evt);
+                }
+                // Clean up the timeout ID from state after execution
+                const state = _elementTriggerState.get(ele);
+                if (state?.timeoutId === timeoutId) {
+                    delete state.timeoutId;
+                }
             }, delay);
+
+            // Store the timeout ID for cleanup
+            const state = _elementTriggerState.get(ele) || { triggers: new Set<string>() };
+            state.timeoutId = timeoutId;
+            _elementTriggerState.set(ele, state);
         } else {
             elementTriggerProcessor(ele, evt);
         }
@@ -1183,6 +1197,9 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     function removeTriggers(ele: HTMLElement): void {
         const triggerState = _elementTriggerState.get(ele);
         if (triggerState) {
+            if (triggerState.timeoutId) {
+                clearTimeout(triggerState.timeoutId);
+            }
             if (triggerState.intervalId) {
                 clearInterval(triggerState.intervalId);
             }
