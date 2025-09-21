@@ -53,7 +53,7 @@ builder.Services.AddRxDriver(options => {
 
 The RazorX client files are automatically copied to your `wwwroot` folder during build:
 
-- **`razorx.js`** (~45KB) - The JavaScript client file (compiled from TypeScript source) that handles:
+- **`razorx.js`** (~32KB) - The JavaScript client file (compiled from TypeScript source) that handles:
   - Event delegation and trigger management
   - AJAX request processing
   - DOM manipulation via fragment merging
@@ -383,21 +383,26 @@ The `IRxDriver` interface provides methods for rendering pages and building AJAX
 
 #### Page Rendering Methods
 
-#### `RenderPage<TLayout, TPage>(HttpContext context, string? title)`
+#### `RenderPage<TRoot, TComponent>(HttpContext context, string? title)`
+
 Renders a full HTML page without a model.
 
-#### `RenderPage<TLayout, TPage, TModel>(HttpContext context, TModel model, string? title)`
+#### `RenderPage<TRoot, TComponent, TModel>(HttpContext context, TModel model, string? title)`
+
 Renders a full HTML page with a model.
 
-#### `RenderPage<TLayout, THead, TPage>(HttpContext context, string? title)`
+#### `RenderPage<TRoot, THead, TComponent>(HttpContext context, string? title)`
+
 Renders a full HTML page with custom head content.
 
-#### `RenderPage<TLayout, THead, TPage, TModel>(HttpContext context, TModel model, string? title)`
+#### `RenderPage<TRoot, THead, TComponent, TModel>(HttpContext context, TModel model, string? title)`
+
 Renders a full HTML page with custom head content and a model.
 
 #### Response Builder Methods
 
 #### `With(HttpContext context)`
+
 Starts building a response for the given HTTP context. Returns `IRxResponseBuilder`.
 
 #### IRxResponseBuilder Methods
@@ -447,7 +452,7 @@ Starts building a response for the given HTTP context. Returns `IRxResponseBuild
 
 #### Enums
 
-- **`ToastType`**: Success, Error, Warning, Info
+- **`ToastType`**: Info, Success, Warning, Error
 - **`ToastVerticalPosition`**: Top, Center, Bottom
 - **`ToastHorizontalPosition`**: Left, Middle, Right
 - **`MetadataScope`**: Session (sessionStorage), Persistent (localStorage)
@@ -650,16 +655,16 @@ document.addEventListener('rx:before-fetch', (event) => {
 | `rx:after-document-processed` | None | No | Fired after initial document processing |
 | `rx:before-initialize-element` | `{ element: HTMLElement }` | Yes | Fired before element initialization. Call `preventDefault()` to cancel |
 | `rx:after-initialize-element` | `{ element: HTMLElement }` | No | Fired after element initialization |
-| `rx:before-fetch` | `{ triggerElement: HTMLElement, requestConfiguration: RequestConfiguration }` | No | Fired before AJAX request |
+| `rx:before-fetch` | `{ triggerElement: HTMLElement, requestConfiguration: RequestConfiguration }` | No | Fired before AJAX request. Use `requestConfiguration.abort()` to cancel (see "Aborting Requests") |
 | `rx:after-fetch` | `{ triggerElement: HTMLElement, requestDetail: RequestDetail, response: Response }` | No | Fired after AJAX response |
-| `rx:before-document-update` | `{ triggerElement: HTMLElement, targetElement: HTMLElement, strategy: string }` | Yes | Fired before DOM update. Call `preventDefault()` to cancel |
+| `rx:before-document-update` | `{ triggerElement: HTMLElement, mergeElement: HTMLElement, strategy: MergeStrategyType }` | Yes | Fired before DOM update. Call `preventDefault()` to cancel |
 | `rx:after-document-update` | `{ triggerElement: HTMLElement }` | No | Fired after DOM update |
 | `rx:element-added` | `{ element: HTMLElement }` | No | Fired when element added to DOM |
 | `rx:element-morphed` | `{ element: HTMLElement }` | No | Fired when element morphed |
 | `rx:element-removed` | `{ element: HTMLElement }` | No | Fired when element removed from DOM |
-| `rx:element-trigger-error` | `{ triggerElement: HTMLElement, error: Error }` | No | Fired on request error |
+| `rx:element-trigger-error` | `{ triggerElement: HTMLElement, error: unknown }` | No | Fired on request error |
 | `rx:file-selected` | `{ fileInput: HTMLInputElement, files: FileInfo[], error?: Error }` | No | Fired when files selected |
-| `rx:file-upload-progress` | `{ fileInput: HTMLInputElement, progressContext: object }` | No | Fired during upload progress |
+| `rx:file-upload-progress` | `{ fileInput: HTMLInputElement, progressContext: FileUploadProgressContext }` | No | Fired during upload progress |
 
 ### Global Callbacks
 
@@ -692,12 +697,14 @@ razorx.addCallbacks({
 | `afterDocumentProcessed` | None | void | Called after initial processing |
 | `beforeInitializeElement` | `(element: HTMLElement)` | boolean | Return false to prevent initialization |
 | `afterInitializeElement` | `(element: HTMLElement)` | void | Called after element initialized |
-| `beforeFetch` | `(element: HTMLElement, config: RequestConfiguration)` | void | Called before request. Can modify config or call `config.abort()` |
+| `beforeFetch` | `(element: HTMLElement, config: RequestConfiguration)` | void | Called before request. Can modify config or call `config.abort()` to cancel |
 | `afterFetch` | `(element: HTMLElement, request: RequestDetail, response: Response)` | void | Called after response received |
-| `beforeDocumentUpdate` | `(triggerElement: HTMLElement, targetElement: HTMLElement, strategy: string)` | boolean | Return false to prevent update |
+| `beforeDocumentUpdate` | `(triggerElement: HTMLElement, mergeElement: HTMLElement, strategy: MergeStrategyType)` | boolean | Return false to prevent update |
 | `afterDocumentUpdate` | `(element: HTMLElement)` | void | Called after DOM update |
-| `onElementTriggerError` | `(element: HTMLElement, error: any)` | void | Called on request error |
+| `onElementTriggerError` | `(element: HTMLElement, error: unknown)` | void | Called on request error |
+| `onElementAdded` | `(addedElement: HTMLElement)` | void | Called when element with data-rx attributes is added to DOM |
 | `onElementMorphed` | `(element: HTMLElement)` | void | Called after element morphed |
+| `onElementRemoved` | `(removedElement: HTMLElement)` | void | Called when element with data-rx attributes is removed from DOM |
 | `onFileSelected` | `(fileInput: HTMLInputElement, files: FileInfo[], error?: Error)` | void | Called when files selected |
 | `onFileUploadProgress` | `(fileInput: HTMLInputElement, context: FileUploadProgressContext)` | void | Called during upload |
 
@@ -724,11 +731,11 @@ searchInput.addRxCallbacks({
 
 | Callback | Parameters | Return Value | Description |
 |----------|------------|--------------|-------------|
-| `beforeFetch` | `(config: RequestConfiguration)` | void | Called before this element's request. Can modify config or call `config.abort()` |
+| `beforeFetch` | `(config: RequestConfiguration)` | void | Called before this element's request. Can modify config or call `config.abort()` to cancel |
 | `afterFetch` | `(request: RequestDetail, response: Response)` | void | Called after this element's response |
-| `beforeDocumentUpdate` | `(targetElement: HTMLElement, strategy: string)` | boolean | Return false to prevent this element's update |
+| `beforeDocumentUpdate` | `(mergeElement: HTMLElement, strategy: MergeStrategyType)` | boolean | Return false to prevent this element's update |
 | `afterDocumentUpdate` | None | void | Called after this element triggers DOM update |
-| `onElementTriggerError` | `(error: any)` | void | Called on this element's request error |
+| `onElementTriggerError` | `(error: unknown)` | void | Called on this element's request error |
 | `onFileUploadProgress` | `(context: FileUploadProgressContext)` | void | Called during this file input's upload |
 | `onFileSelected` | `(files: FileInfo[], error?: Error)` | void | Called when files selected on this input |
 
@@ -755,8 +762,8 @@ Return `false` from `beforeDocumentUpdate` to cancel DOM updates:
 
 ```javascript
 element.addRxCallbacks({
-    beforeDocumentUpdate: (targetElement, strategy) => {
-        if (targetElement.querySelector('.unsaved-changes')) {
+    beforeDocumentUpdate: (mergeElement, strategy) => {
+        if (mergeElement.querySelector('.unsaved-changes')) {
             return confirm('Discard unsaved changes?');
         }
         return true; // Allow update
@@ -775,7 +782,7 @@ The `RequestConfiguration` object in `beforeFetch`:
     method: string,              // HTTP method
     body?: FormData | string,    // Request body
     headers: Headers,            // Request headers (modifiable)
-    abort: () => void           // Function to cancel request
+    abort: (reason?: string) => void  // Function to cancel request
 }
 ```
 
@@ -801,6 +808,7 @@ When both events and callbacks are registered, they execute in this order:
 3. DOM event (always dispatched)
 
 For cancelable operations (`beforeInitializeElement`, `beforeDocumentUpdate`):
+
 - Element callback returning `false` cancels immediately
 - Global callback returning `false` cancels immediately
 - Event `preventDefault()` cancels if not already canceled
