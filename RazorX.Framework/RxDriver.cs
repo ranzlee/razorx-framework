@@ -389,12 +389,10 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
       where TComponent : IComponent {
         ObjectDisposedException.ThrowIf(disposed, nameof(RxDriver));
         cancellationToken.ThrowIfCancellationRequested();
-        
         var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
             { nameof(IRootComponent.MainContent), typeof(TComponent) },
             { nameof(IRootComponent.Title), title },
         });
-        
         return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
     }
     
@@ -408,18 +406,15 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
       where TComponent : IComponent, IComponentModel<TModel> {
         ObjectDisposedException.ThrowIf(disposed, nameof(RxDriver));
         cancellationToken.ThrowIfCancellationRequested();
-        
         var pageComponentParameters = new Dictionary<string, object?> {
             { nameof(IComponentModel<>.Model), model }
         };
-        
         var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
             { nameof(IRootComponent.MainContent), typeof(TComponent) },
             { nameof(IRootComponent.HeadContent), typeof(THead) },
             { nameof(IRootComponent.MainContentParameters), pageComponentParameters },
             { nameof(IRootComponent.Title), title },
         });
-        
         return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
     }
     
@@ -432,13 +427,11 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
       where TComponent : IComponent {
         ObjectDisposedException.ThrowIf(disposed, nameof(RxDriver));
         cancellationToken.ThrowIfCancellationRequested();
-        
         var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
             { nameof(IRootComponent.MainContent), typeof(TComponent) },
             { nameof(IRootComponent.HeadContent), typeof(THead) },
             { nameof(IRootComponent.Title), title },
         });
-        
         return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
     }
     
@@ -448,15 +441,12 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
         CancellationToken cancellationToken
     ) {
         cancellationToken.ThrowIfCancellationRequested();
-        
         string output = string.Empty;
-
         await RxResponseBuilder.InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
             cancellationToken.ThrowIfCancellationRequested();
             var root = await htmlRenderer.RenderComponentAsync(rootComponentType, rootParameters).ConfigureAwait(false);
             output = root.ToHtmlString();
         }, logger).ConfigureAwait(false);
-        
         return Results.Content(output, "text/html");
     }
 
@@ -516,16 +506,13 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     private readonly HashSet<string> stateKeysInResponse = [];
     private static readonly JsonSerializerOptions serializerSettings = new(JsonSerializerDefaults.Web);
     
-    // Cache template format to avoid repeated string operations
     private static string CreateTemplate(string targetId, string htmlContent) => 
         $"<template id=\"{targetId}-rx-fragment\">{htmlContent}</template>";
     
-    // Validate targetId parameter
     private static void ValidateTargetId(string targetId) {
         if (string.IsNullOrWhiteSpace(targetId)) {
             throw new ArgumentException("Target ID cannot be null or empty", nameof(targetId));
         }
-        // Basic validation - no special characters that could break HTML
         if (targetId.IndexOfAny(['<', '>', '"', '\'', '&']) >= 0) {
             throw new ArgumentException("Target ID contains invalid HTML characters", nameof(targetId));
         }
@@ -540,7 +527,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         CheckRenderingStatus();
         ValidateTargetId(targetId);
         var parameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
-            { nameof(IComponentModel<TModel>.Model), model }
+            { nameof(IComponentModel<>.Model), model }
         });
         renderTasks.Add(InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
             var output = await htmlRenderer.RenderComponentAsync<TComponent>(parameters).ConfigureAwait(false);
@@ -646,16 +633,10 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         cancellationToken.ThrowIfCancellationRequested();
         CheckRenderingStatus();
-        
-        // Fragments and triggers require rx-request header
         if (!context.Request.IsRxRequest()) {
             throw new InvalidOperationException("Fragment and trigger operations require rx-request header. Use RenderPage methods for full page rendering.");
         }
-        
-        // Set rendering flag early to prevent duplicate renders
         isRendering = true;
-        
-        //triggers
         if (closeDialogTrigger != null) {
             context.Response.Headers.Append("rx-trigger-close-dialog", JsonSerializer.Serialize(closeDialogTrigger, serializerSettings));
         }
@@ -670,8 +651,6 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         if (toastTrigger != null) {
             context.Response.Headers.Append("rx-trigger-toast", JsonSerializer.Serialize(toastTrigger, serializerSettings));
         }
-
-        //fragments
         if (ignoreActiveElementValueOnMorph) {
             context.Response.Headers.Append("rx-morph-ignore-active", true.ToString());
         }
