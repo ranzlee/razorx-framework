@@ -148,14 +148,14 @@ public sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAc
         // Handle null tokens first
         if (reader.TokenType == JsonTokenType.Null) {
             logger.LogTrace("{converter}.{method} returned null.",
-                nameof(SingleOrArrayConverter<T>),
+                nameof(SingleOrArrayConverter<>),
                 nameof(Read));
             return null;
         }
         // For non-RxRequest, use simpler fallback behavior
         if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
             logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for input.",
-                nameof(SingleOrArrayConverter<T>),
+                nameof(SingleOrArrayConverter<>),
                 nameof(Read),
                 typeof(IEnumerable<T>));
             return DeserializeWithFallback(ref reader);
@@ -188,7 +188,7 @@ public sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAc
     private IEnumerable<T>? DeserializeSingleString(string? stringValue) {
         if (string.IsNullOrWhiteSpace(stringValue)) {
             logger.LogTrace("{converter}.{method} returned null.",
-                nameof(SingleOrArrayConverter<T>),
+                nameof(SingleOrArrayConverter<>),
                 nameof(Read));
             return null;
         }
@@ -208,13 +208,13 @@ public sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAc
         JsonSerializerOptions options) {
         if (objectToWrite is null) {
             logger.LogTrace("{converter}.{method} writing null.",
-                nameof(SingleOrArrayConverter<T>),
+                nameof(SingleOrArrayConverter<>),
                 nameof(Write));
             writer.WriteNullValue();
             return;
         }
         logger.LogTrace("{converter}.{method} writing {type}.",
-            nameof(SingleOrArrayConverter<T>),
+            nameof(SingleOrArrayConverter<>),
             nameof(Write),
             objectToWrite.GetType());
         JsonSerializer.Serialize(writer, objectToWrite, objectToWrite.GetType(), options);

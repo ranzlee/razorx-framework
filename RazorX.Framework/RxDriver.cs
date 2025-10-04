@@ -369,7 +369,7 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
         cancellationToken.ThrowIfCancellationRequested();
         
         var pageComponentParameters = new Dictionary<string, object?> {
-            { nameof(IComponentModel<TModel>.Model), model }
+            { nameof(IComponentModel<>.Model), model }
         };
         
         var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
@@ -410,7 +410,7 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
         cancellationToken.ThrowIfCancellationRequested();
         
         var pageComponentParameters = new Dictionary<string, object?> {
-            { nameof(IComponentModel<TModel>.Model), model }
+            { nameof(IComponentModel<>.Model), model }
         };
         
         var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
@@ -451,7 +451,7 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
         
         string output = string.Empty;
 
-        await RxDispatcherHelper.InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
+        await RxResponseBuilder.InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
             cancellationToken.ThrowIfCancellationRequested();
             var root = await htmlRenderer.RenderComponentAsync(rootComponentType, rootParameters).ConfigureAwait(false);
             output = root.ToHtmlString();
@@ -542,7 +542,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         var parameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
             { nameof(IComponentModel<TModel>.Model), model }
         });
-        renderTasks.Add(RxDispatcherHelper.InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
+        renderTasks.Add(InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
             var output = await htmlRenderer.RenderComponentAsync<TComponent>(parameters).ConfigureAwait(false);
             var template = CreateTemplate(targetId, output.ToHtmlString());
             lock (contentLock) {
@@ -560,7 +560,7 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         CheckRenderingStatus();
         ValidateTargetId(targetId);
-        renderTasks.Add(RxDispatcherHelper.InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
+        renderTasks.Add(InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
             var output = await htmlRenderer.RenderComponentAsync<TComponent>(ParameterView.Empty).ConfigureAwait(false);
             var template = CreateTemplate(targetId, output.ToHtmlString());
             lock (contentLock) {
@@ -723,6 +723,24 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
             return false;
         }
         return key.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_');
+    }
+
+    internal static async Task InvokeOnDispatcherAsync(object dispatcher, Func<Task> workItem, ILogger logger) {
+        try {
+            var dispatcherType = dispatcher.GetType();
+            var method = dispatcherType.GetMethod("InvokeAsync", [typeof(Func<Task>)]);
+            if (method == null) {
+                logger.LogWarning("InvokeAsync method not found on dispatcher {DispatcherType}, executing directly", dispatcherType.Name);
+                await workItem().ConfigureAwait(false);
+                return;
+            }
+            var task = (Task)method.Invoke(dispatcher, [workItem])!;
+            await task.ConfigureAwait(false);
+        }
+        catch (Exception ex) {
+            logger.LogError(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
+            throw;
+        }
     }
     
     public void Dispose() {

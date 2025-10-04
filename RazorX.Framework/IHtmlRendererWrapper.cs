@@ -1,5 +1,3 @@
-using System.Collections.Concurrent;
-using System.Linq.Expressions;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.Logging;
@@ -7,72 +5,86 @@ using Microsoft.Extensions.Logging;
 namespace RazorX.Framework;
 
 /// <summary>
-/// Wrapper interface for ASP.NET Core's HtmlRenderer to enable testing and abstraction.
+/// Simplified wrapper interface for ASP.NET Core's HtmlRenderer to enable testing and abstraction.
+/// This version eliminates Expression.Compile() for AOT compatibility and simplicity.
 /// </summary>
-/// <remarks>
-/// This interface wraps the sealed HtmlRenderer class from ASP.NET Core,
-/// allowing it to be mocked in tests and providing an abstraction layer.
-/// Automatically registered by AddRxDriver() when configuring services.
-/// </remarks>
 public interface IHtmlRendererWrapper : IAsyncDisposable, IDisposable {
     /// <summary>
     /// Gets the dispatcher object used for component rendering synchronization.
     /// </summary>
     object Dispatcher { get; }
+
     /// <summary>
     /// Renders a component of the specified type to HTML.
     /// </summary>
-    /// <param name="componentType">The type of the component to render.</param>
-    /// <param name="parameters">The parameters to pass to the component.</param>
-    /// <returns>A wrapper containing the rendered HTML content.</returns>
     ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync(Type componentType, ParameterView parameters);
+
     /// <summary>
     /// Renders a component of the specified generic type to HTML.
     /// </summary>
-    /// <typeparam name="TComponent">The type of the component to render.</typeparam>
-    /// <param name="parameters">The parameters to pass to the component.</param>
-    /// <returns>A wrapper containing the rendered HTML content.</returns>
     ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync<TComponent>(ParameterView parameters) where TComponent : IComponent;
 }
 
 /// <summary>
 /// Wrapper interface for the rendered HTML content of a component.
 /// </summary>
-/// <remarks>
-/// This interface provides access to the HTML string representation
-/// of a rendered Blazor component.
-/// </remarks>
 public interface IHtmlRootComponentWrapper {
     /// <summary>
     /// Converts the rendered component to an HTML string.
     /// </summary>
-    /// <returns>The HTML representation of the rendered component.</returns>
     string ToHtmlString();
 }
 
-// Concrete wrapper that delegates to real HtmlRenderer
+/// <summary>
+/// Simplified concrete wrapper that delegates to real HtmlRenderer.
+/// Uses direct reflection instead of compiled expressions for AOT compatibility.
+/// </summary>
 internal class HtmlRendererWrapper(HtmlRenderer htmlRenderer, ILogger<HtmlRootComponentWrapper> logger) : IHtmlRendererWrapper {
     private readonly HtmlRenderer _htmlRenderer = htmlRenderer;
     private readonly ILogger<HtmlRootComponentWrapper> _logger = logger;
-
     public object Dispatcher => _htmlRenderer.Dispatcher;
 
     public async ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync(Type componentType, ParameterView parameters) {
-        // Enforce Microsoft's documented threading requirement: all HtmlRenderer calls must be in dispatcher context
-        var result = await RxDispatcherHelper.InvokeOnDispatcherAsync(_htmlRenderer.Dispatcher, async () => {
+        var result = await InvokeOnDispatcherAsync(async () => {
             return await _htmlRenderer.RenderComponentAsync(componentType, parameters).ConfigureAwait(false);
-        }, _logger).ConfigureAwait(false);
-
+        }).ConfigureAwait(false);
         return new HtmlRootComponentWrapper(result, _logger);
     }
 
     public async ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync<TComponent>(ParameterView parameters) where TComponent : IComponent {
-        // Enforce Microsoft's documented threading requirement: all HtmlRenderer calls must be in dispatcher context
-        var result = await RxDispatcherHelper.InvokeOnDispatcherAsync(_htmlRenderer.Dispatcher, async () => {
+        var result = await InvokeOnDispatcherAsync(async () => {
             return await _htmlRenderer.RenderComponentAsync<TComponent>(parameters).ConfigureAwait(false);
-        }, _logger).ConfigureAwait(false);
-
+        }).ConfigureAwait(false);
         return new HtmlRootComponentWrapper(result, _logger);
+    }
+
+    private async Task<T> InvokeOnDispatcherAsync<T>(Func<Task<T>> workItem) {
+        var dispatcher = _htmlRenderer.Dispatcher;
+        var dispatcherType = dispatcher.GetType();
+        var invokeAsyncMethod = dispatcherType.GetMethod("InvokeAsync", [typeof(Func<Task>)]);
+
+        if (invokeAsyncMethod == null) {
+            // Fallback: execute directly if dispatcher doesn't have InvokeAsync
+            _logger.LogWarning("InvokeAsync method not found on dispatcher {Type}, executing directly", dispatcherType.Name);
+            return await workItem().ConfigureAwait(false);
+        }
+        var tcs = new TaskCompletionSource<T>();
+        Func<Task> wrappedWorkItem = async () => {
+            try {
+                var result = await workItem().ConfigureAwait(false);
+                tcs.SetResult(result);
+            } catch (Exception ex) {
+                tcs.SetException(ex);
+            }
+        };
+        try {
+            var task = (Task)invokeAsyncMethod.Invoke(dispatcher, [wrappedWorkItem])!;
+            await task.ConfigureAwait(false);
+            return await tcs.Task.ConfigureAwait(false);
+        } catch (Exception ex) {
+            _logger.LogError(ex, "Failed to invoke work on dispatcher");
+            throw;
+        }
     }
 
     public void Dispose() {
@@ -84,30 +96,25 @@ internal class HtmlRendererWrapper(HtmlRenderer htmlRenderer, ILogger<HtmlRootCo
     }
 }
 
-// Wrapper for HtmlRootComponent
 internal class HtmlRootComponentWrapper(object htmlRootComponent, ILogger<HtmlRootComponentWrapper> logger) : IHtmlRootComponentWrapper {
-    private readonly object _htmlRootComponent = htmlRootComponent; // Use object since HtmlRootComponent is internal to ASP.NET Core
-    private readonly ILogger<HtmlRootComponentWrapper> _logger = logger;
-    private static readonly ConcurrentDictionary<Type, Func<object, string>> _toHtmlStringFuncCache = new();
-
+    private readonly object _htmlRootComponent = htmlRootComponent;
     public string ToHtmlString() {
-        // Use cached compiled expression for better performance
         var componentType = _htmlRootComponent.GetType();
-        var func = _toHtmlStringFuncCache.GetOrAdd(componentType, type => CreateToHtmlStringFunc(type, _logger));
-        return func.Invoke(_htmlRootComponent);
-    }
-    
-    private static Func<object, string> CreateToHtmlStringFunc(Type componentType, ILogger<HtmlRootComponentWrapper> logger) {
         var method = componentType.GetMethod("ToHtmlString", Type.EmptyTypes);
         if (method == null) {
             logger.LogError("ToHtmlString method not found on {ComponentType}", componentType.Name);
             throw new InvalidOperationException($"ToHtmlString method not found on {componentType.Name}");
         }
-        // Create compiled expression: obj => ((ComponentType)obj).ToHtmlString()
-        var parameter = Expression.Parameter(typeof(object), "obj");
-        var cast = Expression.Convert(parameter, componentType);
-        var call = Expression.Call(cast, method);
-        var lambda = Expression.Lambda<Func<object, string>>(call, parameter);
-        return lambda.Compile();
+        try {
+            return (string)method.Invoke(_htmlRootComponent, null)!;
+        }
+        catch (System.Reflection.TargetInvocationException tie) {
+            logger.LogError(tie.InnerException, "Failed to invoke ToHtmlString on {ComponentType}", componentType.Name);
+            throw tie.InnerException!;
+        }
+        catch (Exception ex) {
+            logger.LogError(ex, "Failed to invoke ToHtmlString on {ComponentType}", componentType.Name);
+            throw;
+        }
     }
 }
