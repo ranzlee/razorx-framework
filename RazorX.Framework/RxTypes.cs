@@ -46,9 +46,24 @@ public abstract class RequestHandler {
 /// Interface for a component that represents a page layout.
 /// </summary>
 public interface IRootComponent {
+    /// <summary>
+    /// Gets or sets the optional component type for custom head elements (meta tags, styles, scripts, etc.).
+    /// </summary>
     public Type? HeadContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets the main content component type to render in the page body.
+    /// </summary>
     public Type MainContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets the parameters to pass to the main content component.
+    /// </summary>
     public Dictionary<string, object?> MainContentParameters { get; set; }
+
+    /// <summary>
+    /// Gets or sets the page title for the HTML document.
+    /// </summary>
     public string? Title { get; set; }
 }
 
@@ -57,6 +72,9 @@ public interface IRootComponent {
 /// </summary>
 /// <typeparam name="TModel">The model to bind to the component.</typeparam>
 public interface IComponentModel<TModel> {
+    /// <summary>
+    /// Gets or sets the strongly-typed component model.
+    /// </summary>
     TModel Model { get; set; }
 }
 
@@ -121,9 +139,24 @@ public enum MetadataScope {
 /// Toast display types that determine visual styling.
 /// </summary>
 public enum ToastType {
+    /// <summary>
+    /// Informational toast notification (neutral styling).
+    /// </summary>
     Info = 0,
+
+    /// <summary>
+    /// Success toast notification (positive styling).
+    /// </summary>
     Success = 1,
+
+    /// <summary>
+    /// Warning toast notification (cautionary styling).
+    /// </summary>
     Warning = 2,
+
+    /// <summary>
+    /// Error toast notification (negative styling).
+    /// </summary>
     Error = 3
 }
 
@@ -131,8 +164,19 @@ public enum ToastType {
 /// Vertical positioning options for toasts.
 /// </summary>
 public enum ToastVerticalPosition {
+    /// <summary>
+    /// Display toast at the top of the viewport.
+    /// </summary>
     Top = 0,
+
+    /// <summary>
+    /// Display toast at the vertical center of the viewport.
+    /// </summary>
     Center = 1,
+
+    /// <summary>
+    /// Display toast at the bottom of the viewport.
+    /// </summary>
     Bottom = 2
 }
 
@@ -140,7 +184,18 @@ public enum ToastVerticalPosition {
 /// Horizontal positioning options for toasts.
 /// </summary>
 public enum ToastHorizontalPosition {
+    /// <summary>
+    /// Display toast at the left edge of the viewport.
+    /// </summary>
     Left = 0,
+
+    /// <summary>
+    /// Display toast at the horizontal center of the viewport.
+    /// </summary>
     Middle = 1,
+
+    /// <summary>
+    /// Display toast at the right edge of the viewport.
+    /// </summary>
     Right = 2
 }
