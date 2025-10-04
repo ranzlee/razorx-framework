@@ -222,7 +222,6 @@ public class RxMemoryPoolTests {
     }
 
     [TestMethod]
-    [ExpectedException(typeof(ObjectDisposedException))]
     public void PooledStringBuilder_ToString_AfterDispose_Throws() {
         // Arrange
         var pool = new RxMemoryPool();
@@ -230,20 +229,19 @@ public class RxMemoryPoolTests {
         builder.Append("Test");
         builder.Dispose();
 
-        // Act - should throw
-        _ = builder.ToString();
+        // Act & Assert
+        Assert.ThrowsExactly<ObjectDisposedException>(() => builder.ToString());
     }
 
     [TestMethod]
-    [ExpectedException(typeof(ObjectDisposedException))]
     public void PooledStringBuilder_Clear_AfterDispose_Throws() {
         // Arrange
         var pool = new RxMemoryPool();
         var builder = pool.RentStringBuilder(initialCapacity: 128);
         builder.Dispose();
 
-        // Act - should throw
-        builder.Clear();
+        // Act & Assert
+        Assert.ThrowsExactly<ObjectDisposedException>(() => builder.Clear());
     }
 
     [TestMethod]
