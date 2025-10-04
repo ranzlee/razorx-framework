@@ -455,13 +455,19 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
             return;
         }
         try {
-            logger.LogDebug("Async Disposing RxDriver");
+            if (logger.IsEnabled(LogLevel.Debug)) {
+                logger.LogDebug("Async Disposing RxDriver");
+            }
             await htmlRenderer.DisposeAsync().ConfigureAwait(false);
             disposed = true;
-            logger.LogDebug("RxDriver Async Disposed successfully");
+            if (logger.IsEnabled(LogLevel.Debug)) {
+                logger.LogDebug("RxDriver Async Disposed successfully");
+            }
         }
         catch (Exception ex) {
-            logger.LogError(ex, "Error during async disposal of RxDriver");
+            if (logger.IsEnabled(LogLevel.Error)) {
+                logger.LogError(ex, "Error during async disposal of RxDriver");
+            }
             throw;
         }
         finally {
@@ -469,19 +475,25 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
         }
     }
 
-    
+
     public void Dispose() {
         if (disposed) {
             return;
         }
         try {
-            logger.LogDebug("Disposing RxDriver");
+            if (logger.IsEnabled(LogLevel.Debug)) {
+                logger.LogDebug("Disposing RxDriver");
+            }
             htmlRenderer.Dispose();
             disposed = true;
-            logger.LogDebug("RxDriver Disposed successfully");
+            if (logger.IsEnabled(LogLevel.Debug)) {
+                logger.LogDebug("RxDriver Disposed successfully");
+            }
         }
         catch (Exception ex) {
-            logger.LogError(ex, "Error during disposal of RxDriver");
+            if (logger.IsEnabled(LogLevel.Error)) {
+                logger.LogError(ex, "Error during disposal of RxDriver");
+            }
             throw;
         }
         finally {
@@ -656,7 +668,9 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         }
         context.Response.Headers.Append("rx-merge", JsonSerializer.Serialize(mergeStrategies, serializerSettings));
         if (renderTasks.Count != 0) {
-            logger.LogDebug("Rendering Fragments");
+            if (logger.IsEnabled(LogLevel.Debug)) {
+                logger.LogDebug("Rendering Fragments");
+            }
             await Task.WhenAll(renderTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         string htmlContent;
@@ -709,7 +723,9 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
             var dispatcherType = dispatcher.GetType();
             var method = dispatcherType.GetMethod("InvokeAsync", [typeof(Func<Task>)]);
             if (method == null) {
-                logger.LogWarning("InvokeAsync method not found on dispatcher {DispatcherType}, executing directly", dispatcherType.Name);
+                if (logger.IsEnabled(LogLevel.Warning)) {
+                    logger.LogWarning("InvokeAsync method not found on dispatcher {DispatcherType}, executing directly", dispatcherType.Name);
+                }
                 await workItem().ConfigureAwait(false);
                 return;
             }
@@ -717,7 +733,9 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
             await task.ConfigureAwait(false);
         }
         catch (Exception ex) {
-            logger.LogError(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
+            if (logger.IsEnabled(LogLevel.Error)) {
+                logger.LogError(ex, "Failed to invoke InvokeAsync on dispatcher {DispatcherType}", dispatcher.GetType().Name);
+            }
             throw;
         }
     }

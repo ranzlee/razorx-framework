@@ -65,7 +65,9 @@ internal class HtmlRendererWrapper(HtmlRenderer htmlRenderer, ILogger<HtmlRootCo
 
         if (invokeAsyncMethod == null) {
             // Fallback: execute directly if dispatcher doesn't have InvokeAsync
-            _logger.LogWarning("InvokeAsync method not found on dispatcher {Type}, executing directly", dispatcherType.Name);
+            if (_logger.IsEnabled(LogLevel.Warning)) {
+                _logger.LogWarning("InvokeAsync method not found on dispatcher {Type}, executing directly", dispatcherType.Name);
+            }
             return await workItem().ConfigureAwait(false);
         }
         var tcs = new TaskCompletionSource<T>();
@@ -82,7 +84,9 @@ internal class HtmlRendererWrapper(HtmlRenderer htmlRenderer, ILogger<HtmlRootCo
             await task.ConfigureAwait(false);
             return await tcs.Task.ConfigureAwait(false);
         } catch (Exception ex) {
-            _logger.LogError(ex, "Failed to invoke work on dispatcher");
+            if (_logger.IsEnabled(LogLevel.Error)) {
+                _logger.LogError(ex, "Failed to invoke work on dispatcher");
+            }
             throw;
         }
     }
@@ -102,18 +106,24 @@ internal class HtmlRootComponentWrapper(object htmlRootComponent, ILogger<HtmlRo
         var componentType = _htmlRootComponent.GetType();
         var method = componentType.GetMethod("ToHtmlString", Type.EmptyTypes);
         if (method == null) {
-            logger.LogError("ToHtmlString method not found on {ComponentType}", componentType.Name);
+            if (logger.IsEnabled(LogLevel.Error)) {
+                logger.LogError("ToHtmlString method not found on {ComponentType}", componentType.Name);
+            }
             throw new InvalidOperationException($"ToHtmlString method not found on {componentType.Name}");
         }
         try {
             return (string)method.Invoke(_htmlRootComponent, null)!;
         }
         catch (System.Reflection.TargetInvocationException tie) {
-            logger.LogError(tie.InnerException, "Failed to invoke ToHtmlString on {ComponentType}", componentType.Name);
+            if (logger.IsEnabled(LogLevel.Error)) {
+                logger.LogError(tie.InnerException, "Failed to invoke ToHtmlString on {ComponentType}", componentType.Name);
+            }
             throw tie.InnerException!;
         }
         catch (Exception ex) {
-            logger.LogError(ex, "Failed to invoke ToHtmlString on {ComponentType}", componentType.Name);
+            if (logger.IsEnabled(LogLevel.Error)) {
+                logger.LogError(ex, "Failed to invoke ToHtmlString on {ComponentType}", componentType.Name);
+            }
             throw;
         }
     }

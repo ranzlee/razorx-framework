@@ -51,7 +51,9 @@ public static class RouteMapper {
                 handler = Activator.CreateInstance(type) as RequestHandler;
                 if (handler != null) {
                     handler.MapRoutes(router);
-                    logger?.LogDebug("Successfully mapped routes for handler {HandlerType}", type.Name);
+                    if (logger?.IsEnabled(LogLevel.Debug) == true) {
+                        logger.LogDebug("Successfully mapped routes for handler {HandlerType}", type.Name);
+                    }
                     processedCount++;
                 }
             }
@@ -60,7 +62,9 @@ public static class RouteMapper {
                 (handler as IDisposable)?.Dispose();
             }
         }
-        logger?.LogInformation("Route mapping completed. Processed {HandlerCount} request handlers from assembly {AssemblyName}", processedCount, assembly.GetName().Name);
+        if (logger?.IsEnabled(LogLevel.Information) == true) {
+            logger.LogInformation("Route mapping completed. Processed {HandlerCount} request handlers from assembly {AssemblyName}", processedCount, assembly.GetName().Name);
+        }
         return router;
     }
 }

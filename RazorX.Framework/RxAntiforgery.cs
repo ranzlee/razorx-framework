@@ -111,12 +111,16 @@ public sealed class RxAntiforgeryCookieMiddleware(RequestDelegate next) {
         if (IsGetMethod(context.Request.Method)) {
             // Return an antiforgery token in the response for GET requests
             var tokenSet = antiforgery.GetAndStoreTokens(context);
-            logger.LogTrace("Adding Antiforgery token cookie for {method}:{request}.",
-                context.Request.Method,
-                context.Request.GetDisplayUrl());
+            if (logger.IsEnabled(LogLevel.Trace)) {
+                logger.LogTrace("Adding Antiforgery token cookie for {method}:{request}.",
+                    context.Request.Method,
+                    context.Request.GetDisplayUrl());
+            }
             if (string.IsNullOrEmpty(tokenSet.RequestToken)) {
-                logger.LogWarning("Antiforgery token is null or empty for {method}:{request}", 
-                    context.Request.Method, context.Request.GetDisplayUrl());
+                if (logger.IsEnabled(LogLevel.Warning)) {
+                    logger.LogWarning("Antiforgery token is null or empty for {method}:{request}",
+                        context.Request.Method, context.Request.GetDisplayUrl());
+                }
                 await next(context).ConfigureAwait(false);
                 return;
             }
@@ -130,9 +134,11 @@ public sealed class RxAntiforgeryCookieMiddleware(RequestDelegate next) {
             return;
         }
         // Validate antiforgery token for non-GET requests
-        logger.LogTrace("Validating Antiforgery token for {method}:{request}.",
-            context.Request.Method,
-            context.Request.GetDisplayUrl());
+        if (logger.IsEnabled(LogLevel.Trace)) {
+            logger.LogTrace("Validating Antiforgery token for {method}:{request}.",
+                context.Request.Method,
+                context.Request.GetDisplayUrl());
+        }
         await antiforgery.ValidateRequestAsync(context).ConfigureAwait(false);
         await next(context).ConfigureAwait(false);
     }

@@ -75,18 +75,22 @@ public abstract class FormValueJsonConverter<T>(
         var originalString = reader.GetString();
         var s = PrepareInput(originalString);
         if (ShouldReturnNullForInput(originalString, s)) {
-            logger.LogTrace("{converter}.{method} returned null.",
-                ConverterName,
-                nameof(Read));
+            if (logger.IsEnabled(LogLevel.Trace)) {
+                logger.LogTrace("{converter}.{method} returned null.",
+                    ConverterName,
+                    nameof(Read));
+            }
             return null;
         }
         if (httpContextAccessor.HttpContext is null ||
             !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for {val}.",
-                ConverterName,
-                nameof(Read),
-                typeof(T),
-                s);
+            if (logger.IsEnabled(LogLevel.Trace)) {
+                logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for {val}.",
+                    ConverterName,
+                    nameof(Read),
+                    typeof(T),
+                    s);
+            }
             // For non-RxRequest, still parse the string value but without special form processing
             if (s != null && TryParseValue(s, out var fallbackResult)) {
                 return fallbackResult;
@@ -94,19 +98,23 @@ public abstract class FormValueJsonConverter<T>(
             return null;
         }
         if (s == null) {
-            logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
-                ConverterName,
-                nameof(Read),
-                "null",
-                "null - TryParse() failed");
+            if (logger.IsEnabled(LogLevel.Trace)) {
+                logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
+                    ConverterName,
+                    nameof(Read),
+                    "null",
+                    "null - TryParse() failed");
+            }
             return null;
         }
         var isValid = TryParseValue(s, out var result);
-        logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
-            ConverterName,
-            nameof(Read),
-            s,
-            isValid ? result : "null - TryParse() failed");
+        if (logger.IsEnabled(LogLevel.Trace)) {
+            logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
+                ConverterName,
+                nameof(Read),
+                s,
+                isValid ? result : "null - TryParse() failed");
+        }
         return isValid ? result : null;
     }
 
@@ -115,16 +123,20 @@ public abstract class FormValueJsonConverter<T>(
         T? value,
         JsonSerializerOptions options) {
         if (value.HasValue) {
-            logger.LogTrace("{converter}.{method} writing {result}.",
-                ConverterName,
-                nameof(Write),
-                value.Value);
+            if (logger.IsEnabled(LogLevel.Trace)) {
+                logger.LogTrace("{converter}.{method} writing {result}.",
+                    ConverterName,
+                    nameof(Write),
+                    value.Value);
+            }
             WriteValue(writer, value.Value);
             return;
         }
-        logger.LogTrace("{converter}.{method} writing null.",
-            ConverterName,
-            nameof(Write));
+        if (logger.IsEnabled(LogLevel.Trace)) {
+            logger.LogTrace("{converter}.{method} writing null.",
+                ConverterName,
+                nameof(Write));
+        }
         writer.WriteNullValue();
     }
 }
@@ -147,17 +159,21 @@ public sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAc
         JsonSerializerOptions options) {
         // Handle null tokens first
         if (reader.TokenType == JsonTokenType.Null) {
-            logger.LogTrace("{converter}.{method} returned null.",
-                nameof(SingleOrArrayConverter<>),
-                nameof(Read));
+            if (logger.IsEnabled(LogLevel.Trace)) {
+                logger.LogTrace("{converter}.{method} returned null.",
+                    nameof(SingleOrArrayConverter<>),
+                    nameof(Read));
+            }
             return null;
         }
         // For non-RxRequest, use simpler fallback behavior
         if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for input.",
-                nameof(SingleOrArrayConverter<>),
-                nameof(Read),
-                typeof(IEnumerable<T>));
+            if (logger.IsEnabled(LogLevel.Trace)) {
+                logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for input.",
+                    nameof(SingleOrArrayConverter<>),
+                    nameof(Read),
+                    typeof(IEnumerable<T>));
+            }
             return DeserializeWithFallback(ref reader);
         }
         // Handle RxRequest scenarios
@@ -187,9 +203,11 @@ public sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAc
 
     private IEnumerable<T>? DeserializeSingleString(string? stringValue) {
         if (string.IsNullOrWhiteSpace(stringValue)) {
-            logger.LogTrace("{converter}.{method} returned null.",
-                nameof(SingleOrArrayConverter<>),
-                nameof(Read));
+            if (logger.IsEnabled(LogLevel.Trace)) {
+                logger.LogTrace("{converter}.{method} returned null.",
+                    nameof(SingleOrArrayConverter<>),
+                    nameof(Read));
+            }
             return null;
         }
         // Convert the string to T and return it as a single-item array
@@ -207,16 +225,20 @@ public sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAc
         IEnumerable<T>? objectToWrite,
         JsonSerializerOptions options) {
         if (objectToWrite is null) {
-            logger.LogTrace("{converter}.{method} writing null.",
-                nameof(SingleOrArrayConverter<>),
-                nameof(Write));
+            if (logger.IsEnabled(LogLevel.Trace)) {
+                logger.LogTrace("{converter}.{method} writing null.",
+                    nameof(SingleOrArrayConverter<>),
+                    nameof(Write));
+            }
             writer.WriteNullValue();
             return;
         }
-        logger.LogTrace("{converter}.{method} writing {type}.",
-            nameof(SingleOrArrayConverter<>),
-            nameof(Write),
-            objectToWrite.GetType());
+        if (logger.IsEnabled(LogLevel.Trace)) {
+            logger.LogTrace("{converter}.{method} writing {type}.",
+                nameof(SingleOrArrayConverter<>),
+                nameof(Write),
+                objectToWrite.GetType());
+        }
         JsonSerializer.Serialize(writer, objectToWrite, objectToWrite.GetType(), options);
     }
 
@@ -272,17 +294,21 @@ public sealed class BooleanJsonConverter(IHttpContextAccessor httpContextAccesso
         var s = reader.GetString()?.Trim().ToLower();
         // Return false for null/empty strings (consistent with default bool behavior)
         if (string.IsNullOrEmpty(s)) {
-            logger.LogTrace("{converter}.{method} returned false for null/empty input.",
-                nameof(BooleanJsonConverter),
-                nameof(Read));
+            if (logger.IsEnabled(LogLevel.Trace)) {
+                logger.LogTrace("{converter}.{method} returned false for null/empty input.",
+                    nameof(BooleanJsonConverter),
+                    nameof(Read));
+            }
             return false;
         }
         if (httpContextAccessor.HttpContext is null || !httpContextAccessor.HttpContext.Request.IsRxRequest()) {
-            logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for {val}.",
-                nameof(BooleanJsonConverter),
-                nameof(Read),
-                typeof(bool),
-                s);
+            if (logger.IsEnabled(LogLevel.Trace)) {
+                logger.LogTrace("No HttpContext or is not rx-request - {converter}.{method} called default JsonSerializer.Deserialize<{type}>() for {val}.",
+                    nameof(BooleanJsonConverter),
+                    nameof(Read),
+                    typeof(bool),
+                    s);
+            }
             // For boolean fallback, parse directly
             return bool.TryParse(s, out var fallbackResult) && fallbackResult;
         }
@@ -293,11 +319,13 @@ public sealed class BooleanJsonConverter(IHttpContextAccessor httpContextAccesso
             isValid = true;
             b = true;
         }
-        logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
-            nameof(BooleanJsonConverter),
-            nameof(Read),
-            s,
-            isValid ? b : "false - TryParse() failed");
+        if (logger.IsEnabled(LogLevel.Trace)) {
+            logger.LogTrace("{converter}.{method} overriding Deserialize for \"{val}\" results: {result}.",
+                nameof(BooleanJsonConverter),
+                nameof(Read),
+                s,
+                isValid ? b : "false - TryParse() failed");
+        }
         return isValid && b;
     }
 
@@ -305,10 +333,12 @@ public sealed class BooleanJsonConverter(IHttpContextAccessor httpContextAccesso
         Utf8JsonWriter writer,
         bool boolValue,
         JsonSerializerOptions options) {
-        logger.LogTrace("{converter}.{method} writing {result}.",
-            nameof(BooleanJsonConverter),
-            nameof(Write),
-            boolValue);
+        if (logger.IsEnabled(LogLevel.Trace)) {
+            logger.LogTrace("{converter}.{method} writing {result}.",
+                nameof(BooleanJsonConverter),
+                nameof(Write),
+                boolValue);
+        }
         writer.WriteBooleanValue(boolValue);
     }
 }
