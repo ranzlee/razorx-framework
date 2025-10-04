@@ -12,6 +12,7 @@ namespace RazorX.Framework;
 /// </summary>
 file static class JsonOptionsCache {
     public static readonly JsonSerializerOptions CleanOptions = new();
+    public static RxJsonSerializerContext Context => RxJsonSerializerContext.Default;
 }
 
 /// <summary>
@@ -47,8 +48,11 @@ public class RxJsonOptions(IHttpContextAccessor httpContextAccessor, ILogger<RxJ
         options.SerializerOptions.Converters.Add(new SingleOrArrayConverter<decimal>(httpContextAccessor, logger));
         options.SerializerOptions.Converters.Add(new SingleOrArrayConverter<double>(httpContextAccessor, logger));
         options.SerializerOptions.Converters.Add(new SingleOrArrayConverter<float>(httpContextAccessor, logger));
-        // enum converter
-        options.SerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        options.SerializerOptions.Converters.Add(new JsonStringEnumConverter<FragmentMergeStrategyType>());
+        options.SerializerOptions.Converters.Add(new JsonStringEnumConverter<MetadataScope>());
+        options.SerializerOptions.Converters.Add(new JsonStringEnumConverter<ToastType>());
+        options.SerializerOptions.Converters.Add(new JsonStringEnumConverter<ToastVerticalPosition>());
+        options.SerializerOptions.Converters.Add(new JsonStringEnumConverter<ToastHorizontalPosition>());
     }
 }
 
@@ -188,15 +192,16 @@ public sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAc
         if (reader.TokenType == JsonTokenType.String) {
             var s = reader.GetString();
             if (string.IsNullOrWhiteSpace(s)) return null;
-            return JsonSerializer.Deserialize<IEnumerable<T>>(s, JsonOptionsCache.CleanOptions);
+            return JsonSerializer.Deserialize(s, typeof(IEnumerable<T>), JsonOptionsCache.Context) as IEnumerable<T>;
         }
-        return JsonSerializer.Deserialize<IEnumerable<T>>(ref reader, JsonOptionsCache.CleanOptions);
+        return JsonSerializer.Deserialize(ref reader, typeof(IEnumerable<T>), JsonOptionsCache.Context) as IEnumerable<T>;
     }
 
     private static List<T> DeserializeArray(ref Utf8JsonReader reader) {
         var list = new List<T>();
         while (reader.Read() && reader.TokenType != JsonTokenType.EndArray) {
-            list.Add(JsonSerializer.Deserialize<T>(ref reader, JsonOptionsCache.CleanOptions)!);
+            var item = JsonSerializer.Deserialize(ref reader, typeof(T), JsonOptionsCache.Context);
+            if (item != null) list.Add((T)item);
         }
         return list;
     }
@@ -211,13 +216,15 @@ public sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAc
             return null;
         }
         // Convert the string to T and return it as a single-item array
-        var item = JsonSerializer.Deserialize<T>($"\"{stringValue}\"", JsonOptionsCache.CleanOptions)!;
-        return [item];
+        var item = JsonSerializer.Deserialize($"\"{stringValue}\"", typeof(T), JsonOptionsCache.Context);
+        if (item != null) return [(T)item];
+        return null;
     }
 
     private static List<T> DeserializeSingleValue(ref Utf8JsonReader reader) {
-        var item = JsonSerializer.Deserialize<T>(ref reader, JsonOptionsCache.CleanOptions)!;
-        return [item];
+        var item = JsonSerializer.Deserialize(ref reader, typeof(T), JsonOptionsCache.Context);
+        if (item != null) return [(T)item];
+        return [];
     }
 
     public override void Write(
@@ -239,7 +246,7 @@ public sealed class SingleOrArrayConverter<T>(IHttpContextAccessor httpContextAc
                 nameof(Write),
                 objectToWrite.GetType());
         }
-        JsonSerializer.Serialize(writer, objectToWrite, objectToWrite.GetType(), options);
+        JsonSerializer.Serialize(writer, objectToWrite, typeof(IEnumerable<T>), JsonOptionsCache.Context);
     }
 
 }

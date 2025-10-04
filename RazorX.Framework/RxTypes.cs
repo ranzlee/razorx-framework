@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.AspNetCore.Routing;
 
 namespace RazorX.Framework;
@@ -24,6 +25,7 @@ namespace RazorX.Framework;
 /// }
 /// </code>
 /// </example>
+[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
 public abstract class RequestHandler {
     /// <summary>
     /// Protected constructor to prevent direct instantiation.

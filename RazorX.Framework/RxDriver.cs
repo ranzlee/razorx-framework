@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Components;
@@ -140,9 +141,12 @@ public interface IRxDriver : IAsyncDisposable, IDisposable {
     /// <param name="title">Optional page title for the HTML document.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>An IResult containing the rendered HTML page.</returns>
-    Task<IResult> RenderPage<TRoot, TComponent, TModel>(
-        HttpContext context, 
-        TModel model, 
+    Task<IResult> RenderPage<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TRoot,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent,
+        TModel>(
+        HttpContext context,
+        TModel model,
         string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
@@ -157,8 +161,10 @@ public interface IRxDriver : IAsyncDisposable, IDisposable {
     /// <param name="title">Optional page title for the HTML document.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>An IResult containing the rendered HTML page.</returns>
-    Task<IResult> RenderPage<TRoot, TComponent>(
-        HttpContext context, 
+    Task<IResult> RenderPage<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TRoot,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(
+        HttpContext context,
         string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
@@ -176,9 +182,13 @@ public interface IRxDriver : IAsyncDisposable, IDisposable {
     /// <param name="title">Optional page title for the HTML document.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>An IResult containing the rendered HTML page.</returns>
-    Task<IResult> RenderPage<TRoot, THead, TComponent, TModel>(
+    Task<IResult> RenderPage<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TRoot,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] THead,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent,
+        TModel>(
         HttpContext context,
-        TModel model, 
+        TModel model,
         string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
@@ -195,7 +205,10 @@ public interface IRxDriver : IAsyncDisposable, IDisposable {
     /// <param name="title">Optional page title for the HTML document.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>An IResult containing the rendered HTML page.</returns>
-    Task<IResult> RenderPage<TRoot, THead, TComponent>(
+    Task<IResult> RenderPage<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TRoot,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] THead,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(
         HttpContext context,
         string? title = null,
         CancellationToken cancellationToken = default
@@ -226,7 +239,9 @@ public interface IRxResponseBuilder {
     /// The fragment will be rendered as HTML and sent to the client with merge instructions.
     /// The client will update the target element based on the specified merge strategy.
     /// </remarks>
-    IRxResponseBuilder AddFragment<TComponent, TModel>(
+    IRxResponseBuilder AddFragment<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent,
+        TModel>(
         TModel model,
         string targetId,
         FragmentMergeStrategyType fragmentMergeStrategy = FragmentMergeStrategyType.Swap
@@ -242,7 +257,8 @@ public interface IRxResponseBuilder {
     /// <remarks>
     /// Use this overload for components that don't require a model.
     /// </remarks>
-    IRxResponseBuilder AddFragment<TComponent>(
+    IRxResponseBuilder AddFragment<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(
         string targetId,
         FragmentMergeStrategyType fragmentMergeStrategy = FragmentMergeStrategyType.Swap
     ) where TComponent : IComponent;
@@ -358,9 +374,12 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
             : (IRxResponseBuilder)new RxResponseBuilder(context, htmlRenderer, logger);
     }
     
-    public async Task<IResult> RenderPage<TRoot, TComponent, TModel>(
-        HttpContext context, 
-        TModel model, 
+    public async Task<IResult> RenderPage<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TRoot,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent,
+        TModel>(
+        HttpContext context,
+        TModel model,
         string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
@@ -381,8 +400,10 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
         return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
     }
     
-    public async Task<IResult> RenderPage<TRoot, TComponent>(
-        HttpContext context, 
+    public async Task<IResult> RenderPage<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TRoot,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(
+        HttpContext context,
         string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
@@ -396,9 +417,13 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
         return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
     }
     
-    public async Task<IResult> RenderPage<TRoot, THead, TComponent, TModel>(
+    public async Task<IResult> RenderPage<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TRoot,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] THead,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent,
+        TModel>(
         HttpContext context,
-        TModel model, 
+        TModel model,
         string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
@@ -418,7 +443,10 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
         return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
     }
     
-    public async Task<IResult> RenderPage<TRoot, THead, TComponent>(
+    public async Task<IResult> RenderPage<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TRoot,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] THead,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(
         HttpContext context,
         string? title = null,
         CancellationToken cancellationToken = default
@@ -436,7 +464,7 @@ internal sealed class RxDriver(IHtmlRendererWrapper htmlRenderer, ILogger<RxDriv
     }
     
     private async Task<IResult> RenderPageInternal(
-        Type rootComponentType,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type rootComponentType,
         ParameterView rootParameters,
         CancellationToken cancellationToken
     ) {
@@ -516,7 +544,6 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
     private readonly List<SetStateTrigger> setStateTriggers = [];
     private ToastTrigger? toastTrigger = null;
     private readonly HashSet<string> stateKeysInResponse = [];
-    private static readonly JsonSerializerOptions serializerSettings = new(JsonSerializerDefaults.Web);
     
     private static string CreateTemplate(string targetId, string htmlContent) => 
         $"<template id=\"{targetId}-rx-fragment\">{htmlContent}</template>";
@@ -530,7 +557,9 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         }
     }
 
-    public IRxResponseBuilder AddFragment<TComponent, TModel>(
+    public IRxResponseBuilder AddFragment<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent,
+        TModel>(
         TModel model,
         string targetId,
         FragmentMergeStrategyType fragmentMergeStrategy = FragmentMergeStrategyType.Swap
@@ -552,7 +581,8 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         return this;
     }
 
-    public IRxResponseBuilder AddFragment<TComponent>(
+    public IRxResponseBuilder AddFragment<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(
         string targetId,
         FragmentMergeStrategyType fragmentMergeStrategy = FragmentMergeStrategyType.Swap
     ) where TComponent : IComponent {
@@ -650,23 +680,23 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         }
         isRendering = true;
         if (closeDialogTrigger != null) {
-            context.Response.Headers.Append("rx-trigger-close-dialog", JsonSerializer.Serialize(closeDialogTrigger, serializerSettings));
+            context.Response.Headers.Append("rx-trigger-close-dialog", RxJsonSerializer.Serialize(closeDialogTrigger));
         }
         if (focusElementTrigger != null) {
-            context.Response.Headers.Append("rx-trigger-focus-element", JsonSerializer.Serialize(focusElementTrigger, serializerSettings));
+            context.Response.Headers.Append("rx-trigger-focus-element", RxJsonSerializer.Serialize(focusElementTrigger));
         }
         if (setStateTriggers.Count > 0) {
             foreach (var t in setStateTriggers) {
-                context.Response.Headers.Append("rx-trigger-set-state", JsonSerializer.Serialize(t, serializerSettings));
+                context.Response.Headers.Append("rx-trigger-set-state", RxJsonSerializer.Serialize(t));
             }
         }
         if (toastTrigger != null) {
-            context.Response.Headers.Append("rx-trigger-toast", JsonSerializer.Serialize(toastTrigger, serializerSettings));
+            context.Response.Headers.Append("rx-trigger-toast", RxJsonSerializer.Serialize(toastTrigger));
         }
         if (ignoreActiveElementValueOnMorph) {
             context.Response.Headers.Append("rx-morph-ignore-active", true.ToString());
         }
-        context.Response.Headers.Append("rx-merge", JsonSerializer.Serialize(mergeStrategies, serializerSettings));
+        context.Response.Headers.Append("rx-merge", RxJsonSerializer.Serialize(mergeStrategies));
         if (renderTasks.Count != 0) {
             if (logger.IsEnabled(LogLevel.Debug)) {
                 logger.LogDebug("Rendering Fragments");
@@ -718,6 +748,8 @@ internal sealed class RxResponseBuilder(HttpContext context, IHtmlRendererWrappe
         return key.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_');
     }
 
+    [UnconditionalSuppressMessage("AOT", "IL2075:DynamicallyAccessedMembers",
+        Justification = "Dispatcher is an internal ASP.NET Core type that will be preserved")]
     internal static async Task InvokeOnDispatcherAsync(object dispatcher, Func<Task> workItem, ILogger logger) {
         try {
             var dispatcherType = dispatcher.GetType();

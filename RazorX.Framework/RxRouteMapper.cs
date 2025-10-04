@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Logging;
@@ -38,6 +39,10 @@ public static class RouteMapper {
     /// app.MapGroup("/api").MapRoutes(typeof(MyHandler).Assembly);
     /// </code>
     /// </example>
+    [UnconditionalSuppressMessage("AOT", "IL2026:RequiresUnreferencedCode",
+        Justification = "RequestHandler types must be preserved by the application")]
+    [UnconditionalSuppressMessage("AOT", "IL2072:DynamicallyAccessedMembers",
+        Justification = "RequestHandler types must be preserved by the application")]
     public static RouteGroupBuilder MapRoutes(this RouteGroupBuilder router, Assembly? routeHandlerAssembly = null, ILogger? logger = null) {
         var assembly = routeHandlerAssembly ?? Assembly.GetCallingAssembly();
         var handlerTypes = assembly.DefinedTypes

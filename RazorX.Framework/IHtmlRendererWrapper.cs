@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.Logging;
@@ -17,12 +18,16 @@ public interface IHtmlRendererWrapper : IAsyncDisposable, IDisposable {
     /// <summary>
     /// Renders a component of the specified type to HTML.
     /// </summary>
-    ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync(Type componentType, ParameterView parameters);
+    ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type componentType,
+        ParameterView parameters);
 
     /// <summary>
     /// Renders a component of the specified generic type to HTML.
     /// </summary>
-    ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync<TComponent>(ParameterView parameters) where TComponent : IComponent;
+    ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(ParameterView parameters)
+        where TComponent : IComponent;
 }
 
 /// <summary>
@@ -44,20 +49,26 @@ internal class HtmlRendererWrapper(HtmlRenderer htmlRenderer, ILogger<HtmlRootCo
     private readonly ILogger<HtmlRootComponentWrapper> _logger = logger;
     public object Dispatcher => _htmlRenderer.Dispatcher;
 
-    public async ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync(Type componentType, ParameterView parameters) {
+    public async ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type componentType,
+        ParameterView parameters) {
         var result = await InvokeOnDispatcherAsync(async () => {
             return await _htmlRenderer.RenderComponentAsync(componentType, parameters).ConfigureAwait(false);
         }).ConfigureAwait(false);
         return new HtmlRootComponentWrapper(result, _logger);
     }
 
-    public async ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync<TComponent>(ParameterView parameters) where TComponent : IComponent {
+    public async ValueTask<IHtmlRootComponentWrapper> RenderComponentAsync<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(ParameterView parameters)
+        where TComponent : IComponent {
         var result = await InvokeOnDispatcherAsync(async () => {
             return await _htmlRenderer.RenderComponentAsync<TComponent>(parameters).ConfigureAwait(false);
         }).ConfigureAwait(false);
         return new HtmlRootComponentWrapper(result, _logger);
     }
 
+    [UnconditionalSuppressMessage("AOT", "IL2075:DynamicallyAccessedMembers",
+        Justification = "Dispatcher is an internal ASP.NET Core type that will be preserved")]
     private async Task<T> InvokeOnDispatcherAsync<T>(Func<Task<T>> workItem) {
         var dispatcher = _htmlRenderer.Dispatcher;
         var dispatcherType = dispatcher.GetType();
@@ -102,6 +113,9 @@ internal class HtmlRendererWrapper(HtmlRenderer htmlRenderer, ILogger<HtmlRootCo
 
 internal class HtmlRootComponentWrapper(object htmlRootComponent, ILogger<HtmlRootComponentWrapper> logger) : IHtmlRootComponentWrapper {
     private readonly object _htmlRootComponent = htmlRootComponent;
+
+    [UnconditionalSuppressMessage("AOT", "IL2075:DynamicallyAccessedMembers",
+        Justification = "HtmlRootComponent is an internal ASP.NET Core type that will be preserved")]
     public string ToHtmlString() {
         var componentType = _htmlRootComponent.GetType();
         var method = componentType.GetMethod("ToHtmlString", Type.EmptyTypes);
