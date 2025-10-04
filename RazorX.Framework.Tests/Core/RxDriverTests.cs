@@ -16,7 +16,8 @@ public class RxDriverTests {
     public void SetUp() {
         _logger = new TestLogger<RxDriver>();
         _mockRenderer = new MockHtmlRenderer();
-        _rxDriver = new RxDriver(_mockRenderer, _logger);
+        var memoryPool = new RxMemoryPool();
+        _rxDriver = new RxDriver(_mockRenderer, _logger, memoryPool);
         _httpContext = new DefaultHttpContext();
     }
 
