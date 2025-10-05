@@ -26,7 +26,7 @@ on:
         type: boolean
 
 env:
-  DOTNET_VERSION: '9.0.x'
+  DOTNET_VERSION: '10.0.x'
   NODE_VERSION: '20'
   PACKAGE_OUTPUT_DIR: ${{ github.workspace }}/packages
   CI: true
@@ -173,12 +173,13 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v5
-    
+
     - name: Setup .NET
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
-    
+        dotnet-quality: 'preview'
+
     - name: Setup Node.js
       uses: actions/setup-node@v5
       with:
@@ -271,7 +272,8 @@ jobs:
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
-    
+        dotnet-quality: 'preview'
+
     - name: Setup Node.js
       uses: actions/setup-node@v5
       with:
@@ -343,7 +345,8 @@ jobs:
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
-    
+        dotnet-quality: 'preview'
+
     - name: Download Package
       uses: actions/download-artifact@v5
       with:
@@ -368,7 +371,7 @@ jobs:
           "contentFiles/any/any/wwwroot/js/razorx.d.ts"
           "contentFiles/any/any/wwwroot/css/razorx.css"
           "build/RazorX.Framework.targets"
-          "lib/net9.0/RazorX.Framework.dll"
+          "lib/net10.0/RazorX.Framework.dll"
         )
         
         for file in "${REQUIRED_FILES[@]}"; do
@@ -442,7 +445,8 @@ jobs:
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
-    
+        dotnet-quality: 'preview'
+
     # Generate provenance attestation
     - name: Generate SLSA Provenance
       uses: actions/attest-build-provenance@v3
@@ -499,7 +503,8 @@ jobs:
       uses: actions/setup-dotnet@v5
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
-    
+        dotnet-quality: 'preview'
+
     - name: Verify Package Before Publishing
       run: |
         PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols." | head -1)
