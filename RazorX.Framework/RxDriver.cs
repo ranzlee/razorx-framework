@@ -143,7 +143,6 @@ public interface IRxDriver : IAsyncDisposable, IDisposable {
     /// <typeparam name="TModel">The model type for the component.</typeparam>
     /// <param name="context">The current HTTP context.</param>
     /// <param name="model">The model instance to pass to the component.</param>
-    /// <param name="title">Optional page title for the HTML document.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>An IResult containing the rendered HTML page.</returns>
     Task<IResult> RenderPage<
@@ -152,7 +151,6 @@ public interface IRxDriver : IAsyncDisposable, IDisposable {
         TModel>(
         HttpContext context,
         TModel model,
-        string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
       where TComponent : IComponent, IComponentModel<TModel>;
@@ -163,14 +161,12 @@ public interface IRxDriver : IAsyncDisposable, IDisposable {
     /// <typeparam name="TRoot">The root layout component type.</typeparam>
     /// <typeparam name="TComponent">The main content component type.</typeparam>
     /// <param name="context">The current HTTP context.</param>
-    /// <param name="title">Optional page title for the HTML document.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>An IResult containing the rendered HTML page.</returns>
     Task<IResult> RenderPage<
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TRoot,
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(
         HttpContext context,
-        string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
       where TComponent : IComponent;
@@ -184,7 +180,6 @@ public interface IRxDriver : IAsyncDisposable, IDisposable {
     /// <typeparam name="TModel">The model type for the component.</typeparam>
     /// <param name="context">The current HTTP context.</param>
     /// <param name="model">The model instance to pass to the component.</param>
-    /// <param name="title">Optional page title for the HTML document.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>An IResult containing the rendered HTML page.</returns>
     Task<IResult> RenderPage<
@@ -194,7 +189,6 @@ public interface IRxDriver : IAsyncDisposable, IDisposable {
         TModel>(
         HttpContext context,
         TModel model,
-        string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
       where THead : IComponent
@@ -207,7 +201,6 @@ public interface IRxDriver : IAsyncDisposable, IDisposable {
     /// <typeparam name="THead">The custom head component type for additional head elements.</typeparam>
     /// <typeparam name="TComponent">The main content component type.</typeparam>
     /// <param name="context">The current HTTP context.</param>
-    /// <param name="title">Optional page title for the HTML document.</param>
     /// <param name="cancellationToken">Cancellation token for the operation.</param>
     /// <returns>An IResult containing the rendered HTML page.</returns>
     Task<IResult> RenderPage<
@@ -215,11 +208,37 @@ public interface IRxDriver : IAsyncDisposable, IDisposable {
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] THead,
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(
         HttpContext context,
-        string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
       where THead : IComponent
       where TComponent : IComponent;
+
+    /// <summary>
+    /// Renders a full page with head component with model, and main component with model.
+    /// </summary>
+    /// <typeparam name="TRoot">The root layout component type.</typeparam>
+    /// <typeparam name="THead">The custom head component type with model support.</typeparam>
+    /// <typeparam name="TComponent">The main content component type.</typeparam>
+    /// <typeparam name="THeadModel">The model type for the head component.</typeparam>
+    /// <typeparam name="TModel">The model type for the main component.</typeparam>
+    /// <param name="context">The current HTTP context.</param>
+    /// <param name="headModel">The model instance to pass to the head component.</param>
+    /// <param name="model">The model instance to pass to the main component.</param>
+    /// <param name="cancellationToken">Cancellation token for the operation.</param>
+    /// <returns>An IResult containing the rendered HTML page.</returns>
+    Task<IResult> RenderPage<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TRoot,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] THead,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent,
+        THeadModel,
+        TModel>(
+        HttpContext context,
+        THeadModel headModel,
+        TModel model,
+        CancellationToken cancellationToken = default
+    ) where TRoot : IRootComponent
+      where THead : IComponent, IComponentModel<THeadModel>
+      where TComponent : IComponent, IComponentModel<TModel>;
 }
 
 /// <summary>
@@ -388,23 +407,21 @@ internal sealed class RxDriver(
         TModel>(
         HttpContext context,
         TModel model,
-        string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
       where TComponent : IComponent, IComponentModel<TModel> {
         ObjectDisposedException.ThrowIf(disposed, nameof(RxDriver));
         cancellationToken.ThrowIfCancellationRequested();
-        
+
         var pageComponentParameters = new Dictionary<string, object?> {
             { nameof(IComponentModel<>.Model), model }
         };
-        
+
         var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
             { nameof(IRootComponent.MainContent), typeof(TComponent) },
             { nameof(IRootComponent.MainContentParameters), pageComponentParameters },
-            { nameof(IRootComponent.Title), title },
         });
-        
+
         return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
     }
     
@@ -412,7 +429,6 @@ internal sealed class RxDriver(
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TRoot,
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(
         HttpContext context,
-        string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
       where TComponent : IComponent {
@@ -420,7 +436,6 @@ internal sealed class RxDriver(
         cancellationToken.ThrowIfCancellationRequested();
         var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
             { nameof(IRootComponent.MainContent), typeof(TComponent) },
-            { nameof(IRootComponent.Title), title },
         });
         return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
     }
@@ -432,7 +447,6 @@ internal sealed class RxDriver(
         TModel>(
         HttpContext context,
         TModel model,
-        string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
       where THead : IComponent
@@ -443,10 +457,10 @@ internal sealed class RxDriver(
             { nameof(IComponentModel<>.Model), model }
         };
         var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
-            { nameof(IRootComponent.MainContent), typeof(TComponent) },
             { nameof(IRootComponent.HeadContent), typeof(THead) },
+            { nameof(IRootComponent.HeadContentParameters), new Dictionary<string, object?>() },
+            { nameof(IRootComponent.MainContent), typeof(TComponent) },
             { nameof(IRootComponent.MainContentParameters), pageComponentParameters },
-            { nameof(IRootComponent.Title), title },
         });
         return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
     }
@@ -456,7 +470,6 @@ internal sealed class RxDriver(
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] THead,
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent>(
         HttpContext context,
-        string? title = null,
         CancellationToken cancellationToken = default
     ) where TRoot : IRootComponent
       where THead : IComponent
@@ -464,13 +477,44 @@ internal sealed class RxDriver(
         ObjectDisposedException.ThrowIf(disposed, nameof(RxDriver));
         cancellationToken.ThrowIfCancellationRequested();
         var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
-            { nameof(IRootComponent.MainContent), typeof(TComponent) },
             { nameof(IRootComponent.HeadContent), typeof(THead) },
-            { nameof(IRootComponent.Title), title },
+            { nameof(IRootComponent.HeadContentParameters), new Dictionary<string, object?>() },
+            { nameof(IRootComponent.MainContent), typeof(TComponent) },
+            { nameof(IRootComponent.MainContentParameters), new Dictionary<string, object?>() },
         });
         return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
     }
-    
+
+    public async Task<IResult> RenderPage<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TRoot,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] THead,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] TComponent,
+        THeadModel,
+        TModel>(
+        HttpContext context,
+        THeadModel headModel,
+        TModel model,
+        CancellationToken cancellationToken = default
+    ) where TRoot : IRootComponent
+      where THead : IComponent, IComponentModel<THeadModel>
+      where TComponent : IComponent, IComponentModel<TModel> {
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxDriver));
+        cancellationToken.ThrowIfCancellationRequested();
+        var headComponentParameters = new Dictionary<string, object?> {
+            { nameof(IComponentModel<>.Model), headModel }
+        };
+        var pageComponentParameters = new Dictionary<string, object?> {
+            { nameof(IComponentModel<>.Model), model }
+        };
+        var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
+            { nameof(IRootComponent.HeadContent), typeof(THead) },
+            { nameof(IRootComponent.HeadContentParameters), headComponentParameters },
+            { nameof(IRootComponent.MainContent), typeof(TComponent) },
+            { nameof(IRootComponent.MainContentParameters), pageComponentParameters },
+        });
+        return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task<IResult> RenderPageInternal(
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)] Type rootComponentType,
         ParameterView rootParameters,

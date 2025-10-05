@@ -35,7 +35,7 @@ public class ExamplesHandler : RequestHandler {
     private static FileUploadModel Upload = new(string.Empty, string.Empty, string.Empty, null);
 
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver, string filter = "") {
-        return await rxDriver.RenderPage<App, ExamplesPage, ExampleModel>(context, new ExampleModel([], 0, 0, Upload), "RazorX - Examples");
+        return await rxDriver.RenderPage<App, ExamplesHeader, ExamplesPage, ExampleModel>(context, new ExampleModel([], 0, 0, Upload));
     }
 
     public static async Task<IResult> NextTodos(HttpContext context, IRxDriver rxDriver, int id, string filter = "") {

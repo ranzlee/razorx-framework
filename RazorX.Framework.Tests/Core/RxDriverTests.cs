@@ -118,18 +118,17 @@ public class RxDriverTests {
     public async Task RenderPage_WithModel_RendersCorrectly() {
         // Arrange
         var model = new TestModel { Value = "test" };
-        
+
         // Act
         var result = await _rxDriver.RenderPage<TestRootComponent, TestPageComponent, TestModel>(
-            _httpContext, model, "Test Title");
+            _httpContext, model);
 
         // Assert
         Assert.IsNotNull(result);
         Assert.IsTrue(_mockRenderer.RenderCalled);
         Assert.AreEqual(typeof(TestRootComponent), _mockRenderer.LastComponentType);
-        
+
         var parameters = _mockRenderer.LastParametersDictionary;
-        Assert.AreEqual("Test Title", parameters["Title"]);
         Assert.AreEqual(typeof(TestPageComponent), parameters["MainContent"]);
         
         var mainContentParams = parameters["MainContentParameters"] as Dictionary<string, object?>;
@@ -141,15 +140,14 @@ public class RxDriverTests {
     public async Task RenderPage_WithoutModel_RendersCorrectly() {
         // Act
         var result = await _rxDriver.RenderPage<TestRootComponent, TestPageComponent>(
-            _httpContext, "Test Title");
+            _httpContext);
 
         // Assert
         Assert.IsNotNull(result);
         Assert.IsTrue(_mockRenderer.RenderCalled);
         Assert.AreEqual(typeof(TestRootComponent), _mockRenderer.LastComponentType);
-        
+
         var parameters = _mockRenderer.LastParametersDictionary;
-        Assert.AreEqual("Test Title", parameters["Title"]);
         Assert.AreEqual(typeof(TestPageComponent), parameters["MainContent"]);
     }
 
@@ -157,20 +155,19 @@ public class RxDriverTests {
     public async Task RenderPage_WithHeadContent_RendersCorrectly() {
         // Arrange
         var model = new TestModel { Value = "test" };
-        
+
         // Act
         var result = await _rxDriver.RenderPage<TestRootComponent, TestHeadComponent, TestPageComponent, TestModel>(
-            _httpContext, model, "Test Title");
+            _httpContext, model);
 
         // Assert
         Assert.IsNotNull(result);
         Assert.IsTrue(_mockRenderer.RenderCalled);
-        
+
         var parameters = _mockRenderer.LastParametersDictionary;
-        Assert.AreEqual("Test Title", parameters["Title"]);
         Assert.AreEqual(typeof(TestPageComponent), parameters["MainContent"]);
         Assert.AreEqual(typeof(TestHeadComponent), parameters["HeadContent"]);
-        
+
         var mainContentParams = parameters["MainContentParameters"] as Dictionary<string, object?>;
         Assert.IsNotNull(mainContentParams);
         Assert.AreEqual(model, mainContentParams["Model"]);
@@ -180,15 +177,14 @@ public class RxDriverTests {
     public async Task RenderPage_WithoutHeadContent_RendersCorrectly() {
         // Act
         var result = await _rxDriver.RenderPage<TestRootComponent, TestHeadComponent, TestPageComponent>(
-            _httpContext, "Test Title");
+            _httpContext);
 
         // Assert
         Assert.IsNotNull(result);
         Assert.IsTrue(_mockRenderer.RenderCalled);
         Assert.AreEqual(typeof(TestRootComponent), _mockRenderer.LastComponentType);
-        
+
         var parameters = _mockRenderer.LastParametersDictionary;
-        Assert.AreEqual("Test Title", parameters["Title"]);
         Assert.AreEqual(typeof(TestPageComponent), parameters["MainContent"]);
         Assert.AreEqual(typeof(TestHeadComponent), parameters["HeadContent"]);
     }
@@ -197,10 +193,10 @@ public class RxDriverTests {
     public async Task RenderPage_DoesNotRequireRxRequestHeader() {
         // Arrange - No rx-request header set
         Assert.IsFalse(_httpContext.Request.Headers.ContainsKey("rx-request"));
-        
+
         // Act
         var result = await _rxDriver.RenderPage<TestRootComponent, TestPageComponent>(
-            _httpContext, "Test Title");
+            _httpContext);
 
         // Assert - Should succeed without rx-request header
         Assert.IsNotNull(result);
@@ -212,11 +208,11 @@ public class RxDriverTests {
         // Arrange
         using var cts = new CancellationTokenSource();
         cts.Cancel();
-        
+
         // Act & Assert
-        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => 
+        await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
             _rxDriver.RenderPage<TestRootComponent, TestPageComponent>(
-                _httpContext, "Test Title", cts.Token));
+                _httpContext, cts.Token));
     }
 
     #endregion
@@ -594,9 +590,9 @@ public class TestModel {
 
 public class TestRootComponent : ComponentBase, IRootComponent {
     [Parameter] public Type? HeadContent { get; set; }
+    [Parameter] public Dictionary<string, object?> HeadContentParameters { get; set; } = [];
     [Parameter] public Type MainContent { get; set; } = null!;
     [Parameter] public Dictionary<string, object?> MainContentParameters { get; set; } = [];
-    [Parameter] public string? Title { get; set; }
 }
 
 public class TestPageComponent : ComponentBase, IComponentModel<TestModel> {

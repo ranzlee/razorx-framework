@@ -52,6 +52,11 @@ public interface IRootComponent {
     public Type? HeadContent { get; set; }
 
     /// <summary>
+    /// Gets or sets the parameters to pass to the head content component.
+    /// </summary>
+    public Dictionary<string, object?> HeadContentParameters { get; set; }
+
+    /// <summary>
     /// Gets or sets the main content component type to render in the page body.
     /// </summary>
     public Type MainContent { get; set; }
@@ -60,11 +65,6 @@ public interface IRootComponent {
     /// Gets or sets the parameters to pass to the main content component.
     /// </summary>
     public Dictionary<string, object?> MainContentParameters { get; set; }
-
-    /// <summary>
-    /// Gets or sets the page title for the HTML document.
-    /// </summary>
-    public string? Title { get; set; }
 }
 
 /// <summary>
