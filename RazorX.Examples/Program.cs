@@ -1,4 +1,5 @@
 using RazorX.Framework;
+using RazorX.Examples.Components.Examples;
 
 var builder = WebApplication.CreateBuilder(args);
 var services = builder.Services;
@@ -7,6 +8,8 @@ services.AddRxDriver();
 services.AddAntiforgery();
 services.AddRxAntiforgery();
 services.AddProblemDetails();
+services.AddSingleton<RxSseBroadcastService<SseMessage>>();
+services.AddDistributedMemoryCache();
 
 var app = builder.Build();
 

@@ -9,6 +9,7 @@ namespace RazorX.Framework;
 [JsonSerializable(typeof(ToastTrigger))]
 [JsonSerializable(typeof(List<MergeStrategy>))]
 [JsonSerializable(typeof(MergeStrategy))]
+[JsonSerializable(typeof(SseEventPayload))]
 // Form converter types - primitives
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(char))]
@@ -86,6 +87,7 @@ internal static class RxJsonSerializer {
             SetStateTrigger trigger => JsonSerializer.Serialize(trigger, Context.SetStateTrigger),
             ToastTrigger trigger => JsonSerializer.Serialize(trigger, Context.ToastTrigger),
             List<MergeStrategy> strategies => JsonSerializer.Serialize(strategies, Context.ListMergeStrategy),
+            SseEventPayload payload => JsonSerializer.Serialize(payload, Context.SseEventPayload),
             _ => JsonSerializer.Serialize(value, value.GetType(), Context)
         };
     }

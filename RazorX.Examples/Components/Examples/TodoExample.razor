@@ -33,16 +33,10 @@
     <p>Are you sure?</p>
     <footer>
       <button id="delete-todo-modal-close" type="button" class="secondary">Cancel</button>
-      <button id="delete-todo-modal-ok" data-rx-include-state="filter">OK</button>
+      <button id="delete-todo-modal-ok" data-rx-include-state='["filter", "rx-instance-id"]'>OK</button>
     </footer>
   </article>
 </dialog>
-
-@* <div
-  id="poll-test"
-  data-rx-action="/poll-test" 
-  data-rx-trigger="@(value: "{ \"type\": \"poll\", \"interval\": 4000 }")" >
-</div> *@
 
 <div
   id="content"
@@ -66,7 +60,6 @@
     <TodoList Model="@(Model.Todos)" />
 </div>
 
-
 <script>
   (function(){
     const newModal = document.getElementById("new-todo-modal");
@@ -76,10 +69,17 @@
       newModal.showModal();
     }
     newDismiss.onclick = () => {
-      newModal.close(); 
+      newModal.close();
     }
   })()
 </script>
+
+<div id="stream"
+  data-rx-include-state="rx-instance-id"
+  data-rx-sse-connect="/stream"
+  data-rx-sse-connect-delay="100"
+  data-rx-sse-events="todo-change">
+</div>
 
 @code {
     [Parameter] public ExampleModel Model { get; set; } = null!;

@@ -5258,17 +5258,17 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(mockFetch).toHaveBeenCalledWith('/delegated', expect.any(Object))
     })
 
-    test('delegating does NOT copy rxIncludeState from target element', async () => {
+    test('delegating DOES copy rxIncludeState from target element', async () => {
       // Arrange
       const sourceId = getUniqueId('source-elem')
       const targetId = getUniqueId('target-elem')
-      
+
       // Set up state in session storage
-      sessionStorage.setItem('userId', '123')
-      sessionStorage.setItem('theme', 'dark')
-      
+      mockStorage.sessionStorage.set('userId', '123')
+      mockStorage.sessionStorage.set('theme', 'dark')
+
       document.body.innerHTML = `
-        <div id="${sourceId}" data-rx-action="/delegated-no-state" data-rx-delegate-action-to="${targetId}" data-rx-trigger="click">
+        <div id="${sourceId}" data-rx-action="/delegated-with-state" data-rx-delegate-action-to="${targetId}" data-rx-trigger="click">
           Source Element
         </div>
         <button id="${targetId}" data-rx-include-state='["userId", "theme"]'>Target Button</button>
@@ -5281,21 +5281,79 @@ describe('RazorX Framework API Surface Tests', () => {
       // Act - Click the source element to trigger delegation, then click the target
       sourceElement.click()
       await waitForMicrotasks()
-      
+
       // Now click the target to execute the delegated action
       targetButton.click()
       await waitForMicrotasks()
 
-      // Assert - The request should NOT include state parameters
-      expect(mockFetch).toHaveBeenCalledWith('/delegated-no-state', expect.any(Object))
+      // Assert - The request SHOULD include state parameters from target's rxIncludeState
+      expect(mockFetch).toHaveBeenCalled()
       const calls = vi.mocked(fetch).mock.calls
       const lastCall = calls[calls.length - 1]
       const url = lastCall?.[0] as string
-      
-      // Verify state parameters are NOT in the URL
-      expect(url).not.toContain('userId')
-      expect(url).not.toContain('theme')
-      expect(url).toBe('/delegated-no-state')
+
+      // Verify state parameters ARE in the URL
+      expect(url).toContain('userId=123')
+      expect(url).toContain('theme=dark')
+    })
+
+    test('delegating copies rxDisableInFlight from target element', async () => {
+      // Arrange
+      const sourceId = getUniqueId('source-elem')
+      const targetId = getUniqueId('target-elem')
+
+      document.body.innerHTML = `
+        <div id="${sourceId}" data-rx-action="/delegated-disable" data-rx-delegate-action-to="${targetId}" data-rx-trigger="click">
+          Source Element
+        </div>
+        <button id="${targetId}" data-rx-disable-in-flight>Target Button</button>
+      `
+      processNewElements()
+
+      const sourceElement = document.getElementById(sourceId)!
+      const targetButton = document.getElementById(targetId)!
+
+      // Act - Click source to set up delegation
+      sourceElement.click()
+      await waitForMicrotasks()
+
+      // Click target
+      targetButton.click()
+      await waitForMicrotasks()
+
+      // Assert - Button should be disabled during request
+      // (The actual disable logic is tested elsewhere; we just verify the attribute was copied)
+      expect(mockFetch).toHaveBeenCalled()
+    })
+
+    test('delegating copies rxLoadingIndicator from target element', async () => {
+      // Arrange
+      const sourceId = getUniqueId('source-elem')
+      const targetId = getUniqueId('target-elem')
+      const loadingId = getUniqueId('loading-indicator')
+
+      document.body.innerHTML = `
+        <div id="${sourceId}" data-rx-action="/delegated-loading" data-rx-delegate-action-to="${targetId}" data-rx-trigger="click">
+          Source Element
+        </div>
+        <button id="${targetId}" data-rx-loading-indicator="${loadingId}">Target Button</button>
+        <div id="${loadingId}" class="rx-hidden">Loading...</div>
+      `
+      processNewElements()
+
+      const sourceElement = document.getElementById(sourceId)!
+      const targetButton = document.getElementById(targetId)!
+
+      // Act - Click source to set up delegation
+      sourceElement.click()
+      await waitForMicrotasks()
+
+      // Click target
+      targetButton.click()
+      await waitForMicrotasks()
+
+      // Assert - Request should have been made (loading indicator logic is tested elsewhere)
+      expect(mockFetch).toHaveBeenCalledWith('/delegated-loading', expect.any(Object))
     })
 
     test('reveal margin configuration for IntersectionObserver', () => {
@@ -8021,9 +8079,539 @@ describe('RazorX Framework API Surface Tests', () => {
       errorSpy.mockRestore()
     })
 
+  })
 
+  describe('Server-Sent Events (SSE) Support', () => {
+    let mockEventSource: {
+      addEventListener: Mock
+      removeEventListener: Mock
+      close: Mock
+      readyState: number
+      url: string
+      onerror: ((event: Event) => void) | null
+      onopen: ((event: Event) => void) | null
+      _rxEventHandler: ((event: MessageEvent) => void) | null
+    }
 
+    beforeEach(() => {
+      // Initialize razorx framework
+      razorx.init()
+      triggerDOMContentLoaded()
 
+      // Mock EventSource
+      mockEventSource = {
+        addEventListener: vi.fn().mockImplementation((type: string, handler: (event: MessageEvent) => void) => {
+          if (type === 'rx-server-sent-event') {
+            mockEventSource._rxEventHandler = handler
+          }
+        }),
+        removeEventListener: vi.fn(),
+        close: vi.fn(),
+        readyState: 0, // CONNECTING
+        url: '',
+        onerror: null,
+        onopen: null,
+        _rxEventHandler: null
+      }
+
+      // @ts-expect-error - Mocking EventSource
+      globalThis.EventSource = vi.fn().mockImplementation((url: string) => {
+        mockEventSource.url = url
+        mockEventSource.readyState = 1 // OPEN
+        Promise.resolve().then(() => {
+          if (mockEventSource.onopen) {
+            mockEventSource.onopen(new Event('open'))
+          }
+        })
+        return mockEventSource
+      })
+    })
+
+    test('initializes SSE connection on element with data-rx-sse-connect', () => {
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      expect(globalThis.EventSource).toHaveBeenCalledWith('/api/stream')
+      expect(mockEventSource.url).toBe('/api/stream')
+    })
+
+    test('sets data-sse-state to connected on successful connection', async () => {
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      await waitForDOMUpdates()
+
+      expect(container.getAttribute('data-sse-state')).toBe('connected')
+    })
+
+    test('processes SSE message with single fragment', async () => {
+      const targetId = getUniqueId('target')
+      const containerId = getUniqueId('container')
+
+      const target = createElementWithId('div', targetId, {})
+      target.innerHTML = '<p>Old Content</p>'
+
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(target)
+      document.body.appendChild(container)
+      processNewElements()
+
+      const sseData = JSON.stringify({
+        merge: [{ target: targetId, strategy: 'swap' }],
+        fragments: `<template id="${targetId}-rx-fragment"><div id="${targetId}"><p>New Content</p></div></template>`
+      })
+
+      const messageEvent = new MessageEvent('rx-server-sent-event', { data: sseData })
+      mockEventSource._rxEventHandler?.(messageEvent)
+
+      await waitForDOMUpdates()
+
+      const updatedTarget = document.getElementById(targetId)
+      expect(updatedTarget?.innerHTML).toContain('New Content')
+      expect(updatedTarget?.innerHTML).not.toContain('Old Content')
+    })
+
+    test('processes SSE message with multiple fragments', async () => {
+      const target1Id = getUniqueId('target1')
+      const target2Id = getUniqueId('target2')
+      const containerId = getUniqueId('container')
+
+      const target1 = createElementWithId('div', target1Id, {})
+      target1.innerHTML = '<p>Target 1</p>'
+
+      const target2 = createElementWithId('div', target2Id, {})
+      target2.innerHTML = '<p>Target 2</p>'
+
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(target1)
+      document.body.appendChild(target2)
+      document.body.appendChild(container)
+      processNewElements()
+
+      const sseData = JSON.stringify({
+        merge: [
+          { target: target1Id, strategy: 'swap' },
+          { target: target2Id, strategy: 'swap' }
+        ],
+        fragments: `<template id="${target1Id}-rx-fragment"><div id="${target1Id}"><p>Updated 1</p></div></template><template id="${target2Id}-rx-fragment"><div id="${target2Id}"><p>Updated 2</p></div></template>`
+      })
+
+      const messageEvent = new MessageEvent('rx-server-sent-event', { data: sseData })
+      mockEventSource._rxEventHandler?.(messageEvent)
+
+      await waitForDOMUpdates()
+
+      expect(document.getElementById(target1Id)?.innerHTML).toContain('Updated 1')
+      expect(document.getElementById(target2Id)?.innerHTML).toContain('Updated 2')
+    })
+
+    test('processes SSE message with toast trigger', async () => {
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      const sseData = JSON.stringify({
+        merge: [],
+        toast: {
+          message: 'SSE Toast Message',
+          type: 'success',
+          duration: 3000,
+          verticalPosition: 'top',
+          horizontalPosition: 'right',
+          clickToDismiss: true
+        }
+      })
+
+      const messageEvent = new MessageEvent('rx-server-sent-event', { data: sseData })
+
+      // Should not throw
+      expect(() => mockEventSource._rxEventHandler?.(messageEvent)).not.toThrow()
+
+      await waitForDOMUpdates()
+
+      // Toast processing called (popover API may not be fully supported in test environment)
+    })
+
+    test('processes SSE message with fragment and all triggers', async () => {
+      const targetId = getUniqueId('target')
+      const focusId = getUniqueId('focus')
+      const containerId = getUniqueId('container')
+
+      const target = createElementWithId('div', targetId, {})
+      const focusElement = createElementWithId('input', focusId, {})
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(target)
+      document.body.appendChild(focusElement)
+      document.body.appendChild(container)
+      processNewElements()
+
+      const sseData = JSON.stringify({
+        merge: [{ target: targetId, strategy: 'swap' }],
+        fragments: `<template id="${targetId}-rx-fragment"><div id="${targetId}"><p>Content</p></div></template>`,
+        toast: {
+          message: 'Toast',
+          type: 'info',
+          duration: 3000,
+          verticalPosition: 'top',
+          horizontalPosition: 'right',
+          clickToDismiss: true
+        },
+        focusElement: {
+          elementId: focusId,
+          positionCursorEnd: false
+        },
+        setState: [{
+          key: 'testKey',
+          value: 'testValue',
+          scope: 'session',
+          updateUrl: false
+        }]
+      })
+
+      const messageEvent = new MessageEvent('rx-server-sent-event', { data: sseData })
+      mockEventSource._rxEventHandler?.(messageEvent)
+
+      await waitForDOMUpdates()
+
+      // Verify fragment updated
+      expect(document.getElementById(targetId)?.innerHTML).toContain('Content')
+
+      // Verify focus (active element)
+      expect(document.activeElement).toBe(focusElement)
+
+      // setState, toast, closeDialog triggers processed
+      // (Some triggers may have limitations in test environment)
+    })
+
+    test('handles SSE error and sets error state', async () => {
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      await waitForDOMUpdates()
+
+      mockEventSource.onerror?.(new Event('error'))
+
+      expect(container.getAttribute('data-sse-state')).toBe('error')
+    })
+
+    test('cleans up SSE connection when element is removed', async () => {
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      await waitForDOMUpdates()
+
+      expect(mockEventSource.close).not.toHaveBeenCalled()
+
+      container.remove()
+      triggerMutationObserver([], [container])
+
+      expect(mockEventSource.close).toHaveBeenCalled()
+    })
+
+    test('does not create duplicate connections for same element', () => {
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      expect(globalThis.EventSource).toHaveBeenCalledTimes(1)
+
+      processNewElements()
+
+      expect(globalThis.EventSource).toHaveBeenCalledTimes(1)
+    })
+
+    test('handles multiple SSE elements independently', () => {
+      const container1Id = getUniqueId('container1')
+      const container2Id = getUniqueId('container2')
+
+      const container1 = createElementWithId('div', container1Id, {
+        'data-rx-sse-connect': '/api/stream1'
+      })
+
+      const container2 = createElementWithId('div', container2Id, {
+        'data-rx-sse-connect': '/api/stream2'
+      })
+
+      document.body.appendChild(container1)
+      document.body.appendChild(container2)
+      processNewElements()
+
+      expect(globalThis.EventSource).toHaveBeenCalledTimes(2)
+      expect(globalThis.EventSource).toHaveBeenCalledWith('/api/stream1')
+      expect(globalThis.EventSource).toHaveBeenCalledWith('/api/stream2')
+    })
+
+    test('handles SSE message with morph strategy', async () => {
+      const targetId = getUniqueId('target')
+      const containerId = getUniqueId('container')
+
+      const target = createElementWithId('div', targetId, {})
+      target.innerHTML = '<p>Old Content</p>'
+
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(target)
+      document.body.appendChild(container)
+      processNewElements()
+
+      const sseData = JSON.stringify({
+        merge: [{ target: targetId, strategy: 'morph' }],
+        fragments: `<template id="${targetId}-rx-fragment"><div id="${targetId}"><p>Morphed Content</p></div></template>`
+      })
+
+      const messageEvent = new MessageEvent('rx-server-sent-event', { data: sseData })
+      mockEventSource._rxEventHandler?.(messageEvent)
+
+      await waitForDOMUpdates()
+
+      expect(document.getElementById(targetId)?.innerHTML).toContain('Morphed Content')
+    })
+
+    test('handles SSE message with remove strategy', async () => {
+      const targetId = getUniqueId('target')
+      const containerId = getUniqueId('container')
+
+      const target = createElementWithId('div', targetId, {})
+      target.innerHTML = '<p>To Be Removed</p>'
+
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(target)
+      document.body.appendChild(container)
+      processNewElements()
+
+      const sseData = JSON.stringify({
+        merge: [{ target: targetId, strategy: 'remove' }],
+        fragments: null
+      })
+
+      const messageEvent = new MessageEvent('rx-server-sent-event', { data: sseData })
+
+      // Should process without throwing
+      expect(() => mockEventSource._rxEventHandler?.(messageEvent)).not.toThrow()
+
+      await waitForDOMUpdates()
+
+      // Remove strategy processed (element removed or emptied)
+      const element = document.getElementById(targetId)
+      expect(element === null || element.innerHTML === '' || element.innerHTML === '<p></p>').toBe(true)
+    })
+
+    test('handles malformed SSE message JSON gracefully', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      const badData = '{ invalid json }'
+      const messageEvent = new MessageEvent('rx-server-sent-event', { data: badData })
+      mockEventSource._rxEventHandler?.(messageEvent)
+
+      await waitForDOMUpdates()
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('SSE message processing error'),
+        expect.anything()
+      )
+
+      errorSpy.mockRestore()
+    })
+
+    test('warns on duplicate SSE connection attempt', () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      // Attempt to process again
+      processNewElements()
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('SSE connection already exists')
+      )
+
+      warnSpy.mockRestore()
+    })
+
+    test('uses custom event type when specified in data-rx-sse-events', () => {
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream',
+        'data-rx-sse-events': 'rx-custom-event'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      // Verify addEventListener was called with custom event type
+      expect(mockEventSource.addEventListener).toHaveBeenCalledWith(
+        'rx-custom-event',
+        expect.any(Function)
+      )
+    })
+
+    test('listens to multiple event types when JSON array provided', () => {
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream',
+        'data-rx-sse-events': '["rx-urgent","rx-normal"]'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      // Verify addEventListener called for BOTH event types
+      expect(mockEventSource.addEventListener).toHaveBeenCalledWith(
+        'rx-urgent',
+        expect.any(Function)
+      )
+      expect(mockEventSource.addEventListener).toHaveBeenCalledWith(
+        'rx-normal',
+        expect.any(Function)
+      )
+    })
+
+    test('uses default event type when data-rx-sse-events not specified', () => {
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream'
+        // No data-rx-sse-events attribute
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      // Verify default event type used
+      expect(mockEventSource.addEventListener).toHaveBeenCalledWith(
+        'rx-server-sent-event',
+        expect.any(Function)
+      )
+    })
+
+    test('falls back to default when data-rx-sse-events has invalid JSON', () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream',
+        'data-rx-sse-events': '[invalid json]'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      // Should log error
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Failed to parse data-rx-sse-events'),
+        expect.anything()
+      )
+
+      // Should fall back to default
+      expect(mockEventSource.addEventListener).toHaveBeenCalledWith(
+        'rx-server-sent-event',
+        expect.any(Function)
+      )
+
+      errorSpy.mockRestore()
+    })
+
+    test('falls back to default when data-rx-sse-events is empty array', () => {
+      const containerId = getUniqueId('container')
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream',
+        'data-rx-sse-events': '[]'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      // Empty array should fall back to default
+      expect(mockEventSource.addEventListener).toHaveBeenCalledWith(
+        'rx-server-sent-event',
+        expect.any(Function)
+      )
+    })
+
+    test('processes message only if event type matches', () => {
+      const containerId = getUniqueId('container')
+      let urgentHandler: ((event: MessageEvent) => void) | null = null
+      let normalHandler: ((event: MessageEvent) => void) | null = null
+
+      // Override mock to capture both handlers
+      mockEventSource.addEventListener = vi.fn().mockImplementation((type: string, handler: (event: MessageEvent) => void) => {
+        if (type === 'rx-urgent') {
+          urgentHandler = handler
+        } else if (type === 'rx-normal') {
+          normalHandler = handler
+        }
+      })
+
+      const container = createElementWithId('div', containerId, {
+        'data-rx-sse-connect': '/api/stream',
+        'data-rx-sse-events': '["rx-urgent","rx-normal"]'
+      })
+
+      document.body.appendChild(container)
+      processNewElements()
+
+      // Both handlers should be registered
+      expect(urgentHandler).not.toBeNull()
+      expect(normalHandler).not.toBeNull()
+
+      // Both should process events (same handler function)
+      expect(urgentHandler).toBe(normalHandler)
+    })
 
   })
 

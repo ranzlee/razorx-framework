@@ -1,4 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Net.ServerSentEvents;
+using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Http;
@@ -387,6 +389,49 @@ public interface IRxResponseBuilder {
         bool ignoreActiveElementValueOnMorph = false,
         CancellationToken cancellationToken = default
     );
+
+    /// <summary>
+    /// Streams fragments and triggers to the client via Server-Sent Events (SSE).
+    /// </summary>
+    /// <typeparam name="TModel">The model type for each event.</typeparam>
+    /// <param name="models">Async stream of models to process.</param>
+    /// <param name="configureEvent">Callback to configure fragments and triggers for each model.</param>
+    /// <param name="eventType">The SSE event type name (default: "rx-server-sent-event"). Used for namespace isolation.</param>
+    /// <param name="cancellationToken">Cancellation token for the SSE connection.</param>
+    /// <returns>An IResult that streams Server-Sent Events to the client.</returns>
+    /// <remarks>
+    /// This method leverages .NET 10's native SSE support to stream real-time updates.
+    /// Each model in the stream triggers the configureEvent callback, where you can use
+    /// all builder methods (AddFragment, AddTrigger*, RemoveElement) to compose the event.
+    ///
+    /// The eventType parameter enables namespace isolation from custom SSE endpoints.
+    /// The client can filter which event types to process using data-rx-sse-events attribute.
+    ///
+    /// The builder's state is automatically reset between events.
+    /// The SSE connection remains open until the models stream completes or the client disconnects.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// return rxDriver
+    ///     .With(context)
+    ///     .RenderSse(
+    ///         notifications.GetUserNotificationsAsync(userId, ct),
+    ///         async (notification, builder) => {
+    ///             builder
+    ///                 .AddFragment&lt;NotificationCard, Notification&gt;(notification, "area", Beforeend)
+    ///                 .AddFragment&lt;UnreadBadge, int&gt;(notification.UnreadCount, "badge", Swap)
+    ///                 .AddTriggerToast($"New: {notification.Title}", Success, 3000);
+    ///         },
+    ///         ct
+    ///     );
+    /// </code>
+    /// </example>
+    IResult RenderSse<TModel>(
+        IAsyncEnumerable<TModel> models,
+        Func<TModel, IRxResponseBuilder, Task> configureEvent,
+        string eventType = "rx-server-sent-event",
+        CancellationToken cancellationToken = default
+    );
 }
 
 internal sealed class RxDriver(
@@ -412,16 +457,13 @@ internal sealed class RxDriver(
       where TComponent : IComponent, IComponentModel<TModel> {
         ObjectDisposedException.ThrowIf(disposed, nameof(RxDriver));
         cancellationToken.ThrowIfCancellationRequested();
-
         var pageComponentParameters = new Dictionary<string, object?> {
             { nameof(IComponentModel<>.Model), model }
         };
-
         var rootParameters = ParameterView.FromDictionary(new Dictionary<string, object?> {
             { nameof(IRootComponent.MainContent), typeof(TComponent) },
             { nameof(IRootComponent.MainContentParameters), pageComponentParameters },
         });
-
         return await RenderPageInternal(typeof(TRoot), rootParameters, cancellationToken).ConfigureAwait(false);
     }
     
@@ -585,6 +627,25 @@ internal sealed class RxDriver(
 internal record MergeStrategy(string Target, string Strategy);
 
 /// <summary>
+/// Internal record for SSE event payload serialization.
+/// Contains all data for a single Server-Sent Event including fragments, merge strategies, and triggers.
+/// </summary>
+/// <param name="Merge">Array of merge strategies for fragment updates.</param>
+/// <param name="Fragments">The HTML fragments to merge.</param>
+/// <param name="Toast">Optional toast trigger.</param>
+/// <param name="FocusElement">Optional focus element trigger.</param>
+/// <param name="SetState">Optional array of set state triggers.</param>
+/// <param name="CloseDialog">Optional close dialog trigger.</param>
+internal record SseEventPayload(
+    MergeStrategy[] Merge,
+    string? Fragments,
+    ToastTrigger? Toast,
+    FocusElementTrigger? FocusElement,
+    SetStateTrigger[]? SetState,
+    CloseDialogTrigger? CloseDialog
+);
+
+/// <summary>
 /// Creates a new response builder for composing SDUI responses.
 /// </summary>
 /// <param name="context">The HTTP context for this request.</param>
@@ -610,6 +671,7 @@ internal sealed class RxResponseBuilder(
     private readonly ILogger logger = logger;
     private readonly RxMemoryPool memoryPool = memoryPool;
     private bool isRendering = false;
+    private bool isSseStreaming = false;
     private bool disposed = false;
     private readonly PooledStringBuilder content = memoryPool.RentStringBuilder(initialCapacity: 16384);
     private readonly Lock contentLock = new();
@@ -803,7 +865,7 @@ internal sealed class RxResponseBuilder(
     }
 
     private void CheckRenderingStatus() {
-        if (isRendering) {
+        if (isRendering && !isSseStreaming) {
             throw new InvalidOperationException("Render has already been called and may only be called once per request.");
         }
     }
@@ -848,6 +910,78 @@ internal sealed class RxResponseBuilder(
         }
     }
     
+    private SseEventPayload BuildEventPayload() {
+        string? htmlContent = null;
+        lock (contentLock) {
+            if (content.Length > 0) {
+                htmlContent = content.ToString();
+            }
+        }
+
+        return new SseEventPayload(
+            Merge: [.. mergeStrategies],
+            Fragments: htmlContent,
+            Toast: toastTrigger,
+            FocusElement: focusElementTrigger,
+            SetState: setStateTriggers.Count > 0 ? [.. setStateTriggers] : null,
+            CloseDialog: closeDialogTrigger
+        );
+    }
+
+    private void ResetBuilderState() {
+        content.Clear();
+        renderTasks.Clear();
+        mergeStrategies.Clear();
+        closeDialogTrigger = null;
+        focusElementTrigger = null;
+        setStateTriggers.Clear();
+        toastTrigger = null;
+        stateKeysInResponse.Clear();
+    }
+
+    private async IAsyncEnumerable<SseItem<string>> StreamEventsInternal<TModel>(
+        IAsyncEnumerable<TModel> models,
+        Func<TModel, IRxResponseBuilder, Task> configureEvent,
+        string eventType,
+        [EnumeratorCancellation] CancellationToken cancellationToken
+    ) {
+        await foreach (var model in models.WithCancellation(cancellationToken)) {
+            cancellationToken.ThrowIfCancellationRequested();
+            await configureEvent(model, this).ConfigureAwait(false);
+            if (renderTasks.Count > 0) {
+                if (logger.IsEnabled(LogLevel.Debug)) {
+                    logger.LogDebug("Rendering SSE event fragments");
+                }
+                await Task.WhenAll(renderTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            var payload = BuildEventPayload();
+            var json = RxJsonSerializer.Serialize(payload);
+            yield return new SseItem<string>(json, eventType: eventType);
+            ResetBuilderState();
+        }
+    }
+
+    public IResult RenderSse<TModel>(
+        IAsyncEnumerable<TModel> models,
+        Func<TModel, IRxResponseBuilder, Task> configureEvent,
+        string eventType = "rx-server-sent-event",
+        CancellationToken cancellationToken = default
+    ) {
+        ArgumentNullException.ThrowIfNull(models);
+        ArgumentNullException.ThrowIfNull(configureEvent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(eventType);
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
+        cancellationToken.ThrowIfCancellationRequested();
+        if (isRendering) {
+            throw new InvalidOperationException("Render has already been called and may only be called once per request.");
+        }
+        isRendering = true;
+        isSseStreaming = true;  
+        return TypedResults.ServerSentEvents(
+            StreamEventsInternal(models, configureEvent, eventType, cancellationToken)
+        );
+    }
+
     /// <summary>
     /// Disposes the response builder and returns pooled resources.
     /// </summary>

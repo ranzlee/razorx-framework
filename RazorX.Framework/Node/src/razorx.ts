@@ -3,6 +3,11 @@ import { Idiomorph } from "idiomorph";
 declare global {
     interface Document {
         rxMutationObserver: MutationObserver
+        prerendering?: boolean // Chrome 108+ Speculation Rules API - indicates page is being prerendered
+    }
+
+    interface DocumentEventMap {
+        prerenderingchange: Event // Fired when prerendered page activates
     }
 
     interface HTMLElement {
@@ -21,6 +26,9 @@ declare global {
             rxFileUploadProgressId?: string //data-rx-file-upload-progress-id - ID of progress element (only valid on file inputs)
             rxFileUploadTimeout?: string //data-rx-file-upload-timeout - Timeout in milliseconds for file upload (only valid on file inputs)
             rxFileUploadMaxSize?: string //data-rx-file-upload-max-size - Maximum file size in bytes (only valid on file inputs)
+            rxSseConnect?: string //data-rx-sse-connect - URL for Server-Sent Events connection
+            rxSseEvents?: string //data-rx-sse-events - Event type(s) to listen for: "type1" or '["type1","type2"]'
+            rxSseConnectDelay?: string //data-rx-sse-connect-delay - Delay in milliseconds before establishing SSE connection
         },
         addRxCallbacks?: (callbacks: ElementCallbacks) => void,
         _rxCallbacks?: ElementCallbacks,
@@ -59,6 +67,22 @@ export type RazorX = {
      * without removing existing ones.
      */
     addCallbacks: (callbacks: DocumentCallbacks) => void,
+    /**
+     * Gets the unique instance ID for this page load.
+     * @returns The instance ID (UUID), or null if not yet initialized
+     * @remarks
+     * - Each page load generates a new UUID to identify that specific instance
+     * - Generated at module load time
+     * - Persisted to sessionStorage as "rx-instance-id" when page becomes active
+     * - Handles prerendering automatically (not set during prerender)
+     * - Can be included in requests via data-rx-include-state='["rx-instance-id"]'
+     * @example
+     * ```typescript
+     * const instanceId = razorx.getInstanceId();
+     * console.log("Current page instance:", instanceId);
+     * ```
+     */
+    getInstanceId: () => string | null,
 }
 
 /**
@@ -578,6 +602,11 @@ type ElementTriggerState = {
     observer?: IntersectionObserver;
 }
 
+type SseConnection = {
+    source: EventSource;
+    reconnectAttempts: number;
+}
+
 type DelegatedActionConfig = {
     action: string;
     method: string;
@@ -604,6 +633,13 @@ type ParsedRxHeaders = {
 
 const RxRequestHeader = "rx-request";
 
+let _instanceId: string | null = null;
+try {
+    _instanceId = crypto.randomUUID();
+} catch {
+    _instanceId = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+}
+
 const _processedScriptTag = "data-rx-script-processed";
 
 const _requestRefTracker: Set<string> = new Set();
@@ -617,6 +653,12 @@ const _elementTriggerState: WeakMap<HTMLElement, ElementTriggerState> = new Weak
 const _delegatedActionConfigs: WeakMap<HTMLElement, DelegatedActionConfig> = new WeakMap();
 
 const _elementOriginalDisabledState: WeakMap<HTMLElement, Set<Element>> = new WeakMap();
+
+const _sseConnections: WeakMap<HTMLElement, SseConnection> = new WeakMap();
+
+const _sseReconnectTimers: WeakMap<HTMLElement, number> = new WeakMap();
+
+const _sseReconnectAttempts: WeakMap<HTMLElement, number> = new WeakMap();
 
 const _activeLoadingIndicators: Map<string, Set<string>> = new Map();
 
@@ -1182,6 +1224,19 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             _dispatchAfterInitializeElement(ele);
         }
+        if (ele.dataset.rxSseConnect) {
+            const delayStr = ele.dataset.rxSseConnectDelay?.trim();
+            const delay = delayStr ? parseInt(delayStr, 10) : 0;
+            if (delay > 0 && !Number.isNaN(delay)) {
+                setTimeout(() => {
+                    if (document.contains(ele)) {
+                        initializeSseConnection(ele);
+                    }
+                }, delay);
+            } else {
+                initializeSseConnection(ele);
+            }
+        }
         const children = ele.children;
         if (children?.length <= 0) {
             return;
@@ -1222,6 +1277,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             _debouncedRequests.delete(ele.id);
         }
         _delegatedActionConfigs.delete(ele);
+
+        // Cleanup SSE connection if exists
+        cleanupSseConnection(ele);
+
         if (ele.dataset.rxLoadingIndicator && ele.id) {
             const indicatorId = ele.dataset.rxLoadingIndicator;
             const activeElements = _activeLoadingIndicators.get(indicatorId);
@@ -1360,16 +1419,32 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     // event handlers
 
     function DOMContentLoaded(): void {
-        document.rxMutationObserver.observe(document.documentElement, { childList: true, subtree: true });
-        if (_callbacks.beforeDocumentProcessed) {
-            _callbacks.beforeDocumentProcessed();
+        function processDocument(): void {
+            try {
+                if (_instanceId) {
+                    sessionStorage.setItem("rx-instance-id", _instanceId);
+                }
+            } catch (error) {
+                console.warn("Failed to set rx-instance-id:", error instanceof Error ? error.message : String(error));
+            }
+            document.rxMutationObserver.observe(document.documentElement, { childList: true, subtree: true });
+            if (_callbacks.beforeDocumentProcessed) {
+                _callbacks.beforeDocumentProcessed();
+            }
+            _dispatchBeforeDocumentProcessed();
+            addTriggers(document.body);
+            if (_callbacks.afterDocumentProcessed) {
+                _callbacks.afterDocumentProcessed();
+            }
+            _dispatchAfterDocumentProcessed();
         }
-        _dispatchBeforeDocumentProcessed();
-        addTriggers(document.body);
-        if (_callbacks.afterDocumentProcessed) {
-            _callbacks.afterDocumentProcessed();
+        if (document.prerendering) {
+            document.addEventListener('prerenderingchange', () => {
+                processDocument();
+            }, { once: true });
+        } else {
+            processDocument();
         }
-        _dispatchAfterDocumentProcessed();
     }
 
     function elementDelegateActionEventHandler(this: HTMLElement): void {
@@ -1405,6 +1480,18 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         syntheticElement.id = `delegate-synthetic-${config.sourceId}-${Date.now()}`;
         syntheticElement.dataset.rxAction = config.action;
         syntheticElement.dataset.rxMethod = config.method;
+        const includeState = this.getAttribute('data-rx-include-state');
+        if (includeState) {
+            syntheticElement.setAttribute('data-rx-include-state', includeState);
+        }
+        const disableInFlight = this.getAttribute('data-rx-disable-in-flight');
+        if (disableInFlight !== null) {
+            syntheticElement.setAttribute('data-rx-disable-in-flight', disableInFlight);
+        }
+        const loadingIndicator = this.getAttribute('data-rx-loading-indicator');
+        if (loadingIndicator) {
+            syntheticElement.setAttribute('data-rx-loading-indicator', loadingIndicator);
+        }
         configureElement(syntheticElement);
         try {
             await elementTriggerProcessor(syntheticElement, evt);
@@ -1894,6 +1981,174 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             console.warn('Failed to update browser URL:', error instanceof Error ? error.message : String(error));
         }
     }
+
+    // Server-Sent Events (SSE) Support
+
+    function parseEventTypes(eventTypesAttr?: string): string[] {
+        if (!eventTypesAttr || eventTypesAttr.trim() === '') {
+            return ['rx-server-sent-event'];  // Default
+        }
+        const trimmed = eventTypesAttr.trim();
+        if (trimmed.startsWith('[')) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (Array.isArray(parsed)) {
+                    const filtered = parsed.filter((t): t is string =>
+                        typeof t === 'string' && t.trim() !== ''
+                    );
+                    if (filtered.length > 0) {
+                        return filtered;
+                    }
+                }
+            } catch (error) {
+                console.error(`Failed to parse data-rx-sse-events as JSON array: ${trimmed}`, error);
+            }
+            return ['rx-server-sent-event'];
+        }
+        return [trimmed];
+    }
+
+    function initializeSseConnection(element: HTMLElement): void {
+        let url = element.dataset.rxSseConnect;
+        if (!url) {
+            return;
+        }
+        if (element.dataset.rxIncludeState) {
+            const state = collectState(element);
+            if (state && Object.keys(state).length > 0) {
+                const urlObj = new URL(url, window.location.origin);
+                Object.entries(state).forEach(([key, value]) => {
+                    urlObj.searchParams.set(key, value as string);
+                });
+                url = urlObj.pathname + urlObj.search;
+            }
+        }
+        if (_sseConnections.has(element)) {
+            console.warn(`SSE connection already exists for element #${element.id}`);
+            return;
+        }
+        if (!element._rxCallbacks) {
+            configureElement(element);
+        }
+        try {
+            const source = new EventSource(url);
+            const eventTypes = parseEventTypes(element.dataset.rxSseEvents);
+            const reconnectAttempts = _sseReconnectAttempts.get(element) || 0;
+            const connection: SseConnection = {
+                source,
+                reconnectAttempts
+            };
+            const messageHandler = async (event: MessageEvent) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    await processSseEvent(element, data);
+                } catch (error) {
+                    console.error('SSE message processing error:', error);
+                    if (_callbacks.onElementTriggerError) {
+                        _callbacks.onElementTriggerError(element, error as Error);
+                    }
+                }
+            };
+            eventTypes.forEach(eventType => {
+                source.addEventListener(eventType, messageHandler);
+            });
+            source.onerror = (event) => {
+                element.setAttribute('data-sse-state', 'error');
+                const readyState = (event.target as EventSource)?.readyState;
+                if (readyState === EventSource.CLOSED) {
+                    reconnectSse(element);
+                } else if (readyState === EventSource.CONNECTING) {
+                    setTimeout(() => {
+                        const currentState = source.readyState;
+                        if (currentState !== EventSource.OPEN) {
+                            reconnectSse(element);
+                        }
+                    }, 5000);
+                } else {
+                    reconnectSse(element);
+                }
+            };
+            source.onopen = () => {
+                element.setAttribute('data-sse-state', 'connected');
+                _sseReconnectAttempts.delete(element);
+            };
+            _sseConnections.set(element, connection);
+        } catch (error) {
+            console.error('Failed to initialize SSE connection:', error);
+        }
+    }
+
+    function reconnectSse(element: HTMLElement): void {
+        const connection = _sseConnections.get(element);
+        if (!connection) {
+            return;
+        }
+        connection.source.close();
+        _sseConnections.delete(element);
+        const existingTimer = _sseReconnectTimers.get(element);
+        if (existingTimer) {
+            clearTimeout(existingTimer);
+        }
+        const delay = Math.min(1000 * Math.pow(2, connection.reconnectAttempts), 30000);
+        _sseReconnectAttempts.set(element, connection.reconnectAttempts + 1);
+        const timer = window.setTimeout(() => {
+            if (document.contains(element)) {
+                initializeSseConnection(element);
+            }
+            _sseReconnectTimers.delete(element);
+        }, delay);
+        _sseReconnectTimers.set(element, timer);
+    }
+
+    function cleanupSseConnection(element: HTMLElement): void {
+        const connection = _sseConnections.get(element);
+        if (connection) {
+            connection.source.close();
+            _sseConnections.delete(element);
+        }
+        const timer = _sseReconnectTimers.get(element);
+        if (timer) {
+            clearTimeout(timer);
+            _sseReconnectTimers.delete(element);
+        }
+        _sseReconnectAttempts.delete(element);
+    }
+
+    async function processSseEvent(
+        element: HTMLElement,
+        data: {
+            merge?: MergeStrategy[],
+            fragments?: string,
+            toast?: RxToastTrigger,
+            focusElement?: RxFocusElementTrigger,
+            setState?: RxSetStateTrigger[],
+            closeDialog?: RxCloseDialogTrigger
+        }
+    ): Promise<void> {
+        const stateResult = processSetStateTrigger(element, data.setState);
+        if (stateResult.shouldUpdateUrl && stateResult.stateKeys.length > 0) {
+            updateBrowserUrl(stateResult.stateKeys);
+        }
+        processCloseDialogTrigger(element, data.closeDialog);
+        if (data.merge && data.merge.length > 0) {
+            const mockResponse = {
+                text: async () => data.fragments || ''
+            } as Response;
+
+            await mergeFragments(element, mockResponse, data.merge);
+        }
+        if (element._rxCallbacks?.afterDocumentUpdate) {
+            element._rxCallbacks.afterDocumentUpdate();
+        }
+        if (_callbacks.afterDocumentUpdate) {
+            _callbacks.afterDocumentUpdate(element);
+        }
+        _dispatchAfterDocumentUpdate(element);
+        processFocusElementTrigger(element, data.focusElement);
+        processToastTrigger(element, data.toast);
+    }
+
+    // End SSE Support
 
     function processSetStateTrigger(ele: HTMLElement, setStateTriggers?: RxSetStateTrigger[]): { shouldUpdateUrl: boolean, stateKeys: string[] } {
         const result = { shouldUpdateUrl: false, stateKeys: [] as string[] };
@@ -2740,7 +2995,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
 const razorxProto: unknown = {
     init: Object.freeze(_init),
-    addCallbacks: Object.freeze(_addCallbacks)
+    addCallbacks: Object.freeze(_addCallbacks),
+    getInstanceId: Object.freeze((): string | null => _instanceId)
 }
 
 /**
