@@ -10,6 +10,7 @@ namespace RazorX.Framework;
 [JsonSerializable(typeof(List<MergeStrategy>))]
 [JsonSerializable(typeof(MergeStrategy))]
 [JsonSerializable(typeof(SseEventPayload))]
+[JsonSerializable(typeof(TransportMessage))]
 // Form converter types - primitives
 [JsonSerializable(typeof(string))]
 [JsonSerializable(typeof(char))]
