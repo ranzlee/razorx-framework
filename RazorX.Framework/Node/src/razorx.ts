@@ -160,6 +160,19 @@ export type Options = {
         bottomMiddle?: string,
         /** Bottom-right position @default 'rx-toast-bottom-right' */
         bottomRight?: string
+    },
+    /**
+     * Behavior options for toast notifications.
+     * @remarks
+     * Controls toast lifecycle, stacking, and display limits.
+     */
+    toastOptions?: {
+        /** Maximum number of toasts that can be displayed simultaneously @default 5 */
+        maxConcurrent?: number,
+        /** Vertical spacing between stacked toasts in pixels @default 10 */
+        stackSpacing?: number,
+        /** Approximate height of a single toast in pixels (used for stack offset calculation) @default 60 */
+        baseOffset?: number
     }
 }
 
@@ -644,7 +657,7 @@ const _processedScriptTag = "data-rx-script-processed";
 
 const _requestRefTracker: Set<string> = new Set();
 
-const _debouncedRequests: Map<string, (() => Promise<void>) & { _cleanup?: () => void }> = new Map();
+const _debouncedRequests: WeakMap<HTMLElement, (() => Promise<void>) & { _cleanup?: () => void }> = new WeakMap();
 
 const _elementCache: Map<string, HTMLElement> = new Map();
 
@@ -691,6 +704,12 @@ let _toastClasses = {
     bottomLeft: 'rx-toast-bottom-left',
     bottomMiddle: 'rx-toast-bottom-middle',
     bottomRight: 'rx-toast-bottom-right'
+}
+
+let _toastOptions = {
+    maxConcurrent: 5,
+    stackSpacing: 10,
+    baseOffset: 60
 }
 
 const _addCallbacks = (callbacks: DocumentCallbacks): void => {
@@ -832,12 +851,18 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
     }
 
+    // Configure toast behavior options
+    if (options?.toastOptions) {
+        _toastOptions = {
+            ..._toastOptions,
+            ...options.toastOptions
+        }
+    }
+
     // Add cleanup for page unload scenarios
     window.addEventListener('beforeunload', () => {
         if (document.rxMutationObserver) {
             document.rxMutationObserver.disconnect();
-            _debouncedRequests.forEach(req => req._cleanup?.());
-            _debouncedRequests.clear();
             clearElementCache();
             cleanupAllToasts();
         }
@@ -951,7 +976,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
         }
         if (trimmed.includes(" ")) {
-            throw new Error(`Triggers must use JSON array format, not space-separated values: "${trimmed}"`);
+            const jsonArray = `["${trimmed.split(' ').join('", "')}"]`;
+            throw new Error(`Invalid data-rx-trigger format: "${trimmed}". Use JSON array: ${jsonArray}.`);
         }
         return [trimmed];
     }
@@ -976,7 +1002,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
         if (trimmed.includes(" ")) {
             const jsonArray = `["${trimmed.split(' ').join('", "')}"]`;
-            throw new Error(`State keys must use JSON array format: ${jsonArray} (not space-separated: "${trimmed}")`);
+            throw new Error(`Invalid data-rx-include-state format: "${trimmed}". Use JSON array: ${jsonArray}.`);
         }
         return [trimmed];
     }
@@ -1157,13 +1183,14 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     function pollTrigger(ele: HTMLElement, interval?: number): void {
         const existingState = _elementTriggerState.get(ele);
         if (existingState?.intervalId) {
-            console.warn(`Polling already active for element ${ele.id}`);
+            console.warn(`Polling already active for element #${ele.id}`);
             return;
         }
         let pollInterval = interval || 1000;
         if (pollInterval <= 0) {
+            const original = pollInterval;
             pollInterval = 1000;
-            console.warn(`Invalid poll interval ${pollInterval} for element ${ele.id}. Using default 1000ms.`);
+            console.warn(`Invalid poll interval on element #${ele.id}: ${original}. Expected: number > 0. Using: 1000ms.`);
         }
         const evt = new CustomEvent('poll', { detail: { type: 'poll', interval: pollInterval } });
         const intervalId = setInterval(() => {
@@ -1177,13 +1204,13 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     function revealedTrigger(ele: HTMLElement, margin?: string): void {
         const existingState = _elementTriggerState.get(ele);
         if (existingState?.observer) {
-            console.warn(`Observer already active for element ${ele.id}`);
+            console.warn(`Observer already active for element #${ele.id}`);
             return;
         }
         const rootMargin = margin || "0px";
         const marginPattern = /^-?\d+px(\s+-?\d+px)*$/;
         if (!marginPattern.test(rootMargin)) {
-            console.warn(`Invalid margin format "${rootMargin}" for element ${ele.id}. Must be CSS margin format (e.g., "200px", "100px 0px"). Using default "0px".`);
+            console.warn(`Invalid revealed trigger margin on element #${ele.id}: "${rootMargin}". Expected: CSS margin format (e.g., "200px", "100px 0px"). Using: "0px".`);
         }
         const observer = new IntersectionObserver(
             (entries) => {
@@ -1209,101 +1236,112 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         _elementTriggerState.set(ele, triggerState);
     }
 
-    function addTriggers(ele: HTMLElement): void {
-        if (ele.dataset.rxAction && (!_callbacks.beforeInitializeElement || _callbacks.beforeInitializeElement(ele))) {
-            const beforeEvent = _dispatchBeforeInitializeElement(ele);
-            if (beforeEvent.defaultPrevented) {
-                return;
-            }
-            configureElement(ele);
-            if (!(ele instanceof HTMLInputElement && ele.type === 'file')) {
-                setTriggers(ele);
-            }
-            if (_callbacks.afterInitializeElement) {
-                _callbacks.afterInitializeElement(ele);
-            }
-            _dispatchAfterInitializeElement(ele);
-        }
-        if (ele.dataset.rxSseConnect) {
-            const delayStr = ele.dataset.rxSseConnectDelay?.trim();
-            const delay = delayStr ? parseInt(delayStr, 10) : 0;
-            if (delay > 0 && !Number.isNaN(delay)) {
-                setTimeout(() => {
-                    if (document.contains(ele)) {
-                        initializeSseConnection(ele);
+    function addTriggers(root: HTMLElement): void {
+        const stack: HTMLElement[] = [root];
+        while (stack.length > 0) {
+            const ele = stack.pop()!;
+            let shouldProcessChildren = true;
+            if (ele.dataset.rxAction && (!_callbacks.beforeInitializeElement || _callbacks.beforeInitializeElement(ele))) {
+                const beforeEvent = _dispatchBeforeInitializeElement(ele);
+                if (beforeEvent.defaultPrevented) {
+                    shouldProcessChildren = false;
+                } else {
+                    configureElement(ele);
+                    if (!(ele instanceof HTMLInputElement && ele.type === 'file')) {
+                        setTriggers(ele);
                     }
-                }, delay);
-            } else {
-                initializeSseConnection(ele);
+                    if (_callbacks.afterInitializeElement) {
+                        _callbacks.afterInitializeElement(ele);
+                    }
+                    _dispatchAfterInitializeElement(ele);
+                }
             }
-        }
-        const children = ele.children;
-        if (children?.length <= 0) {
-            return;
-        } 
-        for (let i = 0; i < children.length; i++) {
-            const child = children[i];
-            if (child instanceof HTMLElement) {
-                addTriggers(child);
+            if (ele.dataset.rxSseConnect) {
+                const delayStr = ele.dataset.rxSseConnectDelay?.trim();
+                const delay = delayStr ? parseInt(delayStr, 10) : 0;
+                if (delay > 0 && !Number.isNaN(delay)) {
+                    setTimeout(() => {
+                        if (document.contains(ele)) {
+                            initializeSseConnection(ele);
+                        }
+                    }, delay);
+                } else {
+                    initializeSseConnection(ele);
+                }
+            }
+            if (shouldProcessChildren) {
+                const children = ele.children;
+                if (children && children.length > 0) {
+                    // Push in reverse order so they're popped in forward order (maintains left-to-right processing)
+                    for (let i = children.length - 1; i >= 0; i--) {
+                        const child = children[i];
+                        if (child instanceof HTMLElement) {
+                            stack.push(child);
+                        }
+                    }
+                }
             }
         }
     }
 
-    function removeTriggers(ele: HTMLElement): void {
-        const triggerState = _elementTriggerState.get(ele);
-        if (triggerState) {
-            if (triggerState.timeoutId) {
-                clearTimeout(triggerState.timeoutId);
+    function removeTriggers(root: HTMLElement): void {
+        const stack: HTMLElement[] = [root];
+        while (stack.length > 0) {
+            const ele = stack.pop()!;
+            const triggerState = _elementTriggerState.get(ele);
+            if (triggerState) {
+                if (triggerState.timeoutId) {
+                    clearTimeout(triggerState.timeoutId);
+                }
+                if (triggerState.intervalId) {
+                    clearInterval(triggerState.intervalId);
+                }
+                if (triggerState.observer) {
+                    triggerState.observer.unobserve(ele);
+                    triggerState.observer.disconnect();
+                }
+                _elementTriggerState.delete(ele);
             }
-            if (triggerState.intervalId) {
-                clearInterval(triggerState.intervalId);
-            }
-            if (triggerState.observer) {
-                triggerState.observer.unobserve(ele);
-                triggerState.observer.disconnect();
-            }
-            _elementTriggerState.delete(ele);
-        }
-        if (ele.dataset.rxTrigger) {	
-            const triggers = ele.dataset.rxTrigger.split(/\s+/);
-            triggers.forEach((trigger): void => {
-                ele.removeEventListener(trigger, elementTriggerEventHandler);
-                ele.removeEventListener(trigger, elementDelegateActionEventHandler);
-            });
-        }
-        const debouncedRequest = _debouncedRequests.get(ele.id);
-        if (debouncedRequest) {
-            debouncedRequest._cleanup?.();
-            _debouncedRequests.delete(ele.id);
-        }
-        _delegatedActionConfigs.delete(ele);
-
-        // Cleanup SSE connection if exists
-        cleanupSseConnection(ele);
-
-        if (ele.dataset.rxLoadingIndicator && ele.id) {
-            const indicatorId = ele.dataset.rxLoadingIndicator;
-            const activeElements = _activeLoadingIndicators.get(indicatorId);
-            if (activeElements) {
-                activeElements.delete(ele.id);
-                if (activeElements.size === 0) {
-                    const indicator = getCachedElement(indicatorId);
-                    if (indicator) {
-                        indicator.classList.remove(_loadingClasses.visible);
-                        indicator.classList.add(_loadingClasses.hidden);
-                    }
-                    _activeLoadingIndicators.delete(indicatorId);
+            if (ele.dataset.rxTrigger) {
+                const triggers = ele.dataset.rxTrigger.split(/\s+/);
+                triggers.forEach((trigger): void => {
+                    ele.removeEventListener(trigger, elementTriggerEventHandler);
+                    ele.removeEventListener(trigger, elementDelegateActionEventHandler);
+                });
+                if (ele.dataset.rxTrigger === 'delegate-one-shot') {
+                    ele.removeAttribute('data-rx-trigger');
                 }
             }
-        }
-        const children = ele.children;
-        if (children?.length <= 0) {
-            return;
-        } 
-        for (let i = 0; i < children.length; i++) {
-            const child = children[i];
-            if (child instanceof HTMLElement) {
-                removeTriggers(child);
+            const debouncedRequest = _debouncedRequests.get(ele);
+            if (debouncedRequest) {
+                debouncedRequest._cleanup?.();
+                _debouncedRequests.delete(ele);
+            }
+            _delegatedActionConfigs.delete(ele);
+            cleanupSseConnection(ele);
+            if (ele.dataset.rxLoadingIndicator && ele.id) {
+                const indicatorId = ele.dataset.rxLoadingIndicator;
+                const activeElements = _activeLoadingIndicators.get(indicatorId);
+                if (activeElements) {
+                    activeElements.delete(ele.id);
+                    if (activeElements.size === 0) {
+                        const indicator = getCachedElement(indicatorId);
+                        if (indicator) {
+                            indicator.classList.remove(_loadingClasses.visible);
+                            indicator.classList.add(_loadingClasses.hidden);
+                        }
+                        _activeLoadingIndicators.delete(indicatorId);
+                    }
+                }
+            }
+            const children = ele.children;
+            if (children && children.length > 0) {
+                for (let i = children.length - 1; i >= 0; i--) {
+                    const child = children[i];
+                    if (child instanceof HTMLElement) {
+                        stack.push(child);
+                    }
+                }
             }
         }
     }
@@ -1448,14 +1486,16 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     }
 
     function elementDelegateActionEventHandler(this: HTMLElement): void {
+        if (!this.dataset.rxAction) {
+            throw new Error(`Element #${this.id} delegate handler called without data-rx-action attribute`);
+        }
         const delegateTargetId = this.dataset.rxDelegateActionTo ?? "";
         const delegateTarget = getCachedElement(delegateTargetId);
         if (!delegateTarget) {
-            const err = `Element ${this.id} with "data-rx-delegate-action-to" ${this.dataset.rxDelegateActionTo} does not reference a valid DOM element.`;
-            throw new Error(err);
+            throw new Error(`Element #${this.id} with "data-rx-delegate-action-to" ${this.dataset.rxDelegateActionTo} does not reference a valid DOM element.`);
         }
         _delegatedActionConfigs.set(delegateTarget, {
-            action: this.dataset.rxAction!,  // Always exists - only elements with rxAction get here
+            action: this.dataset.rxAction,  // Verified non-null above
             method: this.dataset.rxMethod ?? ((this.tagName === "FORM" || this.closest("form")) ? "POST" : "GET"),
             sourceId: this.id,
             timestamp: Date.now()
@@ -1503,7 +1543,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     function elementTriggerEventHandler(this: HTMLElement, evt: Event): void {
         const allowEventDefault = this.dataset.rxAllowEventDefault?.trim().toLowerCase();
         if (allowEventDefault !== undefined && allowEventDefault !== "" && allowEventDefault !== "true" && allowEventDefault !== "false") {
-            console.warn(`The data-rx-allow-event-default attribute on element ${this.id} has an invalid value "${allowEventDefault}". Valid values are: no value (empty), "true", or "false"`);
+            console.warn(`Invalid data-rx-allow-event-default on element #${this.id}: "${allowEventDefault}". Expected: empty attribute, "true", or "false".`);
         }
         if (allowEventDefault === undefined || allowEventDefault === "false") {
             evt.preventDefault();
@@ -1515,16 +1555,16 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
         const delay = parseInt(debounceValue, 10);
         if (Number.isNaN(delay) || delay <= 0) {
-            console.warn(`The data-rx-debounce attribute on element ${this.id} is invalid. It must be a number > zero`);
+            console.warn(`Invalid data-rx-debounce on element #${this.id}: "${debounceValue}". Expected: number > 0.`);
             queue(this, evt);
             return;
         }
-        let debounceElementTrigger = _debouncedRequests.get(this.id);
+        let debounceElementTrigger = _debouncedRequests.get(this);
         if (debounceElementTrigger) {
             debounceElementTrigger();
         } else {
             debounceElementTrigger = debounce(this, evt, delay);
-            _debouncedRequests.set(this.id, debounceElementTrigger);
+            _debouncedRequests.set(this, debounceElementTrigger);
             debounceElementTrigger();
         }
     }
@@ -1532,19 +1572,16 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     function queue(ele: HTMLElement, evt: Event): void {
         const disableQueueing = ele.dataset.rxDisableQueueing?.trim().toLowerCase();
         if (disableQueueing !== undefined && disableQueueing !== "" && disableQueueing !== "true" && disableQueueing !== "false") {
-            console.warn(`The data-rx-disable-queueing attribute on element ${ele.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
+            console.warn(`Invalid data-rx-disable-queueing on element #${ele.id}: "${disableQueueing}". Expected: empty attribute, "true", or "false".`);
         }
         if (disableQueueing !== undefined && disableQueueing !== "false") {
             elementTriggerProcessor(ele, evt);
             return;
         }
-        
-        // Check if element is already processing a request before queueing
         if (_requestRefTracker.has(ele.id)) {
             console.warn(`Element ${ele.id} is already executing a request. Ignoring duplicate request.`);
             return;
         }
-        
         _requestQueue = _requestQueue.finally(async (): Promise<void> => {
             try {
                 await elementTriggerProcessor(ele, evt);
@@ -1598,11 +1635,16 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     // process request
 
     async function elementTriggerProcessor(ele: HTMLElement, evt: Event): Promise<void> {
-        try {   
-            _debouncedRequests.delete(ele.id);
-            // Safety check: This should be prevented at queue level, but double-check here
+        try {
+            _debouncedRequests.delete(ele);
+            if (!ele.dataset.rxAction) {
+                throw new Error(`Element #${ele.id} reached trigger processor without data-rx-action attribute`);
+            }
+            if (!ele._rxCallbacks) {
+                throw new Error(`Element #${ele.id} reached trigger processor without _rxCallbacks (configureElement not called)`);
+            }
             if (_requestRefTracker.has(ele.id)) {
-                console.warn(`Element ${ele.id} is already executing a request (should have been caught earlier).`);
+                console.warn(`Element #${ele.id} is already executing a request (should have been caught earlier).`);
                 return;
             }
             _requestRefTracker.add(ele.id);
@@ -1622,7 +1664,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             headers.set(RxRequestHeader, "");
             const ac = new AbortController();
             const request: RequestDetail = {
-                action: ele.dataset.rxAction!,  // Always exists - only elements with rxAction get here
+                action: ele.dataset.rxAction,  // Verified non-null at function entry
                 method: getMethod(ele),
                 redirect: _fetchRedirect,
                 body,
@@ -1660,12 +1702,12 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     request.action = url.pathname + url.search;
                 }
                 delete request.body;
-            } else if (/GET|DELETE/.test(request.method!)) {
-                const params = request.body instanceof FormData 
-                    ? new URLSearchParams(request.body! as unknown as Record<string, string>)
+            } else if (/GET|DELETE/.test(request.method)) {
+                const params = request.body instanceof FormData
+                    ? new URLSearchParams(request.body as unknown as Record<string, string>)
                     : new URLSearchParams(request.body);
                 if (params.size) {
-                    const url = new URL(request.action!, window.location.href);
+                    const url = new URL(request.action, window.location.href);
                     params.forEach((value, key) => url.searchParams.append(key, value));
                     request.action = url.pathname + url.search;
                 }
@@ -1673,7 +1715,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             const state = collectState(ele);
             if (Object.keys(state).length > 0) {
-                const url = new URL(request.action!, window.location.href);
+                const url = new URL(request.action, window.location.href);
                 const stateParams = new URLSearchParams(state);
                 stateParams.forEach((value, key) => {
                     if (!url.searchParams.has(key)) {
@@ -1684,7 +1726,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             const disableElement = ele.dataset.rxDisableInFlight?.trim().toLowerCase();
             if (disableElement !== undefined && disableElement !== "" && disableElement !== "true" && disableElement !== "false") {
-                console.warn(`The data-rx-disable-in-flight attribute on element ${ele.id} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`);
+                console.warn(`Invalid data-rx-disable-in-flight on element #${ele.id}: "${disableElement}". Expected: empty attribute, "true", or "false".`);
             }
             let response: Response | null = null;
             try {
@@ -1718,8 +1760,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                     headers: request.headers,
                     abort: ac.abort.bind(ac),
                 }
-                if (ele._rxCallbacks!.beforeFetch) {
-                    ele._rxCallbacks!.beforeFetch(config);
+                if (ele._rxCallbacks.beforeFetch) {
+                    ele._rxCallbacks.beforeFetch(config);
                 }
                 if (_callbacks.beforeFetch) {
                     _callbacks.beforeFetch(ele, config);
@@ -1760,8 +1802,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (ac.signal.aborted) {
                     return;
                 }
-                if (ele._rxCallbacks!.afterFetch) {
-                    ele._rxCallbacks!.afterFetch(request, response);
+                if (ele._rxCallbacks.afterFetch) {
+                    ele._rxCallbacks.afterFetch(request, response);
                 }
                 if (_callbacks.afterFetch) {
                     _callbacks.afterFetch(ele, request, response);
@@ -1920,8 +1962,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         // Handle 204 No Content - no merge processing required
         if (response.status === 204) {
             // Skip merge processing but still handle callbacks and triggers
-            if (ele._rxCallbacks!.afterDocumentUpdate) {
-                ele._rxCallbacks!.afterDocumentUpdate();
+            if (ele._rxCallbacks?.afterDocumentUpdate) {
+                ele._rxCallbacks.afterDocumentUpdate();
             }
             if (_callbacks.afterDocumentUpdate) {
                 _callbacks.afterDocumentUpdate(ele);
@@ -1939,8 +1981,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         } else {
             await mergeFragments(ele, response, parsedHeaders.merge, parsedHeaders.morphIgnoreActive);
         }
-        if (ele._rxCallbacks!.afterDocumentUpdate) {
-            ele._rxCallbacks!.afterDocumentUpdate();
+        if (ele._rxCallbacks?.afterDocumentUpdate) {
+            ele._rxCallbacks.afterDocumentUpdate();
         }
         if (_callbacks.afterDocumentUpdate) {
             _callbacks.afterDocumentUpdate(ele);
@@ -2058,12 +2100,18 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (readyState === EventSource.CLOSED) {
                     reconnectSse(element);
                 } else if (readyState === EventSource.CONNECTING) {
-                    setTimeout(() => {
+                    const existingTimer = _sseReconnectTimers.get(element);
+                    if (existingTimer) {
+                        clearTimeout(existingTimer);
+                    }
+                    const timer = window.setTimeout(() => {
+                        _sseReconnectTimers.delete(element);
                         const currentState = source.readyState;
                         if (currentState !== EventSource.OPEN) {
                             reconnectSse(element);
                         }
                     }, 5000);
+                    _sseReconnectTimers.set(element, timer);
                 } else {
                     reconnectSse(element);
                 }
@@ -2071,6 +2119,11 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             source.onopen = () => {
                 element.setAttribute('data-sse-state', 'connected');
                 _sseReconnectAttempts.delete(element);
+                const existingTimer = _sseReconnectTimers.get(element);
+                if (existingTimer) {
+                    clearTimeout(existingTimer);
+                    _sseReconnectTimers.delete(element);
+                }
             };
             _sseConnections.set(element, connection);
         } catch (error) {
@@ -2297,9 +2350,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             return;
         }
-        const MAX_CONCURRENT_TOASTS = 5;
-        if (_activeToasts.size >= MAX_CONCURRENT_TOASTS) {
-            // Remove oldest toast (first in Map iteration order)
+        if (_activeToasts.size >= _toastOptions.maxConcurrent) {
             const oldestToastId = _activeToasts.keys().next().value;
             if (oldestToastId) {
                 cleanupToast(oldestToastId);
@@ -2336,8 +2387,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         ].filter(c => c); // Remove empty strings
         toast.className = classes.join(' ');
         if (stackIndex > 0) {
-            const STACK_SPACING = 10; // pixels between stacked toasts
-            const stackOffset = calculateStackOffset(zone, stackIndex, STACK_SPACING);
+            const stackOffset = calculateStackOffset(zone, stackIndex);
             toast.style.transform = stackOffset;
         }
         toast.setAttribute('role', 'alert');
@@ -2365,11 +2415,10 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         _activeToasts.set(toastId, toastState);
     }
 
-    function calculateStackOffset(zone: string, stackIndex: number, spacing: number): string {
+    function calculateStackOffset(zone: string, stackIndex: number): string {
         const verticalPos = zone.split('-')[0];
         const horizontalPos = zone.split('-')[1];
-        const baseOffset = 60; // Approximate height of a toast
-        const totalOffset = stackIndex * (baseOffset + spacing);
+        const totalOffset = stackIndex * (_toastOptions.baseOffset + _toastOptions.stackSpacing);
         let transform = '';
         if (verticalPos === 'top') {
             // Stack downward for top positions
@@ -2398,7 +2447,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
     function reflowZone(zone: string): void {
         const zoneToasts = _toastZones.get(zone);
         if (!zoneToasts || zoneToasts.length === 0) return;
-        const STACK_SPACING = 10;
         // Reposition each toast in the zone
         zoneToasts.forEach((toastId, newIndex) => {
             const toastState = _activeToasts.get(toastId);
@@ -2407,7 +2455,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 if (newIndex === 0) {
                     toastState.element.style.transform = '';
                 } else {
-                    const stackOffset = calculateStackOffset(zone, newIndex, STACK_SPACING);
+                    const stackOffset = calculateStackOffset(zone, newIndex);
                     toastState.element.style.transform = stackOffset;
                 }
             }
@@ -2454,21 +2502,19 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 return (ele.tagName === "FORM" || ele.closest("form")) ? "POST" : "GET";
             case "GET":
                 return "GET";
-            case "POST": 
+            case "POST":
             case "PUT":
             case "PATCH":
             case "DELETE":
                 return m;
-            default: { 
-                const err = `${m} is not a valid HTTP method.`;
-                throw new Error(err); 
-            }
+            default:
+                throw new Error(`Invalid data-rx-method on element #${ele.id}: "${m}". Expected: GET, POST, PUT, PATCH, or DELETE.`);
         }
     }
 
     function sendError(ele: HTMLElement, err: unknown): void {
-        if (ele._rxCallbacks!.onElementTriggerError) {
-            ele._rxCallbacks!.onElementTriggerError(err);
+        if (ele._rxCallbacks?.onElementTriggerError) {
+            ele._rxCallbacks.onElementTriggerError(err);
         }
         if (_callbacks.onElementTriggerError) {
             _callbacks.onElementTriggerError(ele, err);
@@ -2669,13 +2715,17 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         return; // Don't upload any files
                     }
                 } else if (maxSize !== 0) {
-                    console.warn(`Invalid max size "${fileInput.dataset.rxFileUploadMaxSize}" for file input`);
+                    console.warn(`Invalid data-rx-file-upload-max-size on element #${fileInput.id}: "${fileInput.dataset.rxFileUploadMaxSize}". Expected: number > 0.`);
                 }
             }
         }
         filesMap.forEach((file: File, name: string): void => {
             const fileInput = document.querySelector(`input[type="file"][name="${name}"][data-rx-action]`) as HTMLInputElement;
             if (!fileInput) return;
+            if (!fileInput.dataset.rxAction) {
+                console.error(`File input #${fileInput.id} missing data-rx-action attribute`);
+                return;
+            }
             const uploadData = new FormData();
             uploadData.append(name, file);
             uploads.push(
@@ -2690,7 +2740,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         } else if (timeout === 0) {
                             xhr.timeout = 0; // Explicit 0 means no timeout
                         } else {
-                            console.warn(`Invalid timeout "${fileInput.dataset.rxFileUploadTimeout}" for file input, using no timeout`);
+                            console.warn(`Invalid data-rx-file-upload-timeout on element #${fileInput.id}: "${fileInput.dataset.rxFileUploadTimeout}". Expected: number >= 0. Using: no timeout.`);
                             xhr.timeout = 0;
                         }
                     } else {
@@ -2767,7 +2817,8 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                             reject(error);
                         }
                     };
-                    xhr.open('POST', fileInput.dataset.rxAction!);
+                    const uploadUrl = fileInput.dataset.rxAction;  // Already verified non-null above (line 2745)
+                    xhr.open('POST', uploadUrl!);
                     xhr.setRequestHeader('rx-request', '');
                     if (options?.addCookieToRequestHeader) {
                         const cookies = Array.isArray(options.addCookieToRequestHeader) 
@@ -2801,7 +2852,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             if (!target) {
                 return;
             }
-            if (triggerElement._rxCallbacks!.beforeDocumentUpdate && triggerElement._rxCallbacks!.beforeDocumentUpdate(target, r.strategy) === false) {
+            if (triggerElement._rxCallbacks?.beforeDocumentUpdate?.(target, r.strategy) === false) {
                 return;
             }
             if (_callbacks.beforeDocumentUpdate && _callbacks.beforeDocumentUpdate(triggerElement, target, r.strategy) === false) {
@@ -2949,7 +3000,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         if (!target) {
             throw new Error(`Expected an HTML element with id="${mergeStrategy.target}"`);
         }
-        if (triggerElement._rxCallbacks!.beforeDocumentUpdate && triggerElement._rxCallbacks!.beforeDocumentUpdate(fragment, mergeStrategy.strategy) === false) {
+        if (triggerElement._rxCallbacks?.beforeDocumentUpdate?.(fragment, mergeStrategy.strategy) === false) {
             return;
         }
         if (_callbacks.beforeDocumentUpdate && _callbacks.beforeDocumentUpdate(triggerElement, fragment, mergeStrategy.strategy) === false) {

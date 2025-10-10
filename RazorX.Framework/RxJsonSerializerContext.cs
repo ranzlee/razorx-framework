@@ -76,20 +76,17 @@ namespace RazorX.Framework;
 internal partial class RxJsonSerializerContext : JsonSerializerContext { }
 
 internal static class RxJsonSerializer {
-    private static readonly RxJsonSerializerContext Context = new(new JsonSerializerOptions {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false
-    });
-
     public static string Serialize<T>(T value) where T : class {
+        var context = RxJsonSerializerContext.Default;
         return value switch {
-            CloseDialogTrigger trigger => JsonSerializer.Serialize(trigger, Context.CloseDialogTrigger),
-            FocusElementTrigger trigger => JsonSerializer.Serialize(trigger, Context.FocusElementTrigger),
-            SetStateTrigger trigger => JsonSerializer.Serialize(trigger, Context.SetStateTrigger),
-            ToastTrigger trigger => JsonSerializer.Serialize(trigger, Context.ToastTrigger),
-            List<MergeStrategy> strategies => JsonSerializer.Serialize(strategies, Context.ListMergeStrategy),
-            SseEventPayload payload => JsonSerializer.Serialize(payload, Context.SseEventPayload),
-            _ => JsonSerializer.Serialize(value, value.GetType(), Context)
+            CloseDialogTrigger trigger => JsonSerializer.Serialize(trigger, context.CloseDialogTrigger),
+            FocusElementTrigger trigger => JsonSerializer.Serialize(trigger, context.FocusElementTrigger),
+            SetStateTrigger trigger => JsonSerializer.Serialize(trigger, context.SetStateTrigger),
+            ToastTrigger trigger => JsonSerializer.Serialize(trigger, context.ToastTrigger),
+            List<MergeStrategy> strategies => JsonSerializer.Serialize(strategies, context.ListMergeStrategy),
+            SseEventPayload payload => JsonSerializer.Serialize(payload, context.SseEventPayload),
+            TransportMessage msg => JsonSerializer.Serialize(msg, context.TransportMessage),
+            _ => JsonSerializer.Serialize(value, value.GetType(), context)
         };
     }
 }

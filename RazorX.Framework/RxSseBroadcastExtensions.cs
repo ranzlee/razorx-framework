@@ -2,6 +2,7 @@ using System.Text.Json.Serialization.Metadata;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 
 namespace RazorX.Framework;
 
@@ -50,25 +51,21 @@ public static class RxSseBroadcastExtensions {
     public static IServiceCollection AddRxSseBroadcast<T>(
         this IServiceCollection services,
         JsonTypeInfo<T> modelTypeInfo,
-        Action<RxBroadcastTransportOptions>? configureTransport = null)
-    {
+        Action<RxBroadcastTransportOptions>? configureTransport = null) {
         ArgumentNullException.ThrowIfNull(modelTypeInfo, nameof(modelTypeInfo));
-
         var options = new RxBroadcastTransportOptions();
         configureTransport?.Invoke(options);
-
         // Register transport if configured
         if (options.TransportFactory != null) {
             services.TryAddSingleton(sp => options.TransportFactory(sp));
         }
-
         // Register broadcast service with dependencies
         services.AddSingleton(sp => {
+            var logger = sp.GetRequiredService<ILogger<RxSseBroadcastService<T>>>();
             var transport = sp.GetService<IRxBroadcastTransport>();
             var config = sp.GetService<IConfiguration>();
-            return new RxSseBroadcastService<T>(transport, modelTypeInfo, config);
+            return new RxSseBroadcastService<T>(logger, transport, modelTypeInfo, config);
         });
-
         return services;
     }
 }

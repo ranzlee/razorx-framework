@@ -639,7 +639,7 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert - error should be logged, not thrown
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: 'INVALID is not a valid HTTP method.'
+          message: `Invalid data-rx-method on element #${btnId}: "INVALID". Expected: GET, POST, PUT, PATCH, or DELETE.`
         })
       )
       expect(mockFetch).not.toHaveBeenCalled()
@@ -666,7 +666,7 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert - error should be logged, not thrown
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: 'HEAD is not a valid HTTP method.'
+          message: `Invalid data-rx-method on element #${btnId}: "HEAD". Expected: GET, POST, PUT, PATCH, or DELETE.`
         })
       )
       expect(mockFetch).not.toHaveBeenCalled()
@@ -1061,7 +1061,7 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert - Error should be logged
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: 'State keys must use JSON array format: ["key1", "key2"] (not space-separated: "key1 key2")'
+          message: 'Invalid data-rx-include-state format: "key1 key2". Use JSON array: ["key1", "key2"].'
         })
       )
       
@@ -4008,7 +4008,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       // Assert - Should warn and execute immediately (no debounce)
       expect(warnings).toContain(
-        `The data-rx-debounce attribute on element ${inputId} is invalid. It must be a number > zero`
+        `Invalid data-rx-debounce on element #${inputId}: "${input.dataset.rxDebounce}". Expected: number > 0.`
       )
       expect(mockFetch).toHaveBeenCalledTimes(1)
       
@@ -4039,7 +4039,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       // Assert - Should warn about zero value
       expect(warnings).toContain(
-        `The data-rx-debounce attribute on element ${inputId} is invalid. It must be a number > zero`
+        `Invalid data-rx-debounce on element #${inputId}: "${input.dataset.rxDebounce}". Expected: number > 0.`
       )
       expect(mockFetch).toHaveBeenCalledTimes(1)
       
@@ -4070,7 +4070,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       // Assert - Should warn about negative value
       expect(warnings).toContain(
-        `The data-rx-debounce attribute on element ${inputId} is invalid. It must be a number > zero`
+        `Invalid data-rx-debounce on element #${inputId}: "${input.dataset.rxDebounce}". Expected: number > 0.`
       )
       expect(mockFetch).toHaveBeenCalledTimes(1)
       
@@ -4101,7 +4101,7 @@ describe('RazorX Framework API Surface Tests', () => {
       
       // Assert - Should warn about empty value
       expect(warnings).toContain(
-        `The data-rx-debounce attribute on element ${inputId} is invalid. It must be a number > zero`
+        `Invalid data-rx-debounce on element #${inputId}: "${input.dataset.rxDebounce}". Expected: number > 0.`
       )
       expect(mockFetch).toHaveBeenCalledTimes(1)
       
@@ -4376,7 +4376,7 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Assert
       expect(consoleSpy).toHaveBeenCalledWith(
-        `The data-rx-disable-in-flight attribute on element ${btnId} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`
+        `Invalid data-rx-disable-in-flight on element #${btnId}: "invalid". Expected: empty attribute, "true", or "false".`
       )
       expect((button as HTMLButtonElement).disabled).toBe(true)  // Still disables despite invalid value
 
@@ -4906,18 +4906,22 @@ describe('RazorX Framework API Surface Tests', () => {
 
     test('data-rx-disable-queueing="false" enables queueing (default)', async () => {
       // Arrange
-      let requestCount = 0
+      const testUrl = '/sequential-test'
       let concurrentRequests = 0
       let maxConcurrent = 0
-      
-      mockFetch.mockImplementation(() => {
-        return new Promise(resolve => {
-          requestCount++
+
+      mockFetch.mockImplementation((url) => {
+        // Only count requests to this test's URL (ignore poll triggers from other tests)
+        if (url === testUrl) {
           concurrentRequests++
           maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
-          
+        }
+
+        return new Promise(resolve => {
           setTimeout(() => {
-            concurrentRequests--
+            if (url === testUrl) {
+              concurrentRequests--
+            }
             resolve(mockSuccessResponse()())
           }, 30)
         })
@@ -4925,7 +4929,7 @@ describe('RazorX Framework API Surface Tests', () => {
 
       const btnId = getUniqueId('sequential-btn')
       const button = createElementWithId('button', btnId, {
-        'data-rx-action': '/sequential-test',
+        'data-rx-action': testUrl,
         'data-rx-disable-queueing': 'false'
       })
       document.body.appendChild(button)
@@ -4935,29 +4939,34 @@ describe('RazorX Framework API Surface Tests', () => {
       button.dispatchEvent(new Event('click', { bubbles: true }))
       button.dispatchEvent(new Event('click', { bubbles: true }))
       button.dispatchEvent(new Event('click', { bubbles: true }))
-      
+
       // Wait for all to complete
       await new Promise(resolve => setTimeout(resolve, 150))
 
-      // Assert - Should run sequentially
-      expect(requestCount).toBe(3)
+      // Assert - Should run sequentially (only count THIS test's requests)
+      const testRequests = mockFetch.mock.calls.filter(call => call[0] === testUrl)
+      expect(testRequests.length).toBe(3)
       expect(maxConcurrent).toBe(1)  // Only one at a time
     })
 
     test('no data-rx-disable-queueing attribute enables queueing by default', async () => {
       // Arrange
-      let requestCount = 0
+      const testUrl = '/default-queue-test'
       let concurrentRequests = 0
       let maxConcurrent = 0
-      
-      mockFetch.mockImplementation(() => {
-        return new Promise(resolve => {
-          requestCount++
+
+      mockFetch.mockImplementation((url) => {
+        // Only count requests to this test's URL (ignore poll triggers from other tests)
+        if (url === testUrl) {
           concurrentRequests++
           maxConcurrent = Math.max(maxConcurrent, concurrentRequests)
-          
+        }
+
+        return new Promise(resolve => {
           setTimeout(() => {
-            concurrentRequests--
+            if (url === testUrl) {
+              concurrentRequests--
+            }
             resolve(mockSuccessResponse()())
           }, 30)
         })
@@ -4965,7 +4974,7 @@ describe('RazorX Framework API Surface Tests', () => {
 
       const btnId = getUniqueId('default-queue-btn')
       const button = createElementWithId('button', btnId, {
-        'data-rx-action': '/default-queue-test'
+        'data-rx-action': testUrl
         // No data-rx-disable-queueing attribute
       })
       document.body.appendChild(button)
@@ -4975,12 +4984,13 @@ describe('RazorX Framework API Surface Tests', () => {
       button.dispatchEvent(new Event('click', { bubbles: true }))
       button.dispatchEvent(new Event('click', { bubbles: true }))
       button.dispatchEvent(new Event('click', { bubbles: true }))
-      
+
       // Wait for all to complete
       await new Promise(resolve => setTimeout(resolve, 150))
 
-      // Assert - Should run sequentially (default behavior)
-      expect(requestCount).toBe(3)
+      // Assert - Should run sequentially (only count THIS test's requests)
+      const testRequests = mockFetch.mock.calls.filter(call => call[0] === testUrl)
+      expect(testRequests.length).toBe(3)
       expect(maxConcurrent).toBe(1)  // Only one at a time
     })
 
@@ -5004,9 +5014,9 @@ describe('RazorX Framework API Surface Tests', () => {
       // Act - Trigger button (warning happens synchronously in queue function)
       button.dispatchEvent(new Event('click', { bubbles: true }))
       
-      // Assert - Should have warned immediately  
+      // Assert - Should have warned immediately
       expect(warnings).toContain(
-        `The data-rx-disable-queueing attribute on element ${btnId} is invalid. It should be either a Boolean (no value) or ="true" or ="false"`
+        `Invalid data-rx-disable-queueing on element #${btnId}: "yes". Expected: empty attribute, "true", or "false".`
       )
       
       // Cleanup
@@ -5498,7 +5508,7 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Assert
       expect(warnSpy).toHaveBeenCalledWith(
-        `The data-rx-allow-event-default attribute on element ${linkId} has an invalid value "invalid". Valid values are: no value (empty), "true", or "false"`
+        `Invalid data-rx-allow-event-default on element #${linkId}: "invalid". Expected: empty attribute, "true", or "false".`
       )
       expect(preventDefaultSpy).not.toHaveBeenCalled() // Invalid values allow default as current implementation
       expect(mockFetch).toHaveBeenCalledWith('/test', expect.any(Object))
@@ -8613,6 +8623,36 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(urgentHandler).toBe(normalHandler)
     })
 
+  })
+
+  describe('Coverage Gap Tests', () => {
+    beforeEach(() => {
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+
+    test('Element.addRxCallbacks() registers element-level callbacks', async () => {
+      const beforeFetchSpy = vi.fn()
+      const afterFetchSpy = vi.fn()
+
+      const btnId = getUniqueId('callback-btn')
+      const button = createElementWithId('button', btnId, { 'data-rx-action': '/test' })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Use Element.addRxCallbacks() API
+      button.addRxCallbacks({
+        beforeFetch: beforeFetchSpy,
+        afterFetch: afterFetchSpy
+      })
+
+      mockFetch.mockImplementation(mockSuccessResponse())
+      button.dispatchEvent(new Event('click'))
+      await waitForDOMUpdates()
+
+      expect(beforeFetchSpy).toHaveBeenCalled()
+      expect(afterFetchSpy).toHaveBeenCalled()
+    })
   })
 
 })

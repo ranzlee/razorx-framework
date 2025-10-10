@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading.Channels;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace RazorX.Framework;
 
@@ -90,13 +91,15 @@ namespace RazorX.Framework;
 /// </code>
 /// </example>
 public sealed class RxSseBroadcastService<T> : IDisposable {
-    private readonly ConcurrentDictionary<string, Channel<T>> _localSubscribers = new();
-    private readonly IRxBroadcastTransport? _transport;
-    private readonly JsonTypeInfo<T>? _modelTypeInfo;
-    private readonly string _broadcastChannel;
-    private readonly string _serverId;
-    private CancellationTokenSource? _transportCts;
-    private bool _disposed = false;
+    private readonly ConcurrentDictionary<string, Channel<T>> localSubscribers = new();
+    private readonly IRxBroadcastTransport? transport;
+    private readonly JsonTypeInfo<T>? modelTypeInfo;
+    private readonly string broadcastChannel;
+    private readonly string serverId;
+    private readonly ILogger<RxSseBroadcastService<T>> logger;
+    private readonly CancellationTokenSource? transportCts;
+    private readonly Task? transportListenerTask;
+    private bool disposed = false;
 
     /// <summary>
     /// Initializes a new instance of RxSseBroadcastService.
@@ -104,6 +107,7 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// <param name="transport">Optional distributed transport for multi-server broadcasts. If null, operates in in-memory mode only.</param>
     /// <param name="modelTypeInfo">Required JsonTypeInfo for AOT-compatible serialization when using distributed transport.</param>
     /// <param name="config">Optional configuration for server instance ID.</param>
+    /// <param name="logger">Logger for diagnostic output.</param>
     /// <exception cref="ArgumentException">Thrown when transport is provided but modelTypeInfo is null.</exception>
     /// <remarks>
     /// <para>
@@ -120,10 +124,11 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// </para>
     /// </remarks>
     public RxSseBroadcastService(
+        ILogger<RxSseBroadcastService<T>> logger,
         IRxBroadcastTransport? transport = null,
         JsonTypeInfo<T>? modelTypeInfo = null,
-        IConfiguration? config = null)
-    {
+        IConfiguration? config = null) {
+        this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
         // Require JsonTypeInfo when using distributed transport for AOT compatibility
         if (transport != null && modelTypeInfo == null) {
             throw new ArgumentException(
@@ -131,16 +136,14 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
                 "Provide it during service registration with AddRxSseBroadcast().",
                 nameof(modelTypeInfo));
         }
-
-        _transport = transport;
-        _modelTypeInfo = modelTypeInfo;
-        _broadcastChannel = $"rx-broadcast:{typeof(T).FullName}";
-        _serverId = config?["ServerInstanceId"] ?? Environment.MachineName;
-
+        this.transport = transport;
+        this.modelTypeInfo = modelTypeInfo;
+        broadcastChannel = $"rx-broadcast:{typeof(T).FullName}";
+        serverId = config?["ServerInstanceId"] ?? Environment.MachineName;
         // Start listening for distributed broadcasts if transport is configured
-        if (_transport != null) {
-            _transportCts = new CancellationTokenSource();
-            _ = ListenToTransportAsync();
+        if (this.transport != null) {
+            transportCts = new CancellationTokenSource();
+            transportListenerTask = Task.Run(ListenToTransportAsync, transportCts.Token);
         }
     }
 
@@ -170,12 +173,12 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// </para>
     /// </remarks>
     public bool Subscribe(string subscriberId) {
-        ObjectDisposedException.ThrowIf(_disposed, nameof(RxSseBroadcastService<>));
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
         var channel = Channel.CreateUnbounded<T>(new UnboundedChannelOptions {
             SingleReader = true,   // Each channel has one reader (the SSE stream)
             SingleWriter = false   // Multiple writers (broadcast can write to all channels)
         });
-        return _localSubscribers.TryAdd(subscriberId, channel);
+        return localSubscribers.TryAdd(subscriberId, channel);
     }
 
     /// <summary>
@@ -187,8 +190,8 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// The channel is completed gracefully, allowing any pending reads to finish.
     /// </remarks>
     public void Unsubscribe(string subscriberId) {
-        ObjectDisposedException.ThrowIf(_disposed, nameof(RxSseBroadcastService<>));
-        if (_localSubscribers.TryRemove(subscriberId, out var channel)) {
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
+        if (localSubscribers.TryRemove(subscriberId, out var channel)) {
             try {
                 channel.Writer.Complete();
             } catch {
@@ -221,36 +224,33 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// </remarks>
     public async Task BroadcastUpdate(T model, string? excludeSubscriberId = null) {
         ArgumentNullException.ThrowIfNull(model);
-        ObjectDisposedException.ThrowIf(_disposed, nameof(RxSseBroadcastService<>));
-
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
         // 1. ALWAYS deliver to local channels first for low latency
         await BroadcastToLocalChannels(model, excludeSubscriberId);
-
         // 2. Publish to distributed transport for other servers (if configured)
-        if (_transport != null && _modelTypeInfo != null) {
+        if (transport != null && modelTypeInfo != null) {
             try {
                 // Double serialization pattern for AOT safety:
                 // Step 1: Serialize user model with user-provided JsonTypeInfo
-                string modelJson = JsonSerializer.Serialize(model, _modelTypeInfo);
-
+                string modelJson = JsonSerializer.Serialize(model, modelTypeInfo);
                 // Step 2: Wrap in transport message with metadata
                 var transportMsg = new TransportMessage(
                     PayloadJson: modelJson,
                     ExcludeSubscriberId: excludeSubscriberId,
-                    SourceServerId: _serverId,
+                    SourceServerId: serverId,
                     TimestampUnixMs: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 );
-
                 // Step 3: Serialize transport message with framework's JsonSerializerContext
                 string transportJson = JsonSerializer.Serialize(
                     transportMsg,
                     RxJsonSerializerContext.Default.TransportMessage);
-
                 // Step 4: Publish to transport (non-blocking)
-                await _transport.PublishAsync(_broadcastChannel, transportJson);
+                await transport.PublishAsync(broadcastChannel, transportJson);
             } catch (Exception ex) {
                 // Log transport errors but don't fail the local broadcast
-                Console.WriteLine($"Transport publish error: {ex.Message}");
+                if (logger.IsEnabled(LogLevel.Error)) {
+                    logger.LogError(ex, "Failed to publish broadcast to transport on channel {Channel}", broadcastChannel);
+                }
             }
         }
     }
@@ -259,11 +259,10 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// Delivers a broadcast to all local subscribers on this server.
     /// </summary>
     private async Task BroadcastToLocalChannels(T model, string? excludeSubscriberId) {
-        if (_localSubscribers.IsEmpty) {
+        if (localSubscribers.IsEmpty) {
             return;  // No local subscribers
         }
-
-        var tasks = _localSubscribers
+        var tasks = localSubscribers
             .Where(kvp => excludeSubscriberId == null || kvp.Key != excludeSubscriberId)
             .Select(async kvp => {
                 try {
@@ -284,10 +283,9 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// </summary>
     private async Task ListenToTransportAsync() {
         try {
-            await foreach (var transportJson in _transport!.SubscribeAsync(
-                _broadcastChannel,
-                _transportCts!.Token))
-            {
+            await foreach (var transportJson in transport!.SubscribeAsync(
+                broadcastChannel,
+                transportCts!.Token)) {
                 try {
                     // Step 1: Deserialize transport message with framework's context
                     var transportMsg = JsonSerializer.Deserialize(
@@ -297,16 +295,14 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
                     if (transportMsg == null) {
                         continue;
                     }
-
                     // Skip our own messages (already delivered locally for lower latency)
-                    if (transportMsg.SourceServerId == _serverId) {
+                    if (transportMsg.SourceServerId == serverId) {
                         continue;
                     }
-
                     // Step 2: Deserialize user model with user-provided JsonTypeInfo
                     var model = JsonSerializer.Deserialize(
                         transportMsg.PayloadJson,
-                        _modelTypeInfo!);
+                        modelTypeInfo!);
 
                     if (model != null) {
                         // Deliver to THIS server's connected clients
@@ -314,17 +310,26 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
                     }
                 } catch (JsonException ex) {
                     // Log deserialization errors but continue processing
-                    Console.WriteLine($"Failed to deserialize transport message: {ex.Message}");
+                    if (logger.IsEnabled(LogLevel.Warning)) {
+                        logger.LogWarning(ex, "Failed to deserialize transport message on channel {Channel}", broadcastChannel);
+                    }
                 } catch (Exception ex) {
                     // Log unexpected errors but keep listening
-                    Console.WriteLine($"Error processing transport message: {ex.Message}");
+                    if (logger.IsEnabled(LogLevel.Warning)) {
+                        logger.LogWarning(ex, "Error processing transport message on channel {Channel}", broadcastChannel);
+                    }
                 }
             }
         } catch (OperationCanceledException) {
             // Normal shutdown via cancellation token
+            if (logger.IsEnabled(LogLevel.Debug)) {
+                logger.LogDebug("Transport listener cancelled on channel {Channel}", broadcastChannel);
+            }
         } catch (Exception ex) {
             // Critical transport error - log but don't crash the service
-            Console.WriteLine($"Transport listener error: {ex.Message}");
+            if (logger.IsEnabled(LogLevel.Error)) {
+                logger.LogError(ex, "Transport listener error on channel {Channel}", broadcastChannel);
+            }
         }
     }
 
@@ -345,10 +350,9 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// </remarks>
     public async IAsyncEnumerable<T> GetUpdates(
         string subscriberId,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, nameof(RxSseBroadcastService<>));
-        if (!_localSubscribers.TryGetValue(subscriberId, out var channel)) {
+        [EnumeratorCancellation] CancellationToken cancellationToken) {
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
+        if (!localSubscribers.TryGetValue(subscriberId, out var channel)) {
             yield break;  // Subscriber not found
         }
         await foreach (var update in channel.Reader.ReadAllAsync(cancellationToken)) {
@@ -365,8 +369,8 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// that have called Subscribe() but not yet Unsubscribe().
     /// </remarks>
     public int GetActiveConnectionCount() {
-        ObjectDisposedException.ThrowIf(_disposed, nameof(RxSseBroadcastService<>));
-        return _localSubscribers.Count;
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
+        return localSubscribers.Count;
     }
 
     /// <summary>
@@ -377,8 +381,8 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// Useful for diagnostics and debugging. The list is a snapshot at the time of the call.
     /// </remarks>
     public IReadOnlyList<string> GetActiveSubscribers() {
-        ObjectDisposedException.ThrowIf(_disposed, nameof(RxSseBroadcastService<>));
-        return [.. _localSubscribers.Keys];
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
+        return [.. localSubscribers.Keys];
     }
 
     /// <summary>
@@ -390,8 +394,8 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// Useful for checking if a subscriber already exists before calling Subscribe() to avoid duplicate subscriptions.
     /// </remarks>
     public bool HasSubscriber(string subscriberId) {
-        ObjectDisposedException.ThrowIf(_disposed, nameof(RxSseBroadcastService<>));
-        return _localSubscribers.ContainsKey(subscriberId);
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
+        return localSubscribers.ContainsKey(subscriberId);
     }
 
     /// <summary>
@@ -402,35 +406,47 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// Completes all channels gracefully, allowing pending reads to finish.
     /// </remarks>
     public void Dispose() {
-        if (_disposed) {
+        if (disposed) {
             return;
         }
-
         // Stop listening to transport
         try {
-            _transportCts?.Cancel();
-            _transportCts?.Dispose();
+            transportCts?.Cancel();
+            // Wait for listener task to complete (with timeout to prevent disposal hang)
+            if (transportListenerTask != null) {
+                try {
+                    transportListenerTask.Wait(TimeSpan.FromSeconds(5));
+                } catch (AggregateException ae) {
+                    // Log any unhandled exceptions from the listener task
+                    foreach (var ex in ae.InnerExceptions) {
+                        if (ex is not OperationCanceledException) {
+                            if (logger.IsEnabled(LogLevel.Error)) {
+                                logger.LogError(ex, "Unhandled exception in transport listener task");
+                            }
+                        }
+                    }
+                }
+            }
+
+            transportCts?.Dispose();
         } catch {
             // Ignore cancellation errors during disposal
         }
-
         // Complete all local channels
-        foreach (var channel in _localSubscribers.Values) {
+        foreach (var channel in localSubscribers.Values) {
             try {
                 channel.Writer.Complete();
             } catch {
                 // Ignore errors during disposal
             }
         }
-        _localSubscribers.Clear();
-
+        localSubscribers.Clear();
         // Dispose transport
         try {
-            _transport?.Dispose();
+            transport?.Dispose();
         } catch {
             // Ignore transport disposal errors
         }
-
-        _disposed = true;
+        disposed = true;
     }
 }
