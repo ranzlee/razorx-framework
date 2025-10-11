@@ -194,8 +194,10 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
         if (localSubscribers.TryRemove(subscriberId, out var channel)) {
             try {
                 channel.Writer.Complete();
-            } catch {
-                // Channel may already be completed - ignore
+            } catch (Exception ex) {
+                if (logger.IsEnabled(LogLevel.Debug)) {
+                    logger.LogDebug(ex, "Channel already completed for subscriber {SubscriberId}", subscriberId);
+                }
             }
         }
     }
@@ -255,9 +257,6 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
         }
     }
 
-    /// <summary>
-    /// Delivers a broadcast to all local subscribers on this server.
-    /// </summary>
     private async Task BroadcastToLocalChannels(T model, string? excludeSubscriberId) {
         if (localSubscribers.IsEmpty) {
             return;  // No local subscribers
@@ -268,19 +267,18 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
                 try {
                     await kvp.Value.Writer.WriteAsync(model);
                 } catch (ChannelClosedException) {
-                    // Channel was completed/closed - subscriber disconnected
-                    // This is expected and normal, don't propagate exception
-                } catch {
-                    // Unexpected error - don't fail entire broadcast
-                    // Individual channel errors don't affect other subscribers
+                    if (logger.IsEnabled(LogLevel.Debug)) {
+                        logger.LogDebug("Channel closed for subscriber {SubscriberId} (client disconnected)", kvp.Key);
+                    }
+                } catch (Exception ex) {
+                    if (logger.IsEnabled(LogLevel.Warning)) {
+                        logger.LogWarning(ex, "Unexpected error writing to channel for subscriber {SubscriberId}", kvp.Key);
+                    }
                 }
             });
         await Task.WhenAll(tasks);
     }
 
-    /// <summary>
-    /// Background task that listens for broadcasts from other servers via the transport.
-    /// </summary>
     private async Task ListenToTransportAsync() {
         try {
             await foreach (var transportJson in transport!.SubscribeAsync(
@@ -429,23 +427,28 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
             }
 
             transportCts?.Dispose();
-        } catch {
-            // Ignore cancellation errors during disposal
+        } catch (Exception ex) {
+            if (logger.IsEnabled(LogLevel.Debug)) {
+                logger.LogDebug(ex, "Error during transport cancellation cleanup");
+            }
         }
         // Complete all local channels
         foreach (var channel in localSubscribers.Values) {
             try {
                 channel.Writer.Complete();
-            } catch {
-                // Ignore errors during disposal
+            } catch (Exception ex) {
+                if (logger.IsEnabled(LogLevel.Debug)) {
+                    logger.LogDebug(ex, "Error completing channel during disposal");
+                }
             }
         }
         localSubscribers.Clear();
-        // Dispose transport
         try {
             transport?.Dispose();
-        } catch {
-            // Ignore transport disposal errors
+        } catch (Exception ex) {
+            if (logger.IsEnabled(LogLevel.Warning)) {
+                logger.LogWarning(ex, "Error disposing transport for channel {Channel}", broadcastChannel);
+            }
         }
         disposed = true;
     }
