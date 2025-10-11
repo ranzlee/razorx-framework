@@ -111,7 +111,6 @@ public interface IRxBroadcastTransport : IDisposable {
 /// Internal transport message envelope for distributed broadcasts.
 /// </summary>
 /// <param name="PayloadJson">The user model serialized to JSON using user-provided JsonTypeInfo.</param>
-/// <param name="ExcludeSubscriberId">Optional subscriber ID to exclude from receiving this broadcast (echo suppression).</param>
 /// <param name="SourceServerId">The ID of the server that originated this broadcast.</param>
 /// <param name="TimestampUnixMs">Unix timestamp in milliseconds when the broadcast was sent.</param>
 /// <remarks>
@@ -126,10 +125,15 @@ public interface IRxBroadcastTransport : IDisposable {
 /// - TransportMessage: Serialized with framework's RxJsonSerializerContext (has this type)
 /// - This separation maintains AOT compatibility without exposing internal types to users
 /// </para>
+/// <para>
+/// <strong>Filtering Note</strong>: This message contains no filter criteria. Filtering is handled
+/// locally on each server using predicate functions. Remote servers receive all broadcasts
+/// and deliver to all their local subscribers. This is a fundamental limitation of distributed
+/// predicate filtering (lambdas cannot be serialized across process boundaries).
+/// </para>
 /// </remarks>
 internal sealed record TransportMessage(
     string PayloadJson,
-    string? ExcludeSubscriberId,
     string SourceServerId,
     long TimestampUnixMs
 );

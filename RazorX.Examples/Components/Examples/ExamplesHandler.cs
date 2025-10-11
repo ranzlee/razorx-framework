@@ -1,4 +1,4 @@
-﻿using RazorX.Framework;
+using RazorX.Framework;
 using RazorX.Examples.Components.Layout;
 using Microsoft.AspNetCore.Mvc;
 
@@ -14,6 +14,16 @@ public record ExampleModel(IEnumerable<TodoModel> Todos, int Total, int Complete
 public record TodoFormModel(int Id, string Text, bool IsComplete, bool HasError, bool IsEdit);
 public record FileUploadModel(string FileId, string FileName, string NewFileName, Stream? File);
 public record SseMessage(TodoModel Todo, string Action);
+
+public record SseMetadata(
+    string SubscriberId
+) : ISseMetadataProvider {
+    public IReadOnlyDictionary<string, string> ToSerializableDictionary() {
+        return new Dictionary<string, string> {
+            [nameof(SubscriberId)] = SubscriberId
+        };
+    }
+}
 
 public class ExamplesHandler : RequestHandler {
     public override void MapRoutes(IEndpointRouteBuilder router) {
@@ -44,9 +54,12 @@ public class ExamplesHandler : RequestHandler {
         HttpContext context,
         [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
         IRxDriver rxDriver,
-        RxSseBroadcastService<SseMessage> broadcast,
+        RxSseBroadcastService<SseMessage, SseMetadata> broadcast,
         CancellationToken ct) {
-        broadcast.Subscribe(rxInstanceId);
+        var metadata = new SseMetadata(
+            SubscriberId: rxInstanceId
+        );
+        broadcast.Subscribe(metadata);
         ct.Register(() => {
             broadcast.Unsubscribe(rxInstanceId);
         });
@@ -116,14 +129,22 @@ public class ExamplesHandler : RequestHandler {
         return TypedResults.NoContent();
     }
 
-    public static async Task<IResult> NewTodo(HttpContext context, [FromQuery(Name = "rx-instance-id")] string rxInstanceId, IRxDriver rxDriver, RxSseBroadcastService<SseMessage> broadcast, TodoFormModel model) {
+    public static async Task<IResult> NewTodo(
+        HttpContext context,
+        [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
+        IRxDriver rxDriver,
+        RxSseBroadcastService<SseMessage, SseMetadata> broadcast,
+        TodoFormModel model) {
         var validationResult = ValidateTodo(context, rxDriver, false, model);
         if (validationResult != null) {
             return await validationResult.Render();
         }
         var todo = new TodoModel(Todos.Count == 0 ? 1 : Todos.Max(x => x.Id + 1), model.Text, false);
         Todos.Add(todo);
-        await broadcast.BroadcastUpdate(new SseMessage(todo, "Add"), rxInstanceId);
+        await broadcast.BroadcastUpdate(
+            new SseMessage(todo, "Add"),
+            filter: meta => meta.SubscriberId != rxInstanceId
+        );
         return await rxDriver
             .With(context)
             .AddTriggerCloseDialog("new-todo-modal")
@@ -135,7 +156,13 @@ public class ExamplesHandler : RequestHandler {
             .Render();
     }
 
-    public static async Task<IResult> SaveTodo(HttpContext context, [FromQuery(Name = "rx-instance-id")] string rxInstanceId, IRxDriver rxDriver, RxSseBroadcastService<SseMessage> broadcast, TodoFormModel model, int id) {
+    public static async Task<IResult> SaveTodo(
+        HttpContext context,
+        [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
+        IRxDriver rxDriver,
+        RxSseBroadcastService<SseMessage, SseMetadata> broadcast,
+        TodoFormModel model,
+        int id) {
         await Task.Delay(700);
         model = model with { Id = id };
         var validationResult = ValidateTodo(context, rxDriver, true, model);
@@ -147,7 +174,10 @@ public class ExamplesHandler : RequestHandler {
             return TypedResults.Accepted("/error?code=404");
         }
         todo.Text = model.Text;
-        await broadcast.BroadcastUpdate(new SseMessage(todo, "Update"), rxInstanceId);
+        await broadcast.BroadcastUpdate(
+            new SseMessage(todo, "Update"),
+            filter: meta => meta.SubscriberId != rxInstanceId
+        );
         return await rxDriver
             .With(context)
             .AddTriggerCloseDialog("edit-todo-modal")
@@ -173,7 +203,13 @@ public class ExamplesHandler : RequestHandler {
             .Render();
     }
 
-    public static async Task<IResult> DeleteTodo(HttpContext context, IRxDriver rxDriver, RxSseBroadcastService<SseMessage> broadcast, int id, [FromQuery(Name = "rx-instance-id")] string rxInstanceId, string filter = "") {
+    public static async Task<IResult> DeleteTodo(
+        HttpContext context,
+        IRxDriver rxDriver,
+        RxSseBroadcastService<SseMessage, SseMetadata> broadcast,
+        int id,
+        [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
+        string filter = "") {
         var todo = Todos.SingleOrDefault(x => x.Id == id);
         if (todo == null) {
             return TypedResults.Accepted("/error?code=404");
@@ -184,7 +220,10 @@ public class ExamplesHandler : RequestHandler {
             .ToList();
         todos.Remove(todo);
         Todos.Remove(todo);
-        await broadcast.BroadcastUpdate(new SseMessage(todo, "Delete"), rxInstanceId);
+        await broadcast.BroadcastUpdate(
+            new SseMessage(todo, "Delete"),
+            filter: meta => meta.SubscriberId != rxInstanceId
+        );
         var driver = rxDriver
             .With(context)
             .AddTriggerCloseDialog("delete-todo-modal")

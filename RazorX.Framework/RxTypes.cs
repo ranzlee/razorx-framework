@@ -199,3 +199,77 @@ public enum ToastHorizontalPosition {
     /// </summary>
     Right = 2
 }
+
+/// <summary>
+/// Provides metadata for broadcast filtering with required subscriber identification.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Implement this interface on your metadata types to enable filtered SSE broadcasting.
+/// The framework uses metadata for subscriber-level filtering (tenant, role, permissions, etc.).
+/// </para>
+/// <para>
+/// <strong>Required Property</strong>: SubscriberId must return the unique subscriber identifier
+/// (typically the rx-instance-id from sessionStorage). This enables echo suppression and
+/// subscriber-specific filtering.
+/// </para>
+/// <para>
+/// <strong>Serialization</strong>: ToSerializableDictionary() is used for distributed mode
+/// to transport metadata across servers. For single-server deployments, you can return
+/// an empty dictionary.
+/// </para>
+/// </remarks>
+/// <example>
+/// <code>
+/// public record TenantMetadata(
+///     string SubscriberId,
+///     string TenantId,
+///     string Role
+/// ) : IMetadataProvider {
+///     public IReadOnlyDictionary&lt;string, string&gt; ToSerializableDictionary() {
+///         return new Dictionary&lt;string, string&gt; {
+///             [nameof(SubscriberId)] = SubscriberId,
+///             [nameof(TenantId)] = TenantId,
+///             [nameof(Role)] = Role
+///         };
+///     }
+/// }
+/// </code>
+/// </example>
+public interface ISseMetadataProvider {
+    /// <summary>
+    /// Gets the unique subscriber identifier for this connection.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// This should be the rx-instance-id value from the client's sessionStorage.
+    /// The framework uses this for:
+    /// - Echo suppression (excluding the triggering subscriber from broadcasts)
+    /// - Subscriber-specific filtering
+    /// - Connection management
+    /// </para>
+    /// <para>
+    /// <strong>Important</strong>: This value must be unique per browser tab/window.
+    /// </para>
+    /// </remarks>
+    string SubscriberId { get; }
+
+    /// <summary>
+    /// Converts metadata to a serializable dictionary for distributed transport.
+    /// </summary>
+    /// <returns>Dictionary containing metadata as key-value string pairs.</returns>
+    /// <remarks>
+    /// <para>
+    /// This method is called when broadcasting in distributed mode (Redis, Azure Service Bus, etc.)
+    /// to serialize metadata for transmission across servers.
+    /// </para>
+    /// <para>
+    /// <strong>Single-Server Mode</strong>: Can return an empty dictionary if not using distributed transport.
+    /// </para>
+    /// <para>
+    /// <strong>Complex Types</strong>: Arrays and complex objects should be serialized to strings
+    /// (e.g., CSV, JSON).
+    /// </para>
+    /// </remarks>
+    IReadOnlyDictionary<string, string> ToSerializableDictionary();
+}

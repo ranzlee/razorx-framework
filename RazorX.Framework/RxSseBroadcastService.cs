@@ -9,26 +9,31 @@ using Microsoft.Extensions.Logging;
 namespace RazorX.Framework;
 
 /// <summary>
-/// Provides a thread-safe broadcast service for distributing SSE updates to multiple connected clients.
+/// Provides a thread-safe broadcast service for distributing SSE updates to multiple connected clients with metadata-based filtering.
 /// </summary>
 /// <typeparam name="T">The model type to broadcast to subscribers.</typeparam>
+/// <typeparam name="TMetadata">The metadata type for subscriber filtering (must implement IMetadataProvider).</typeparam>
 /// <remarks>
 /// <para>
-/// This is an optional utility for scenarios where multiple clients should receive the same real-time updates,
-/// such as live dashboards, notifications, collaborative editing, or activity feeds.
+/// This service enables selective broadcasting based on subscriber metadata (tenant, role, permissions, etc.).
+/// Each subscriber provides metadata at connection time, which is used for filtering broadcasts.
 /// </para>
 /// <para>
 /// <strong>Registration:</strong> Register as singleton in dependency injection:
-/// <code>builder.Services.AddSingleton&lt;RxSseBroadcastService&lt;MyModel&gt;&gt;();</code>
+/// <code>
+/// builder.Services.AddRxSseBroadcast&lt;MyModel, MyMetadata&gt;(
+///     MyAppJsonContext.Default.MyModel
+/// );
+/// </code>
 /// </para>
 /// <para>
 /// <strong>Architecture:</strong> Each subscriber receives an isolated Channel for thread-safe message delivery.
-/// When BroadcastUpdate() is called, the update is written to ALL subscriber channels in parallel.
+/// When BroadcastUpdate() is called, the filter predicate (if provided) determines which subscribers receive the update.
 /// </para>
 /// <para>
-/// <strong>Limitations:</strong> This is a simple in-memory broadcast utility with no authorization,
-/// user-scoping, or filtering. For advanced scenarios (user-specific channels, role-based access,
-/// topic routing), wrap this service or implement a custom broadcast service.
+/// <strong>Filtering Behavior</strong>:
+/// - Single-server mode: Filter applies to all local subscribers
+/// - Distributed mode: Filter applies to local subscribers only (remote servers receive all broadcasts)
 /// </para>
 /// <para>
 /// <strong>Memory Management:</strong> Always call Unsubscribe() when done, or use CancellationToken.Register()
@@ -37,51 +42,65 @@ namespace RazorX.Framework;
 /// </remarks>
 /// <example>
 /// <code>
-/// // Initialize subscriber ID in initial page load (session auto-commits at request end)
-/// public static async Task&lt;IResult&gt; GetPage(HttpContext context, IRxDriver rxDriver) {
-///     var subscriberId = context.Session.GetString("SubscriberId");
-///     if (string.IsNullOrWhiteSpace(subscriberId)) {
-///         subscriberId = Guid.NewGuid().ToString();
-///         context.Session.SetString("SubscriberId", subscriberId);
+/// // Define metadata type
+/// public record TenantMetadata(
+///     string SubscriberId,
+///     string TenantId,
+///     string Role
+/// ) : IMetadataProvider {
+///     public IReadOnlyDictionary&lt;string, string&gt; ToSerializableDictionary() {
+///         return new Dictionary&lt;string, string&gt; {
+///             [nameof(SubscriberId)] = SubscriberId,
+///             [nameof(TenantId)] = TenantId,
+///             [nameof(Role)] = Role
+///         };
 ///     }
-///     return await rxDriver.RenderPage&lt;Layout, Page&gt;(context);
 /// }
 ///
-/// // In SSE handler - Subscribe using session-based ID
+/// // In SSE handler - Subscribe with metadata
 /// public static IResult StreamUpdates(
 ///     HttpContext context,
+///     [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
 ///     IRxDriver rxDriver,
-///     RxSseBroadcastService&lt;TodoModel&gt; broadcast,
+///     RxSseBroadcastService&lt;TodoModel, TenantMetadata&gt; broadcast,
 ///     CancellationToken ct)
 /// {
-///     var subscriberId = context.Session.GetString("SubscriberId")!;
+///     var metadata = new TenantMetadata(
+///         SubscriberId: rxInstanceId,
+///         TenantId: context.User.FindFirst("TenantId")!.Value,
+///         Role: context.User.FindFirst(ClaimTypes.Role)!.Value
+///     );
 ///
-///     if (!broadcast.HasSubscriber(subscriberId)) {
-///         broadcast.Subscribe(subscriberId);
-///         ct.Register(() => broadcast.Unsubscribe(subscriberId));
-///     }
+///     broadcast.Subscribe(metadata);
+///     ct.Register(() => broadcast.Unsubscribe(rxInstanceId));
 ///
 ///     return rxDriver
 ///         .With(context)
 ///         .RenderSse(
-///             broadcast.GetUpdates(subscriberId, ct),
+///             broadcast.GetUpdates(rxInstanceId, ct),
 ///             async (todo, builder) => builder.AddFragment&lt;TodoCard&gt;(todo, "todo-list", Beforeend),
 ///             ct
 ///         );
 /// }
 ///
-/// // In regular handler - Broadcast with echo suppression
+/// // In regular handler - Broadcast with filtering
 /// public static async Task&lt;IResult&gt; UpdateTodo(
 ///     HttpContext context,
+///     [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
 ///     IRxDriver rxDriver,
-///     RxSseBroadcastService&lt;TodoModel&gt; broadcast,
+///     RxSseBroadcastService&lt;TodoModel, TenantMetadata&gt; broadcast,
 ///     TodoModel todo)
 /// {
+///     var tenantId = context.User.FindFirst("TenantId")!.Value;
 ///     await repository.SaveAsync(todo);
 ///
-///     // Exclude triggering client to prevent echo
-///     var excludeId = context.Session.GetString("SubscriberId");
-///     await broadcast.BroadcastUpdate(todo, excludeId);
+///     // Filter by tenant and exclude triggering client
+///     await broadcast.BroadcastUpdate(
+///         todo,
+///         filter: meta =>
+///             meta.TenantId == tenantId &amp;&amp;
+///             meta.SubscriberId != rxInstanceId
+///     );
 ///
 ///     return await rxDriver
 ///         .With(context)
@@ -90,13 +109,18 @@ namespace RazorX.Framework;
 /// }
 /// </code>
 /// </example>
-public sealed class RxSseBroadcastService<T> : IDisposable {
-    private readonly ConcurrentDictionary<string, Channel<T>> localSubscribers = new();
+public sealed class RxSseBroadcastService<T, TMetadata> : IDisposable
+    where TMetadata : ISseMetadataProvider {
+    private sealed record SubscriberConnection(
+        Channel<T> Channel,
+        TMetadata Metadata
+    );
+    private readonly ConcurrentDictionary<string, SubscriberConnection> localSubscribers = new();
     private readonly IRxBroadcastTransport? transport;
     private readonly JsonTypeInfo<T>? modelTypeInfo;
     private readonly string broadcastChannel;
     private readonly string serverId;
-    private readonly ILogger<RxSseBroadcastService<T>> logger;
+    private readonly ILogger<RxSseBroadcastService<T, TMetadata>> logger;
     private readonly CancellationTokenSource? transportCts;
     private readonly Task? transportListenerTask;
     private bool disposed = false;
@@ -104,15 +128,14 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// <summary>
     /// Initializes a new instance of RxSseBroadcastService.
     /// </summary>
+    /// <param name="logger">Logger for diagnostic output.</param>
     /// <param name="transport">Optional distributed transport for multi-server broadcasts. If null, operates in in-memory mode only.</param>
     /// <param name="modelTypeInfo">Required JsonTypeInfo for AOT-compatible serialization when using distributed transport.</param>
     /// <param name="config">Optional configuration for server instance ID.</param>
-    /// <param name="logger">Logger for diagnostic output.</param>
     /// <exception cref="ArgumentException">Thrown when transport is provided but modelTypeInfo is null.</exception>
     /// <remarks>
     /// <para>
     /// When transport is null (default), the service operates in in-memory mode with no cross-server broadcasting.
-    /// This is the backward-compatible behavior.
     /// </para>
     /// <para>
     /// When transport is provided, modelTypeInfo is required for AOT-compatible JSON serialization.
@@ -124,12 +147,11 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// </para>
     /// </remarks>
     public RxSseBroadcastService(
-        ILogger<RxSseBroadcastService<T>> logger,
+        ILogger<RxSseBroadcastService<T, TMetadata>> logger,
         IRxBroadcastTransport? transport = null,
         JsonTypeInfo<T>? modelTypeInfo = null,
         IConfiguration? config = null) {
         this.logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        // Require JsonTypeInfo when using distributed transport for AOT compatibility
         if (transport != null && modelTypeInfo == null) {
             throw new ArgumentException(
                 $"JsonTypeInfo<{typeof(T).Name}> is required for AOT compatibility when using distributed transport. " +
@@ -140,7 +162,6 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
         this.modelTypeInfo = modelTypeInfo;
         broadcastChannel = $"rx-broadcast:{typeof(T).FullName}";
         serverId = config?["ServerInstanceId"] ?? Environment.MachineName;
-        // Start listening for distributed broadcasts if transport is configured
         if (this.transport != null) {
             transportCts = new CancellationTokenSource();
             transportListenerTask = Task.Run(ListenToTransportAsync, transportCts.Token);
@@ -148,37 +169,41 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     }
 
     /// <summary>
-    /// Subscribes a client with the specified subscriber ID.
+    /// Subscribes a client with associated metadata.
     /// </summary>
-    /// <param name="subscriberId">The subscriber ID to register (typically from session, user ID, or application-generated identifier).</param>
+    /// <param name="metadata">Metadata for this subscriber, including the unique SubscriberId.</param>
     /// <returns>True if the subscriber was added; false if a subscriber with this ID already exists.</returns>
     /// <remarks>
     /// <para>
+    /// The subscriber ID is extracted from metadata.SubscriberId and must be unique.
     /// Each subscriber receives an isolated unbounded channel for message delivery.
-    /// The subscriber ID is application-provided (not generated by this service).
     /// </para>
     /// <para>
-    /// <strong>Recommended pattern:</strong> Use session-based IDs initialized in RenderPage:
+    /// <strong>Recommended pattern:</strong> Use rx-instance-id from client's sessionStorage:
     /// <code>
-    /// // In RenderPage (session auto-commits at request end)
-    /// var id = context.Session.GetString("SubscriberId");
-    /// if (string.IsNullOrWhiteSpace(id)) {
-    ///     id = Guid.NewGuid().ToString();
-    ///     context.Session.SetString("SubscriberId", id);
-    /// }
+    /// var metadata = new MyMetadata(
+    ///     SubscriberId: rxInstanceId,  // From query parameter
+    ///     TenantId: context.User.FindFirst("TenantId")!.Value,
+    ///     Role: context.User.FindFirst(ClaimTypes.Role)!.Value
+    /// );
+    /// broadcast.Subscribe(metadata);
     /// </code>
     /// </para>
     /// <para>
     /// Always call Unsubscribe() when done, or use CancellationToken.Register() for automatic cleanup.
     /// </para>
     /// </remarks>
-    public bool Subscribe(string subscriberId) {
-        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
+    public bool Subscribe(TMetadata metadata) {
+        ArgumentNullException.ThrowIfNull(metadata, nameof(metadata));
+        ObjectDisposedException.ThrowIf(disposed, this);
+        var subscriberId = metadata.SubscriberId;
+        ArgumentException.ThrowIfNullOrWhiteSpace(subscriberId, nameof(metadata.SubscriberId));
         var channel = Channel.CreateUnbounded<T>(new UnboundedChannelOptions {
-            SingleReader = true,   // Each channel has one reader (the SSE stream)
-            SingleWriter = false   // Multiple writers (broadcast can write to all channels)
+            SingleReader = true,
+            SingleWriter = false
         });
-        return localSubscribers.TryAdd(subscriberId, channel);
+        var connection = new SubscriberConnection(channel, metadata);
+        return localSubscribers.TryAdd(subscriberId, connection);
     }
 
     /// <summary>
@@ -190,10 +215,10 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// The channel is completed gracefully, allowing any pending reads to finish.
     /// </remarks>
     public void Unsubscribe(string subscriberId) {
-        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
-        if (localSubscribers.TryRemove(subscriberId, out var channel)) {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (localSubscribers.TryRemove(subscriberId, out var connection)) {
             try {
-                channel.Writer.Complete();
+                connection.Channel.Writer.Complete();
             } catch (Exception ex) {
                 if (logger.IsEnabled(LogLevel.Debug)) {
                     logger.LogDebug(ex, "Channel already completed for subscriber {SubscriberId}", subscriberId);
@@ -203,53 +228,83 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     }
 
     /// <summary>
-    /// Broadcasts an update to ALL connected subscribers in parallel.
+    /// Broadcasts an update to connected subscribers with optional metadata-based filtering.
     /// </summary>
-    /// <param name="model">The model to broadcast to all subscribers.</param>
-    /// <param name="excludeSubscriberId">Optional subscriber ID to exclude from the broadcast (typically the client that triggered the update).</param>
+    /// <param name="model">The model to broadcast to subscribers.</param>
+    /// <param name="filter">
+    /// Optional predicate to filter subscribers based on their metadata.
+    /// Return true to INCLUDE subscriber in the broadcast.
+    /// If null, ALL subscribers receive the broadcast.
+    /// </param>
     /// <remarks>
     /// <para>
-    /// Writes to all subscriber channels in parallel using Task.WhenAll.
+    /// Writes to filtered subscriber channels in parallel using Task.WhenAll.
     /// If a channel fails (subscriber disconnected), the error is caught and doesn't affect other subscribers.
     /// </para>
     /// <para>
-    /// <strong>Echo Suppression:</strong> Use excludeSubscriberId to prevent the triggering client from receiving
-    /// their own update via SSE (they already received it via the AJAX response). This is the recommended pattern
-    /// for avoiding duplicate updates.
+    /// <strong>Filtering Behavior</strong>:
+    /// - <strong>Single-server mode</strong>: Filter is applied to all local subscribers
+    /// - <strong>Distributed mode</strong>: Filter is applied to local subscribers only. Remote servers
+    ///   receive the broadcast for ALL their subscribers without filtering.
+    /// </para>
+    /// <para>
+    /// <strong>Why distributed filtering is limited</strong>: Predicates (lambdas) cannot be serialized
+    /// and sent across servers. This is a fundamental constraint of distributed systems.
+    /// </para>
+    /// <para>
+    /// <strong>Common Patterns</strong>:
+    /// <code>
+    /// // Echo suppression (most common)
+    /// await broadcast.BroadcastUpdate(
+    ///     model,
+    ///     filter: meta => meta.SubscriberId != rxInstanceId
+    /// );
+    ///
+    /// // Tenant isolation + echo suppression
+    /// await broadcast.BroadcastUpdate(
+    ///     model,
+    ///     filter: meta =>
+    ///         meta.TenantId == tenantId &amp;&amp;
+    ///         meta.SubscriberId != rxInstanceId
+    /// );
+    ///
+    /// // Role-based filtering
+    /// await broadcast.BroadcastUpdate(
+    ///     model,
+    ///     filter: meta => meta.Role == "Admin"
+    /// );
+    ///
+    /// // Broadcast to all (no filter)
+    /// await broadcast.BroadcastUpdate(model);
+    /// </code>
     /// </para>
     /// <para>
     /// <strong>Thread Safety:</strong> Safe to call from multiple threads simultaneously.
     /// </para>
     /// <para>
-    /// <strong>Performance:</strong> Completes when ALL channels have received the message (parallel write).
+    /// <strong>Performance:</strong> Completes when ALL filtered channels have received the message (parallel write).
     /// </para>
     /// </remarks>
-    public async Task BroadcastUpdate(T model, string? excludeSubscriberId = null) {
-        ArgumentNullException.ThrowIfNull(model);
-        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
-        // 1. ALWAYS deliver to local channels first for low latency
-        await BroadcastToLocalChannels(model, excludeSubscriberId);
-        // 2. Publish to distributed transport for other servers (if configured)
+    public async Task BroadcastUpdate(T model, Func<TMetadata, bool>? filter = null) {
+        ArgumentNullException.ThrowIfNull(model, nameof(model));
+        ObjectDisposedException.ThrowIf(disposed, this);
+        await BroadcastToLocalChannels(model, filter);
         if (transport != null && modelTypeInfo != null) {
             try {
-                // Double serialization pattern for AOT safety:
-                // Step 1: Serialize user model with user-provided JsonTypeInfo
                 string modelJson = JsonSerializer.Serialize(model, modelTypeInfo);
-                // Step 2: Wrap in transport message with metadata
                 var transportMsg = new TransportMessage(
                     PayloadJson: modelJson,
-                    ExcludeSubscriberId: excludeSubscriberId,
                     SourceServerId: serverId,
                     TimestampUnixMs: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
                 );
-                // Step 3: Serialize transport message with framework's JsonSerializerContext
                 string transportJson = JsonSerializer.Serialize(
                     transportMsg,
                     RxJsonSerializerContext.Default.TransportMessage);
-                // Step 4: Publish to transport (non-blocking)
                 await transport.PublishAsync(broadcastChannel, transportJson);
+                if (logger.IsEnabled(LogLevel.Debug)) {
+                    logger.LogDebug("Published broadcast to transport channel {Channel}", broadcastChannel);
+                }
             } catch (Exception ex) {
-                // Log transport errors but don't fail the local broadcast
                 if (logger.IsEnabled(LogLevel.Error)) {
                     logger.LogError(ex, "Failed to publish broadcast to transport on channel {Channel}", broadcastChannel);
                 }
@@ -257,15 +312,15 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
         }
     }
 
-    private async Task BroadcastToLocalChannels(T model, string? excludeSubscriberId) {
+    private async Task BroadcastToLocalChannels(T model, Func<TMetadata, bool>? filter) {
         if (localSubscribers.IsEmpty) {
-            return;  // No local subscribers
+            return;
         }
         var tasks = localSubscribers
-            .Where(kvp => excludeSubscriberId == null || kvp.Key != excludeSubscriberId)
+            .Where(kvp => filter == null || filter(kvp.Value.Metadata))
             .Select(async kvp => {
                 try {
-                    await kvp.Value.Writer.WriteAsync(model);
+                    await kvp.Value.Channel.Writer.WriteAsync(model);
                 } catch (ChannelClosedException) {
                     if (logger.IsEnabled(LogLevel.Debug)) {
                         logger.LogDebug("Channel closed for subscriber {SubscriberId} (client disconnected)", kvp.Key);
@@ -285,46 +340,39 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
                 broadcastChannel,
                 transportCts!.Token)) {
                 try {
-                    // Step 1: Deserialize transport message with framework's context
                     var transportMsg = JsonSerializer.Deserialize(
                         transportJson,
                         RxJsonSerializerContext.Default.TransportMessage);
-
                     if (transportMsg == null) {
+                        if (logger.IsEnabled(LogLevel.Warning)) {
+                            logger.LogWarning("Received null transport message on channel {Channel}", broadcastChannel);
+                        }
                         continue;
                     }
-                    // Skip our own messages (already delivered locally for lower latency)
                     if (transportMsg.SourceServerId == serverId) {
                         continue;
                     }
-                    // Step 2: Deserialize user model with user-provided JsonTypeInfo
                     var model = JsonSerializer.Deserialize(
                         transportMsg.PayloadJson,
                         modelTypeInfo!);
-
                     if (model != null) {
-                        // Deliver to THIS server's connected clients
-                        await BroadcastToLocalChannels(model, transportMsg.ExcludeSubscriberId);
+                        await BroadcastToLocalChannels(model, filter: null);
                     }
                 } catch (JsonException ex) {
-                    // Log deserialization errors but continue processing
                     if (logger.IsEnabled(LogLevel.Warning)) {
                         logger.LogWarning(ex, "Failed to deserialize transport message on channel {Channel}", broadcastChannel);
                     }
                 } catch (Exception ex) {
-                    // Log unexpected errors but keep listening
                     if (logger.IsEnabled(LogLevel.Warning)) {
                         logger.LogWarning(ex, "Error processing transport message on channel {Channel}", broadcastChannel);
                     }
                 }
             }
         } catch (OperationCanceledException) {
-            // Normal shutdown via cancellation token
             if (logger.IsEnabled(LogLevel.Debug)) {
                 logger.LogDebug("Transport listener cancelled on channel {Channel}", broadcastChannel);
             }
         } catch (Exception ex) {
-            // Critical transport error - log but don't crash the service
             if (logger.IsEnabled(LogLevel.Error)) {
                 logger.LogError(ex, "Transport listener error on channel {Channel}", broadcastChannel);
             }
@@ -349,11 +397,11 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     public async IAsyncEnumerable<T> GetUpdates(
         string subscriberId,
         [EnumeratorCancellation] CancellationToken cancellationToken) {
-        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
-        if (!localSubscribers.TryGetValue(subscriberId, out var channel)) {
-            yield break;  // Subscriber not found
+        ObjectDisposedException.ThrowIf(disposed, this);
+        if (!localSubscribers.TryGetValue(subscriberId, out var connection)) {
+            yield break;
         }
-        await foreach (var update in channel.Reader.ReadAllAsync(cancellationToken)) {
+        await foreach (var update in connection.Channel.Reader.ReadAllAsync(cancellationToken)) {
             yield return update;
         }
     }
@@ -367,7 +415,7 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// that have called Subscribe() but not yet Unsubscribe().
     /// </remarks>
     public int GetActiveConnectionCount() {
-        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
+        ObjectDisposedException.ThrowIf(disposed, this);
         return localSubscribers.Count;
     }
 
@@ -379,7 +427,7 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// Useful for diagnostics and debugging. The list is a snapshot at the time of the call.
     /// </remarks>
     public IReadOnlyList<string> GetActiveSubscribers() {
-        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
+        ObjectDisposedException.ThrowIf(disposed, this);
         return [.. localSubscribers.Keys];
     }
 
@@ -392,8 +440,38 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
     /// Useful for checking if a subscriber already exists before calling Subscribe() to avoid duplicate subscriptions.
     /// </remarks>
     public bool HasSubscriber(string subscriberId) {
-        ObjectDisposedException.ThrowIf(disposed, nameof(RxSseBroadcastService<>));
+        ObjectDisposedException.ThrowIf(disposed, this);
         return localSubscribers.ContainsKey(subscriberId);
+    }
+
+    /// <summary>
+    /// Gets the metadata for a specific subscriber.
+    /// </summary>
+    /// <param name="subscriberId">The subscriber ID to query.</param>
+    /// <returns>The subscriber's metadata if found; otherwise null.</returns>
+    /// <remarks>
+    /// Useful for diagnostics and debugging. Returns null if subscriber doesn't exist.
+    /// </remarks>
+    public TMetadata? GetSubscriberMetadata(string subscriberId) {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        return localSubscribers.TryGetValue(subscriberId, out var connection)
+            ? connection.Metadata
+            : default;
+    }
+
+    /// <summary>
+    /// Gets all active subscribers with their metadata.
+    /// </summary>
+    /// <returns>Dictionary of subscriber IDs to their metadata.</returns>
+    /// <remarks>
+    /// Useful for monitoring and diagnostics. Returns a snapshot at the time of the call.
+    /// </remarks>
+    public IReadOnlyDictionary<string, TMetadata> GetAllSubscriberMetadata() {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        return localSubscribers.ToDictionary(
+            kvp => kvp.Key,
+            kvp => kvp.Value.Metadata
+        );
     }
 
     /// <summary>
@@ -407,15 +485,12 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
         if (disposed) {
             return;
         }
-        // Stop listening to transport
         try {
             transportCts?.Cancel();
-            // Wait for listener task to complete (with timeout to prevent disposal hang)
             if (transportListenerTask != null) {
                 try {
                     transportListenerTask.Wait(TimeSpan.FromSeconds(5));
                 } catch (AggregateException ae) {
-                    // Log any unhandled exceptions from the listener task
                     foreach (var ex in ae.InnerExceptions) {
                         if (ex is not OperationCanceledException) {
                             if (logger.IsEnabled(LogLevel.Error)) {
@@ -425,17 +500,15 @@ public sealed class RxSseBroadcastService<T> : IDisposable {
                     }
                 }
             }
-
             transportCts?.Dispose();
         } catch (Exception ex) {
             if (logger.IsEnabled(LogLevel.Debug)) {
                 logger.LogDebug(ex, "Error during transport cancellation cleanup");
             }
         }
-        // Complete all local channels
-        foreach (var channel in localSubscribers.Values) {
+        foreach (var connection in localSubscribers.Values) {
             try {
-                channel.Writer.Complete();
+                connection.Channel.Writer.Complete();
             } catch (Exception ex) {
                 if (logger.IsEnabled(LogLevel.Debug)) {
                     logger.LogDebug(ex, "Error completing channel during disposal");

@@ -8,7 +8,10 @@ services.AddRxDriver();
 services.AddAntiforgery();
 services.AddRxAntiforgery();
 services.AddProblemDetails();
-services.AddSingleton<RxSseBroadcastService<SseMessage>>();
+services.AddSingleton(sp => {
+    var logger = sp.GetRequiredService<ILogger<RxSseBroadcastService<SseMessage, SseMetadata>>>();
+    return new RxSseBroadcastService<SseMessage, SseMetadata>(logger);
+});
 services.AddDistributedMemoryCache();
 
 var app = builder.Build();
