@@ -203,7 +203,24 @@ public sealed class RxSseBroadcastService<T, TMetadata> : IDisposable
             SingleWriter = false
         });
         var connection = new SubscriberConnection(channel, metadata);
-        return localSubscribers.TryAdd(subscriberId, connection);
+        if (!localSubscribers.TryAdd(subscriberId, connection)) {
+            if (logger.IsEnabled(LogLevel.Warning)) {
+                logger.LogWarning(
+                    "Duplicate subscription attempt for subscriber {SubscriberId}. " +
+                    "A subscription with this ID already exists. Ignoring duplicate.",
+                    subscriberId
+                );
+            }
+            return false;
+        }
+        if (logger.IsEnabled(LogLevel.Debug)) {
+            logger.LogDebug(
+                "Subscriber {SubscriberId} registered successfully. Total subscribers: {Count}",
+                subscriberId,
+                localSubscribers.Count
+            );
+        }
+        return true;
     }
 
     /// <summary>
@@ -219,10 +236,24 @@ public sealed class RxSseBroadcastService<T, TMetadata> : IDisposable
         if (localSubscribers.TryRemove(subscriberId, out var connection)) {
             try {
                 connection.Channel.Writer.Complete();
+                if (logger.IsEnabled(LogLevel.Debug)) {
+                    logger.LogDebug(
+                        "Subscriber {SubscriberId} unsubscribed. Total subscribers: {Count}",
+                        subscriberId,
+                        localSubscribers.Count
+                    );
+                }
             } catch (Exception ex) {
                 if (logger.IsEnabled(LogLevel.Debug)) {
                     logger.LogDebug(ex, "Channel already completed for subscriber {SubscriberId}", subscriberId);
                 }
+            }
+        } else {
+            if (logger.IsEnabled(LogLevel.Debug)) {
+                logger.LogDebug(
+                    "Unsubscribe called for non-existent subscriber {SubscriberId}. Already unsubscribed or never subscribed.",
+                    subscriberId
+                );
             }
         }
     }

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
+using Microsoft.Extensions.Logging;
 using RazorX.Framework.Tests.Mocks;
 
 namespace RazorX.Framework.Tests.Core;
@@ -375,6 +376,78 @@ public class RxSseBroadcastMetadataTests {
         Assert.IsTrue(subscribers.Contains("sub-1"));
         Assert.IsTrue(subscribers.Contains("sub-2"));
         Assert.IsTrue(subscribers.Contains("sub-3"));
+    }
+
+    #endregion
+
+    #region Logging Tests
+
+    [TestMethod]
+    public void Subscribe_DuplicateSubscriberId_LogsWarning() {
+        // Arrange
+        var metadata1 = new BroadcastTestMetadata("sub-1", "tenant-1", "Admin");
+        var metadata2 = new BroadcastTestMetadata("sub-1", "tenant-2", "User");
+        _broadcast.Subscribe(metadata1);
+        _logger.Clear();
+
+        // Act
+        var result = _broadcast.Subscribe(metadata2);
+
+        // Assert
+        Assert.IsFalse(result);
+        Assert.AreEqual(LogLevel.Warning, _logger.LastLogLevel);
+        Assert.IsTrue(_logger.LogMessages.Any(msg =>
+            msg.Contains("Duplicate subscription attempt") &&
+            msg.Contains("sub-1")
+        ));
+    }
+
+    [TestMethod]
+    public void Subscribe_Successful_LogsDebug() {
+        // Arrange
+        var metadata = new BroadcastTestMetadata("sub-1", "tenant-1", "Admin");
+
+        // Act
+        var result = _broadcast.Subscribe(metadata);
+
+        // Assert
+        Assert.IsTrue(result);
+        Assert.AreEqual(LogLevel.Debug, _logger.LastLogLevel);
+        Assert.IsTrue(_logger.LogMessages.Any(msg =>
+            msg.Contains("registered successfully") &&
+            msg.Contains("sub-1")
+        ));
+    }
+
+    [TestMethod]
+    public void Unsubscribe_Successful_LogsDebug() {
+        // Arrange
+        var metadata = new BroadcastTestMetadata("sub-1", "tenant-1", "Admin");
+        _broadcast.Subscribe(metadata);
+        _logger.Clear();
+
+        // Act
+        _broadcast.Unsubscribe("sub-1");
+
+        // Assert
+        Assert.AreEqual(LogLevel.Debug, _logger.LastLogLevel);
+        Assert.IsTrue(_logger.LogMessages.Any(msg =>
+            msg.Contains("unsubscribed") &&
+            msg.Contains("sub-1")
+        ));
+    }
+
+    [TestMethod]
+    public void Unsubscribe_NonExistentSubscriber_LogsDebug() {
+        // Act
+        _broadcast.Unsubscribe("non-existent");
+
+        // Assert
+        Assert.AreEqual(LogLevel.Debug, _logger.LastLogLevel);
+        Assert.IsTrue(_logger.LogMessages.Any(msg =>
+            msg.Contains("non-existent") &&
+            (msg.Contains("never subscribed") || msg.Contains("Already unsubscribed"))
+        ));
     }
 
     #endregion
