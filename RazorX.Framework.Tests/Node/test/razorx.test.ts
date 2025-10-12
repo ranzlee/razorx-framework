@@ -8625,6 +8625,95 @@ describe('RazorX Framework API Surface Tests', () => {
 
   })
 
+  describe('Storage API Resilience', () => {
+    beforeEach(() => {
+      razorx.init()
+      triggerDOMContentLoaded()
+
+      mockFetch = vi.fn(mockSuccessResponse({
+        'rx-trigger-set-state': JSON.stringify([{
+          key: 'testKey',
+          value: 'testValue',
+          scope: 'session',
+          updateUrl: false
+        }])
+      }))
+      globalThis.fetch = mockFetch
+    })
+
+    test('sessionStorage quota exceeded handled gracefully', async () => {
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+      // Override sessionStorage.setItem directly to throw
+      const originalSetItem = globalThis.sessionStorage.setItem
+      globalThis.sessionStorage.setItem = vi.fn(() => {
+        const error = new Error('QuotaExceededError')
+        error.name = 'QuotaExceededError'
+        throw error
+      })
+
+      const btnId = getUniqueId('btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test',
+        'data-rx-trigger': 'click'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Trigger request that returns setState trigger
+      button.click()
+      await waitForDOMUpdates()
+
+      // Error should be logged (either error or warn)
+      const hasErrorOrWarn = errorSpy.mock.calls.length > 0 || warnSpy.mock.calls.length > 0
+      expect(hasErrorOrWarn).toBe(true)
+
+      // Request should still complete (not crash)
+      expect(mockFetch).toHaveBeenCalled()
+
+      globalThis.sessionStorage.setItem = originalSetItem
+      errorSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+
+    test('storage disabled (private browsing) handled gracefully', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      // Override sessionStorage.setItem to throw SecurityError
+      const originalSetItem = globalThis.sessionStorage.setItem
+      globalThis.sessionStorage.setItem = vi.fn(() => {
+        const error = new Error('SecurityError')
+        error.name = 'SecurityError'
+        throw error
+      })
+
+      const btnId = getUniqueId('btn')
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/api/test',
+        'data-rx-trigger': 'click'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      // Trigger request that returns setState trigger
+      button.click()
+      await waitForDOMUpdates()
+
+      // Warning or error should be logged
+      const hasErrorOrWarn = errorSpy.mock.calls.length > 0 || warnSpy.mock.calls.length > 0
+      expect(hasErrorOrWarn).toBe(true)
+
+      // Framework should continue (graceful fallback)
+      expect(mockFetch).toHaveBeenCalled()
+
+      globalThis.sessionStorage.setItem = originalSetItem
+      errorSpy.mockRestore()
+      warnSpy.mockRestore()
+    })
+  })
+
   describe('Coverage Gap Tests', () => {
     beforeEach(() => {
       razorx.init()

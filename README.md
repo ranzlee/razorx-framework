@@ -1908,9 +1908,16 @@ public static IResult StreamMetrics(
 
 ## Requirements
 
+**Server:**
 - .NET 10.0 or later
 - ASP.NET Core
-- Modern browser with ES6 module support
+
+**Browser:**
+- Chrome/Edge 114+ (May 2023)
+- Safari 17+ (September 2023)
+- Firefox 125+ (April 2024)
+
+These versions provide the required APIs: Popover (toasts), EventSource (SSE), and ES modules. View Transitions API (Chrome/Safari only) is used when available but not required.
 
 ## License
 
