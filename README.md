@@ -1396,23 +1396,18 @@ async (update, builder) => {
 
 ### Multi-Client Broadcasting
 
-For scenarios where multiple clients should receive the same updates (notifications, dashboards, collaborative editing), use `RxSseBroadcastService<T, TMetadata>`.
+For scenarios where multiple clients should receive the same updates (notifications, dashboards, collaborative editing), use `RxSseBroadcastService<TModel, TMetadata>`.
 
 #### Define Metadata Type
 
+Metadata can be any JSON-serializable type. No interface implementation required.
+
 ```csharp
-public record TenantMetadata(
-    string SubscriberId,  // Required by IMetadataProvider
-    string TenantId,      // Application-specific
-    string Role           // Application-specific
-) : IMetadataProvider {
-    public IReadOnlyDictionary<string, string> ToSerializableDictionary() {
-        return new Dictionary<string, string> {
-            [nameof(SubscriberId)] = SubscriberId,
-            [nameof(TenantId)] = TenantId,
-            [nameof(Role)] = Role
-        };
-    }
+// Simple record with the properties you need
+public record TodoMetadata
+{
+    public string? SubscriberId { get; init; }
+    public string? TenantId { get; init; }
 }
 ```
 
@@ -1421,28 +1416,31 @@ public record TenantMetadata(
 ```csharp
 // In Program.cs
 builder.Services.AddSingleton(sp => {
-    var logger = sp.GetRequiredService<ILogger<RxSseBroadcastService<TodoModel, TenantMetadata>>>();
-    return new RxSseBroadcastService<TodoModel, TenantMetadata>(logger);
+    var logger = sp.GetRequiredService<ILogger<RxSseBroadcastService<TodoModel, TodoMetadata>>>();
+    return new RxSseBroadcastService<TodoModel, TodoMetadata>(logger);
 });
 ```
 
 #### SSE Stream Handler
+
+Subscribers provide a filter function that examines broadcaster metadata.
 
 ```csharp
 public static IResult StreamUpdates(
     HttpContext context,
     [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
     IRxDriver rxDriver,
-    RxSseBroadcastService<TodoModel, TenantMetadata> broadcast,
+    RxSseBroadcastService<TodoModel, TodoMetadata> broadcast,
     CancellationToken ct)
 {
-    var metadata = new TenantMetadata(
-        SubscriberId: rxInstanceId,
-        TenantId: context.User.FindFirst("TenantId")!.Value,
-        Role: context.User.FindFirst(ClaimTypes.Role)!.Value
+    var tenantId = context.User.FindFirst("TenantId")!.Value;
+
+    // Subscribe with filter: only receive updates for my tenant, excluding my own updates
+    broadcast.Subscribe(
+        rxInstanceId,
+        filter: meta => meta?.TenantId == tenantId && meta?.SubscriberId != rxInstanceId
     );
 
-    broadcast.Subscribe(metadata);
     ct.Register(() => broadcast.Unsubscribe(rxInstanceId));
 
     return rxDriver
@@ -1457,28 +1455,31 @@ public static IResult StreamUpdates(
 }
 ```
 
-#### Broadcast with Filtering
+#### Broadcast with Metadata
+
+Broadcasts include metadata that subscriber filters examine.
 
 ```csharp
 public static async Task<IResult> UpdateTodo(
     HttpContext context,
     [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
     IRxDriver rxDriver,
-    RxSseBroadcastService<TodoModel, TenantMetadata> broadcast,
+    RxSseBroadcastService<TodoModel, TodoMetadata> broadcast,
     TodoModel todo,
-    IYourRepository repository)  // Inject your repository
+    IYourRepository repository)
 {
     var tenantId = context.User.FindFirst("TenantId")!.Value;
 
     // Save using your data layer
     await repository.SaveAsync(todo);
 
-    // Filter by tenant and exclude triggering client (echo suppression)
+    // Broadcast with metadata - subscribers' filters decide who receives this
     await broadcast.BroadcastUpdate(
         todo,
-        filter: meta =>
-            meta.TenantId == tenantId &&
-            meta.SubscriberId != rxInstanceId
+        new TodoMetadata {
+            TenantId = tenantId,
+            SubscriberId = rxInstanceId
+        }
     );
 
     return await rxDriver
@@ -1488,37 +1489,63 @@ public static async Task<IResult> UpdateTodo(
 }
 ```
 
-#### Common Filtering Patterns
+#### Common Patterns
+
+**Echo Suppression Only:**
 
 ```csharp
-// Echo suppression only (most common)
-await broadcast.BroadcastUpdate(
-    model,
-    filter: meta => meta.SubscriberId != rxInstanceId
+// Subscribe: Don't receive my own updates
+broadcast.Subscribe(
+    mySubscriberId,
+    filter: meta => meta?.SubscriberId != mySubscriberId
 );
 
-// Tenant isolation
+// Broadcast: Include my subscriber ID
 await broadcast.BroadcastUpdate(
     model,
-    filter: meta => meta.TenantId == currentTenantId
+    new Metadata { SubscriberId = rxInstanceId }
+);
+```
+
+**Tenant Isolation:**
+
+```csharp
+// Subscribe: Only receive updates for my tenant
+broadcast.Subscribe(
+    subscriberId,
+    filter: meta => meta?.TenantId == myTenantId
 );
 
-// Role-based broadcasting
+// Broadcast: Include tenant ID
+await broadcast.BroadcastUpdate(
+    model,
+    new Metadata { TenantId = tenantId }
+);
+```
+
+**Role-Based Broadcasting:**
+
+```csharp
+// Subscribe: Only receive updates for my role
+broadcast.Subscribe(
+    subscriberId,
+    filter: meta => meta?.Role == myRole
+);
+
+// Broadcast: Include role
 await broadcast.BroadcastUpdate(
     adminAlert,
-    filter: meta => meta.Role == "Admin"
+    new Metadata { Role = "Admin" }
 );
+```
 
-// Complex multi-criteria
-await broadcast.BroadcastUpdate(
-    notification,
-    filter: meta =>
-        meta.TenantId == tenantId &&
-        meta.Role == "Admin" &&
-        meta.SubscriberId != rxInstanceId
-);
+**Broadcast to All:**
 
-// Broadcast to all (no filter)
+```csharp
+// Subscribe: No filter = receive everything
+broadcast.Subscribe(subscriberId, filter: null);
+
+// Broadcast: No metadata needed
 await broadcast.BroadcastUpdate(globalAnnouncement);
 ```
 

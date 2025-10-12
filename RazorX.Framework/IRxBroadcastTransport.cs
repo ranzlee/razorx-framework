@@ -111,29 +111,30 @@ public interface IRxBroadcastTransport : IDisposable {
 /// Internal transport message envelope for distributed broadcasts.
 /// </summary>
 /// <param name="PayloadJson">The user model serialized to JSON using user-provided JsonTypeInfo.</param>
+/// <param name="BroadcasterMetadataJson">Optional broadcaster metadata serialized to JSON. Null if no metadata provided.</param>
 /// <param name="SourceServerId">The ID of the server that originated this broadcast.</param>
 /// <param name="TimestampUnixMs">Unix timestamp in milliseconds when the broadcast was sent.</param>
 /// <remarks>
 /// <para>
 /// This record is serialized using the framework's RxJsonSerializerContext, ensuring AOT compatibility.
-/// The PayloadJson field contains the pre-serialized user model, achieving a double-serialization
+/// The PayloadJson and BroadcasterMetadataJson fields contain pre-serialized data, achieving a double-serialization
 /// pattern that maintains type safety while supporting source generation.
 /// </para>
 /// <para>
 /// <strong>Why double serialization?</strong>
-/// - User model: Serialized with user's JsonSerializerContext (has their types)
+/// - User model + metadata: Serialized with user's JsonSerializerContext (has their types)
 /// - TransportMessage: Serialized with framework's RxJsonSerializerContext (has this type)
 /// - This separation maintains AOT compatibility without exposing internal types to users
 /// </para>
 /// <para>
-/// <strong>Filtering Note</strong>: This message contains no filter criteria. Filtering is handled
-/// locally on each server using predicate functions. Remote servers receive all broadcasts
-/// and deliver to all their local subscribers. This is a fundamental limitation of distributed
-/// predicate filtering (lambdas cannot be serialized across process boundaries).
+/// <strong>Filtering Behavior</strong>: Broadcaster metadata is transmitted with each broadcast.
+/// Remote servers deserialize the metadata and each subscriber applies their local filter to it.
+/// This enables perfect distributed filtering - filters stay local, metadata travels.
 /// </para>
 /// </remarks>
 internal sealed record TransportMessage(
     string PayloadJson,
+    string? BroadcasterMetadataJson,
     string SourceServerId,
     long TimestampUnixMs
 );

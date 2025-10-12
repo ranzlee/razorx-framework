@@ -14,15 +14,9 @@ public record ExampleModel(IEnumerable<TodoModel> Todos, int Total, int Complete
 public record TodoFormModel(int Id, string Text, bool IsComplete, bool HasError, bool IsEdit);
 public record FileUploadModel(string FileId, string FileName, string NewFileName, Stream? File);
 public record SseMessage(TodoModel Todo, string Action);
-
-public record SseMetadata(
-    string SubscriberId
-) : ISseMetadataProvider {
-    public IReadOnlyDictionary<string, string> ToSerializableDictionary() {
-        return new Dictionary<string, string> {
-            [nameof(SubscriberId)] = SubscriberId
-        };
-    }
+public record SseBroadcastMetadata {
+    public string EventType { get; set; } = null!;
+    public string? SubscriberId { get; init; }
 }
 
 public class ExamplesHandler : RequestHandler {
@@ -43,6 +37,7 @@ public class ExamplesHandler : RequestHandler {
         router.MapGet("/stream", ServerStream);
     }
 
+    public const string TodoChangeEvent = "todo-change";
     private static readonly List<TodoModel> Todos = [];
     private static FileUploadModel Upload = new(string.Empty, string.Empty, string.Empty, null);
 
@@ -54,12 +49,12 @@ public class ExamplesHandler : RequestHandler {
         HttpContext context,
         [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
         IRxDriver rxDriver,
-        RxSseBroadcastService<SseMessage, SseMetadata> broadcast,
+        RxSseBroadcastService<SseMessage, SseBroadcastMetadata> broadcast,
         CancellationToken ct) {
-        var metadata = new SseMetadata(
-            SubscriberId: rxInstanceId
+        broadcast.Subscribe(
+            rxInstanceId,
+            filter: meta => meta?.SubscriberId != rxInstanceId && meta?.EventType == TodoChangeEvent
         );
-        broadcast.Subscribe(metadata);
         ct.Register(() => {
             broadcast.Unsubscribe(rxInstanceId);
         });
@@ -90,7 +85,7 @@ public class ExamplesHandler : RequestHandler {
                     }
                     await Task.CompletedTask;
                 },
-                eventType: "todo-change",
+                eventType: TodoChangeEvent,
                 cancellationToken: ct
             );
     }
@@ -133,7 +128,7 @@ public class ExamplesHandler : RequestHandler {
         HttpContext context,
         [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
         IRxDriver rxDriver,
-        RxSseBroadcastService<SseMessage, SseMetadata> broadcast,
+        RxSseBroadcastService<SseMessage, SseBroadcastMetadata> broadcast,
         TodoFormModel model) {
         var validationResult = ValidateTodo(context, rxDriver, false, model);
         if (validationResult != null) {
@@ -143,7 +138,7 @@ public class ExamplesHandler : RequestHandler {
         Todos.Add(todo);
         await broadcast.BroadcastUpdate(
             new SseMessage(todo, "Add"),
-            filter: meta => meta.SubscriberId != rxInstanceId
+            new SseBroadcastMetadata { SubscriberId = rxInstanceId, EventType = TodoChangeEvent }
         );
         return await rxDriver
             .With(context)
@@ -160,7 +155,7 @@ public class ExamplesHandler : RequestHandler {
         HttpContext context,
         [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
         IRxDriver rxDriver,
-        RxSseBroadcastService<SseMessage, SseMetadata> broadcast,
+        RxSseBroadcastService<SseMessage, SseBroadcastMetadata> broadcast,
         TodoFormModel model,
         int id) {
         await Task.Delay(700);
@@ -176,7 +171,7 @@ public class ExamplesHandler : RequestHandler {
         todo.Text = model.Text;
         await broadcast.BroadcastUpdate(
             new SseMessage(todo, "Update"),
-            filter: meta => meta.SubscriberId != rxInstanceId
+            new SseBroadcastMetadata { SubscriberId = rxInstanceId, EventType = TodoChangeEvent }
         );
         return await rxDriver
             .With(context)
@@ -206,7 +201,7 @@ public class ExamplesHandler : RequestHandler {
     public static async Task<IResult> DeleteTodo(
         HttpContext context,
         IRxDriver rxDriver,
-        RxSseBroadcastService<SseMessage, SseMetadata> broadcast,
+        RxSseBroadcastService<SseMessage, SseBroadcastMetadata> broadcast,
         int id,
         [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
         string filter = "") {
@@ -222,7 +217,7 @@ public class ExamplesHandler : RequestHandler {
         Todos.Remove(todo);
         await broadcast.BroadcastUpdate(
             new SseMessage(todo, "Delete"),
-            filter: meta => meta.SubscriberId != rxInstanceId
+            new SseBroadcastMetadata { SubscriberId = rxInstanceId, EventType = TodoChangeEvent }
         );
         var driver = rxDriver
             .With(context)

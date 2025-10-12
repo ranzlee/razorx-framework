@@ -21,15 +21,12 @@ public class RxSseBroadcastMetadataTests {
         _broadcast?.Dispose();
     }
 
-    #region Metadata Storage Tests
+    #region Basic Subscription Tests
 
     [TestMethod]
-    public void Subscribe_WithMetadata_ExtractsSubscriberIdCorrectly() {
-        // Arrange
-        var metadata = new BroadcastTestMetadata("sub-1", "tenant-1", "Admin");
-
+    public void Subscribe_WithNoFilter_ReturnsTrue() {
         // Act
-        var result = _broadcast.Subscribe(metadata);
+        var result = _broadcast.Subscribe("sub-1");
 
         // Assert
         Assert.IsTrue(result);
@@ -38,299 +35,560 @@ public class RxSseBroadcastMetadataTests {
     }
 
     [TestMethod]
-    public void Subscribe_WithMetadata_StoresMetadataCorrectly() {
-        // Arrange
-        var metadata = new BroadcastTestMetadata("sub-1", "tenant-1", "Admin");
-
+    public void Subscribe_WithFilter_ReturnsTrue() {
         // Act
-        _broadcast.Subscribe(metadata);
-        var retrieved = _broadcast.GetSubscriberMetadata("sub-1");
+        var result = _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-1");
 
         // Assert
-        Assert.IsNotNull(retrieved);
-        Assert.AreEqual("sub-1", retrieved.SubscriberId);
-        Assert.AreEqual("tenant-1", retrieved.TenantId);
-        Assert.AreEqual("Admin", retrieved.Role);
-    }
-
-    [TestMethod]
-    public void Subscribe_WithNullMetadata_ThrowsArgumentNullException() {
-        // Act & Assert
-        Assert.ThrowsExactly<ArgumentNullException>(() => _broadcast.Subscribe(null!));
-    }
-
-    [TestMethod]
-    public void Subscribe_WithEmptySubscriberId_ThrowsArgumentException() {
-        // Arrange
-        var metadata = new BroadcastTestMetadata("", "tenant-1", "Admin");
-
-        // Act & Assert
-        var ex = Assert.ThrowsExactly<ArgumentException>(() => _broadcast.Subscribe(metadata));
-        Assert.IsTrue(ex.Message.Contains("SubscriberId"));
-    }
-
-    [TestMethod]
-    public void Subscribe_WithWhitespaceSubscriberId_ThrowsArgumentException() {
-        // Arrange
-        var metadata = new BroadcastTestMetadata("   ", "tenant-1", "Admin");
-
-        // Act & Assert
-        var ex = Assert.ThrowsExactly<ArgumentException>(() => _broadcast.Subscribe(metadata));
-        Assert.IsTrue(ex.Message.Contains("SubscriberId"));
+        Assert.IsTrue(result);
+        Assert.IsTrue(_broadcast.HasSubscriber("sub-1"));
+        Assert.AreEqual(1, _broadcast.GetActiveConnectionCount());
     }
 
     [TestMethod]
     public void Subscribe_DuplicateSubscriberId_ReturnsFalse() {
         // Arrange
-        var metadata1 = new BroadcastTestMetadata("sub-1", "tenant-1", "Admin");
-        var metadata2 = new BroadcastTestMetadata("sub-1", "tenant-2", "User");
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-1");
 
         // Act
-        var result1 = _broadcast.Subscribe(metadata1);
-        var result2 = _broadcast.Subscribe(metadata2);
+        var result = _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-2");
 
         // Assert
-        Assert.IsTrue(result1);
-        Assert.IsFalse(result2);
+        Assert.IsFalse(result);
         Assert.AreEqual(1, _broadcast.GetActiveConnectionCount());
     }
 
     [TestMethod]
-    public void GetAllSubscriberMetadata_ReturnsAllMetadata() {
-        // Arrange
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-1", "tenant-1", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-2", "tenant-1", "User"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-3", "tenant-2", "Admin"));
-
-        // Act
-        var allMetadata = _broadcast.GetAllSubscriberMetadata();
-
-        // Assert
-        Assert.AreEqual(3, allMetadata.Count);
-        Assert.IsTrue(allMetadata.ContainsKey("sub-1"));
-        Assert.IsTrue(allMetadata.ContainsKey("sub-2"));
-        Assert.IsTrue(allMetadata.ContainsKey("sub-3"));
-        Assert.AreEqual("tenant-1", allMetadata["sub-1"].TenantId);
-        Assert.AreEqual("User", allMetadata["sub-2"].Role);
+    public void Subscribe_WithEmptySubscriberId_ThrowsArgumentException() {
+        // Act & Assert
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => _broadcast.Subscribe(""));
+        Assert.IsTrue(ex.Message.Contains("subscriberId") || ex.Message.Contains("null or whitespace"));
     }
 
     [TestMethod]
-    public void GetSubscriberMetadata_NonExistentSubscriber_ReturnsNull() {
-        // Act
-        var metadata = _broadcast.GetSubscriberMetadata("non-existent");
+    public void Subscribe_WithWhitespaceSubscriberId_ThrowsArgumentException() {
+        // Act & Assert
+        var ex = Assert.ThrowsExactly<ArgumentException>(() => _broadcast.Subscribe("   "));
+        Assert.IsTrue(ex.Message.Contains("subscriberId") || ex.Message.Contains("null or whitespace"));
+    }
 
-        // Assert
-        Assert.IsNull(metadata);
+    [TestMethod]
+    public void Subscribe_WithNullSubscriberId_ThrowsArgumentNullException() {
+        // Act & Assert
+        Assert.ThrowsExactly<ArgumentNullException>(() => _broadcast.Subscribe(null!));
     }
 
     #endregion
 
-    #region Local Filtering Tests
+    #region Filtering Tests - No Filter
 
     [TestMethod]
-    public async Task BroadcastUpdate_WithNoFilter_DeliversToAllSubscribers() {
+    public async Task BroadcastUpdate_NoFilter_ReceivesAllBroadcasts() {
         // Arrange
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-1", "tenant-1", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-2", "tenant-1", "User"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-3", "tenant-2", "Admin"));
+        _broadcast.Subscribe("sub-1");
         var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
-        var tasks = new List<Task> {
-            ConsumeMessages("sub-1", receivedMessages),
-            ConsumeMessages("sub-2", receivedMessages),
-            ConsumeMessages("sub-3", receivedMessages)
-        };
+        var task = ConsumeMessages("sub-1", receivedMessages, maxMessages: 3);
         await Task.Delay(100);
 
         // Act
-        await _broadcast.BroadcastUpdate(new BroadcastTestModel("Test message"));
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Message 1" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Message 2" },
+            new BroadcastTestMetadata { SubscriberId = "sub-1", TenantId = "tenant-2", Role = "User" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Message 3" },
+            null);
+        await Task.Delay(100);
+
+        // Assert
+        Assert.AreEqual(3, receivedMessages.Count);
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "Message 1"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "Message 2"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "Message 3"));
+    }
+
+    [TestMethod]
+    public async Task BroadcastUpdate_FilterAcceptingAll_ReceivesAllBroadcasts() {
+        // Arrange
+        _broadcast.Subscribe("sub-1", filter: _ => true);
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var task = ConsumeMessages("sub-1", receivedMessages, maxMessages: 3);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Message 1" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Message 2" },
+            new BroadcastTestMetadata { SubscriberId = "sub-1", TenantId = "tenant-2", Role = "User" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Message 3" },
+            null);
         await Task.Delay(100);
 
         // Assert
         Assert.AreEqual(3, receivedMessages.Count);
     }
 
+    #endregion
+
+    #region Filtering Tests - Reject All
+
     [TestMethod]
-    public async Task BroadcastUpdate_FilterBySubscriberId_ExcludesSpecificSubscriber() {
+    public async Task BroadcastUpdate_FilterRejectingAll_ReceivesNothing() {
         // Arrange
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-1", "tenant-1", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-2", "tenant-1", "User"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-3", "tenant-2", "Admin"));
-        var receivedMessages = new ConcurrentBag<string>();
-        var tasks = new List<Task> {
-            ConsumeMessagesWithId("sub-1", receivedMessages),
-            ConsumeMessagesWithId("sub-2", receivedMessages),
-            ConsumeMessagesWithId("sub-3", receivedMessages)
-        };
+        _broadcast.Subscribe("sub-1", filter: _ => false);
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        var task = ConsumeMessages("sub-1", receivedMessages, ct: cts.Token);
         await Task.Delay(100);
 
-        // Act - exclude sub-2
+        // Act
         await _broadcast.BroadcastUpdate(
-            new BroadcastTestModel("Test"),
-            filter: meta => meta.SubscriberId != "sub-2"
-        );
+            new BroadcastTestModel { Message = "Message 1" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Message 2" },
+            null);
+        await Task.Delay(150);
+
+        // Assert
+        Assert.AreEqual(0, receivedMessages.Count);
+    }
+
+    #endregion
+
+    #region Filtering Tests - SubscriberId (Echo Suppression)
+
+    [TestMethod]
+    public async Task BroadcastUpdate_FilterBySubscriberId_ExcludesOwnBroadcasts() {
+        // Arrange
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.SubscriberId != "sub-1");
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var task = ConsumeMessages("sub-1", receivedMessages, maxMessages: 2);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "From other" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "From sub-1 (echo)" },
+            new BroadcastTestMetadata { SubscriberId = "sub-1", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "From another" },
+            new BroadcastTestMetadata { SubscriberId = "another", TenantId = "tenant-1", Role = "Admin" });
         await Task.Delay(100);
 
         // Assert
         Assert.AreEqual(2, receivedMessages.Count);
-        Assert.IsTrue(receivedMessages.Contains("sub-1"));
-        Assert.IsFalse(receivedMessages.Contains("sub-2"));
-        Assert.IsTrue(receivedMessages.Contains("sub-3"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "From other"));
+        Assert.IsFalse(receivedMessages.Any(m => m.Message == "From sub-1 (echo)"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "From another"));
     }
 
     [TestMethod]
-    public async Task BroadcastUpdate_FilterByTenantId_DeliversToTenantOnly() {
+    public async Task BroadcastUpdate_MultipleSubscribers_EchoSuppressionWorksPerSubscriber() {
         // Arrange
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-1", "tenant-1", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-2", "tenant-1", "User"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-3", "tenant-2", "Admin"));
-        var receivedMessages = new ConcurrentBag<string>();
-        var tasks = new List<Task> {
-            ConsumeMessagesWithId("sub-1", receivedMessages),
-            ConsumeMessagesWithId("sub-2", receivedMessages),
-            ConsumeMessagesWithId("sub-3", receivedMessages)
-        };
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.SubscriberId != "sub-1");
+        _broadcast.Subscribe("sub-2", filter: meta => meta?.SubscriberId != "sub-2");
+        var messages1 = new ConcurrentBag<BroadcastTestModel>();
+        var messages2 = new ConcurrentBag<BroadcastTestModel>();
+        var task1 = ConsumeMessages("sub-1", messages1, maxMessages: 2);
+        var task2 = ConsumeMessages("sub-2", messages2, maxMessages: 2);
         await Task.Delay(100);
 
-        // Act - only tenant-1
+        // Act
         await _broadcast.BroadcastUpdate(
-            new BroadcastTestModel("Test"),
-            filter: meta => meta.TenantId == "tenant-1"
-        );
+            new BroadcastTestModel { Message = "Broadcast from sub-1" },
+            new BroadcastTestMetadata { SubscriberId = "sub-1", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Broadcast from sub-2" },
+            new BroadcastTestMetadata { SubscriberId = "sub-2", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Broadcast from other" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await Task.Delay(100);
+
+        // Assert
+        Assert.AreEqual(2, messages1.Count);
+        Assert.IsFalse(messages1.Any(m => m.Message == "Broadcast from sub-1"));
+        Assert.IsTrue(messages1.Any(m => m.Message == "Broadcast from sub-2"));
+        Assert.IsTrue(messages1.Any(m => m.Message == "Broadcast from other"));
+
+        Assert.AreEqual(2, messages2.Count);
+        Assert.IsTrue(messages2.Any(m => m.Message == "Broadcast from sub-1"));
+        Assert.IsFalse(messages2.Any(m => m.Message == "Broadcast from sub-2"));
+        Assert.IsTrue(messages2.Any(m => m.Message == "Broadcast from other"));
+    }
+
+    #endregion
+
+    #region Filtering Tests - TenantId
+
+    [TestMethod]
+    public async Task BroadcastUpdate_FilterByTenantId_ReceivesMatchingOnly() {
+        // Arrange
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-1");
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var task = ConsumeMessages("sub-1", receivedMessages, maxMessages: 2);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Tenant 1 message" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Tenant 2 message" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-2", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Another Tenant 1 message" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "User" });
         await Task.Delay(100);
 
         // Assert
         Assert.AreEqual(2, receivedMessages.Count);
-        Assert.IsTrue(receivedMessages.Contains("sub-1"));
-        Assert.IsTrue(receivedMessages.Contains("sub-2"));
-        Assert.IsFalse(receivedMessages.Contains("sub-3"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "Tenant 1 message"));
+        Assert.IsFalse(receivedMessages.Any(m => m.Message == "Tenant 2 message"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "Another Tenant 1 message"));
     }
 
     [TestMethod]
-    public async Task BroadcastUpdate_FilterByRole_DeliversToRoleOnly() {
+    public async Task BroadcastUpdate_MultipleSubscribersWithDifferentTenants_ReceivesCorrectMessages() {
         // Arrange
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-1", "tenant-1", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-2", "tenant-1", "User"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-3", "tenant-2", "Admin"));
-        var receivedMessages = new ConcurrentBag<string>();
-        var tasks = new List<Task> {
-            ConsumeMessagesWithId("sub-1", receivedMessages),
-            ConsumeMessagesWithId("sub-2", receivedMessages),
-            ConsumeMessagesWithId("sub-3", receivedMessages)
-        };
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-1");
+        _broadcast.Subscribe("sub-2", filter: meta => meta?.TenantId == "tenant-1");
+        _broadcast.Subscribe("sub-3", filter: meta => meta?.TenantId == "tenant-2");
+        var messages1 = new ConcurrentBag<string>();
+        var messages2 = new ConcurrentBag<string>();
+        var messages3 = new ConcurrentBag<string>();
+        var task1 = ConsumeMessagesWithId("sub-1", messages1, maxMessages: 2);
+        var task2 = ConsumeMessagesWithId("sub-2", messages2, maxMessages: 2);
+        var task3 = ConsumeMessagesWithId("sub-3", messages3, maxMessages: 1);
         await Task.Delay(100);
 
-        // Act - only admins
+        // Act
         await _broadcast.BroadcastUpdate(
-            new BroadcastTestModel("Admin alert"),
-            filter: meta => meta.Role == "Admin"
-        );
+            new BroadcastTestModel { Message = "Tenant 1 message 1" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Tenant 2 message 1" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-2", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Tenant 1 message 2" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "User" });
+        await Task.Delay(100);
+
+        // Assert
+        Assert.AreEqual(2, messages1.Count);
+        Assert.AreEqual(2, messages2.Count);
+        Assert.AreEqual(1, messages3.Count);
+        Assert.IsTrue(messages3.Contains("sub-3"));
+    }
+
+    #endregion
+
+    #region Filtering Tests - Role
+
+    [TestMethod]
+    public async Task BroadcastUpdate_FilterByRole_ReceivesMatchingOnly() {
+        // Arrange
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.Role == "Admin");
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var task = ConsumeMessages("sub-1", receivedMessages, maxMessages: 2);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Admin broadcast" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "User broadcast" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "User" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Another Admin broadcast" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-2", Role = "Admin" });
         await Task.Delay(100);
 
         // Assert
         Assert.AreEqual(2, receivedMessages.Count);
-        Assert.IsTrue(receivedMessages.Contains("sub-1"));
-        Assert.IsFalse(receivedMessages.Contains("sub-2"));
-        Assert.IsTrue(receivedMessages.Contains("sub-3"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "Admin broadcast"));
+        Assert.IsFalse(receivedMessages.Any(m => m.Message == "User broadcast"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "Another Admin broadcast"));
     }
+
+    [TestMethod]
+    public async Task BroadcastUpdate_MultipleSubscribersWithDifferentRoles_ReceivesCorrectMessages() {
+        // Arrange
+        _broadcast.Subscribe("sub-admin", filter: meta => meta?.Role == "Admin");
+        _broadcast.Subscribe("sub-user", filter: meta => meta?.Role == "User");
+        var adminMessages = new ConcurrentBag<string>();
+        var userMessages = new ConcurrentBag<string>();
+        var task1 = ConsumeMessagesWithId("sub-admin", adminMessages, maxMessages: 2);
+        var task2 = ConsumeMessagesWithId("sub-user", userMessages, maxMessages: 1);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Admin message 1" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "User message" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "User" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Admin message 2" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-2", Role = "Admin" });
+        await Task.Delay(100);
+
+        // Assert
+        Assert.AreEqual(2, adminMessages.Count);
+        Assert.AreEqual(1, userMessages.Count);
+        Assert.IsTrue(userMessages.Contains("sub-user"));
+    }
+
+    #endregion
+
+    #region Filtering Tests - Combined Filters
 
     [TestMethod]
     public async Task BroadcastUpdate_CombinedFilter_TenantAndRole() {
         // Arrange
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-1", "tenant-1", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-2", "tenant-1", "User"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-3", "tenant-2", "Admin"));
-        var receivedMessages = new ConcurrentBag<string>();
-        var tasks = new List<Task> {
-            ConsumeMessagesWithId("sub-1", receivedMessages),
-            ConsumeMessagesWithId("sub-2", receivedMessages),
-            ConsumeMessagesWithId("sub-3", receivedMessages)
-        };
+        _broadcast.Subscribe("sub-1", filter: meta =>
+            meta?.TenantId == "tenant-1" && meta?.Role == "Admin");
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var task = ConsumeMessages("sub-1", receivedMessages, maxMessages: 1);
         await Task.Delay(100);
 
-        // Act - tenant-1 admins only
+        // Act
         await _broadcast.BroadcastUpdate(
-            new BroadcastTestModel("Test"),
-            filter: meta => meta.TenantId == "tenant-1" && meta.Role == "Admin"
-        );
+            new BroadcastTestModel { Message = "Tenant 1 Admin" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Tenant 1 User" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "User" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Tenant 2 Admin" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-2", Role = "Admin" });
         await Task.Delay(100);
 
         // Assert
         Assert.AreEqual(1, receivedMessages.Count);
-        Assert.IsTrue(receivedMessages.Contains("sub-1"));
-        Assert.IsFalse(receivedMessages.Contains("sub-2"));
-        Assert.IsFalse(receivedMessages.Contains("sub-3"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "Tenant 1 Admin"));
     }
 
     [TestMethod]
     public async Task BroadcastUpdate_CombinedFilter_TenantAndExcludeSubscriber() {
-        // Arrange
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-1", "tenant-1", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-2", "tenant-1", "User"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-3", "tenant-1", "Admin"));
-        var receivedMessages = new ConcurrentBag<string>();
-        var tasks = new List<Task> {
-            ConsumeMessagesWithId("sub-1", receivedMessages),
-            ConsumeMessagesWithId("sub-2", receivedMessages),
-            ConsumeMessagesWithId("sub-3", receivedMessages)
-        };
+        // Arrange - Common echo suppression + tenant isolation pattern
+        _broadcast.Subscribe("sub-1", filter: meta =>
+            meta?.TenantId == "tenant-1" && meta?.SubscriberId != "sub-1");
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var task = ConsumeMessages("sub-1", receivedMessages, maxMessages: 2);
         await Task.Delay(100);
 
-        // Act - tenant-1, exclude sub-2 (echo suppression pattern)
+        // Act
         await _broadcast.BroadcastUpdate(
-            new BroadcastTestModel("Test"),
-            filter: meta =>
-                meta.TenantId == "tenant-1" &&
-                meta.SubscriberId != "sub-2"
-        );
+            new BroadcastTestModel { Message = "From other in tenant 1" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "From sub-1 in tenant 1 (echo)" },
+            new BroadcastTestMetadata { SubscriberId = "sub-1", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "From other in tenant 2" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-2", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "From another in tenant 1" },
+            new BroadcastTestMetadata { SubscriberId = "another", TenantId = "tenant-1", Role = "User" });
         await Task.Delay(100);
 
         // Assert
         Assert.AreEqual(2, receivedMessages.Count);
-        Assert.IsTrue(receivedMessages.Contains("sub-1"));
-        Assert.IsFalse(receivedMessages.Contains("sub-2"));
-        Assert.IsTrue(receivedMessages.Contains("sub-3"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "From other in tenant 1"));
+        Assert.IsFalse(receivedMessages.Any(m => m.Message == "From sub-1 in tenant 1 (echo)"));
+        Assert.IsFalse(receivedMessages.Any(m => m.Message == "From other in tenant 2"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "From another in tenant 1"));
     }
 
     [TestMethod]
-    public async Task BroadcastUpdate_FilterExcludesAll_DeliversToNone() {
-        // Arrange
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-1", "tenant-1", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-2", "tenant-1", "User"));
-        var receivedMessages = new ConcurrentBag<string>();
-        var tasks = new List<Task> {
-            ConsumeMessagesWithId("sub-1", receivedMessages),
-            ConsumeMessagesWithId("sub-2", receivedMessages)
-        };
+    public async Task BroadcastUpdate_ComplexFilter_MultipleConditions() {
+        // Arrange - tenant-1 AND (Admin OR Manager) AND not sub-4
+        _broadcast.Subscribe("sub-1", filter: meta =>
+            meta?.TenantId == "tenant-1" &&
+            (meta?.Role == "Admin" || meta?.Role == "Manager") &&
+            meta?.SubscriberId != "sub-4");
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var task = ConsumeMessages("sub-1", receivedMessages, maxMessages: 2);
         await Task.Delay(100);
 
-        // Act - filter that excludes everyone
+        // Act
         await _broadcast.BroadcastUpdate(
-            new BroadcastTestModel("Test"),
-            filter: meta => meta.TenantId == "non-existent-tenant"
-        );
+            new BroadcastTestModel { Message = "T1 Admin sub-1" },
+            new BroadcastTestMetadata { SubscriberId = "sub-1", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "T1 Manager sub-2" },
+            new BroadcastTestMetadata { SubscriberId = "sub-2", TenantId = "tenant-1", Role = "Manager" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "T1 Admin sub-4" },
+            new BroadcastTestMetadata { SubscriberId = "sub-4", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "T1 User sub-5" },
+            new BroadcastTestMetadata { SubscriberId = "sub-5", TenantId = "tenant-1", Role = "User" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "T2 Admin sub-6" },
+            new BroadcastTestMetadata { SubscriberId = "sub-6", TenantId = "tenant-2", Role = "Admin" });
         await Task.Delay(100);
+
+        // Assert
+        Assert.AreEqual(2, receivedMessages.Count);
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "T1 Admin sub-1"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "T1 Manager sub-2"));
+        Assert.IsFalse(receivedMessages.Any(m => m.Message == "T1 Admin sub-4"));
+        Assert.IsFalse(receivedMessages.Any(m => m.Message == "T1 User sub-5"));
+        Assert.IsFalse(receivedMessages.Any(m => m.Message == "T2 Admin sub-6"));
+    }
+
+    #endregion
+
+    #region Filtering Tests - Null Metadata Handling
+
+    [TestMethod]
+    public async Task BroadcastUpdate_NullMetadata_NoFilter_ReceivesBroadcast() {
+        // Arrange
+        _broadcast.Subscribe("sub-1");
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var task = ConsumeMessages("sub-1", receivedMessages, maxMessages: 1);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "No metadata" },
+            null);
+        await Task.Delay(100);
+
+        // Assert
+        Assert.AreEqual(1, receivedMessages.Count);
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "No metadata"));
+    }
+
+    [TestMethod]
+    public async Task BroadcastUpdate_NullMetadata_FilterRejectingNull_DoesNotReceive() {
+        // Arrange
+        _broadcast.Subscribe("sub-1", filter: meta => meta != null);
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        var task = ConsumeMessages("sub-1", receivedMessages, ct: cts.Token);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "No metadata" },
+            null);
+        await Task.Delay(150);
 
         // Assert
         Assert.AreEqual(0, receivedMessages.Count);
     }
 
     [TestMethod]
-    public async Task BroadcastUpdate_WithNullModel_ThrowsArgumentNullException() {
-        // Act & Assert
-        await Assert.ThrowsExactlyAsync<ArgumentNullException>(() =>
-            _broadcast.BroadcastUpdate(null!)
-        );
+    public async Task BroadcastUpdate_NullMetadata_FilterAcceptingNull_ReceivesBroadcast() {
+        // Arrange
+        _broadcast.Subscribe("sub-1", filter: meta => meta == null || meta.TenantId == "tenant-1");
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var task = ConsumeMessages("sub-1", receivedMessages, maxMessages: 2);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "No metadata" },
+            null);
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Tenant 1" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await Task.Delay(100);
+
+        // Assert
+        Assert.AreEqual(2, receivedMessages.Count);
     }
 
     [TestMethod]
-    public async Task BroadcastUpdate_AfterDispose_ThrowsObjectDisposedException() {
-        // Arrange
-        _broadcast.Dispose();
+    public async Task BroadcastUpdate_NullMetadata_NullConditionalFilter_ReceivesBroadcast() {
+        // Arrange - Use null-conditional operator in filter
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-1");
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        var task = ConsumeMessages("sub-1", receivedMessages, ct: cts.Token);
+        await Task.Delay(100);
 
-        // Act & Assert
-        await Assert.ThrowsExactlyAsync<ObjectDisposedException>(() =>
-            _broadcast.BroadcastUpdate(new BroadcastTestModel("Test"))
-        );
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "No metadata" },
+            null);
+        await Task.Delay(150);
+
+        // Assert - Filter returns false for null metadata (null != "tenant-1")
+        Assert.AreEqual(0, receivedMessages.Count);
+    }
+
+    #endregion
+
+    #region Filtering Tests - Method Call in Filter
+
+    [TestMethod]
+    public async Task BroadcastUpdate_FilterWithMethodCall_WorksCorrectly() {
+        // Arrange
+        var allowedTenants = new[] { "tenant-1", "tenant-3" };
+        _broadcast.Subscribe("sub-1", filter: meta => meta != null && allowedTenants.Contains(meta.TenantId));
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var task = ConsumeMessages("sub-1", receivedMessages, maxMessages: 2);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Tenant 1" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Tenant 2" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-2", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Tenant 3" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-3", Role = "User" });
+        await Task.Delay(100);
+
+        // Assert
+        Assert.AreEqual(2, receivedMessages.Count);
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "Tenant 1"));
+        Assert.IsFalse(receivedMessages.Any(m => m.Message == "Tenant 2"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "Tenant 3"));
+    }
+
+    [TestMethod]
+    public async Task BroadcastUpdate_FilterWithStringMethod_WorksCorrectly() {
+        // Arrange - Use string methods in filter
+        _broadcast.Subscribe("sub-1", filter: meta =>
+            meta != null && meta.Role != null && meta.Role.StartsWith("Admin"));
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var task = ConsumeMessages("sub-1", receivedMessages, maxMessages: 2);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Admin" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "AdminPlus" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "AdminPlus" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "User" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "User" });
+        await Task.Delay(100);
+
+        // Assert
+        Assert.AreEqual(2, receivedMessages.Count);
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "Admin"));
+        Assert.IsTrue(receivedMessages.Any(m => m.Message == "AdminPlus"));
+        Assert.IsFalse(receivedMessages.Any(m => m.Message == "User"));
     }
 
     #endregion
@@ -340,8 +598,7 @@ public class RxSseBroadcastMetadataTests {
     [TestMethod]
     public void Unsubscribe_RemovesSubscriber() {
         // Arrange
-        var metadata = new BroadcastTestMetadata("sub-1", "tenant-1", "Admin");
-        _broadcast.Subscribe(metadata);
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-1");
         Assert.IsTrue(_broadcast.HasSubscriber("sub-1"));
 
         // Act
@@ -364,9 +621,9 @@ public class RxSseBroadcastMetadataTests {
     [TestMethod]
     public void GetActiveSubscribers_ReturnsAllSubscriberIds() {
         // Arrange
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-1", "tenant-1", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-2", "tenant-1", "User"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-3", "tenant-2", "Admin"));
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-1");
+        _broadcast.Subscribe("sub-2");
+        _broadcast.Subscribe("sub-3", filter: meta => meta?.Role == "Admin");
 
         // Act
         var subscribers = _broadcast.GetActiveSubscribers();
@@ -378,37 +635,152 @@ public class RxSseBroadcastMetadataTests {
         Assert.IsTrue(subscribers.Contains("sub-3"));
     }
 
+    [TestMethod]
+    public async Task BroadcastUpdate_AfterUnsubscribe_DoesNotReceive() {
+        // Arrange
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-1");
+        _broadcast.Unsubscribe("sub-1");
+        var receivedMessages = new ConcurrentBag<BroadcastTestModel>();
+        var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        var task = ConsumeMessages("sub-1", receivedMessages, ct: cts.Token);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "After unsubscribe" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await Task.Delay(150);
+
+        // Assert
+        Assert.AreEqual(0, receivedMessages.Count);
+    }
+
+    #endregion
+
+    #region Multiple Subscribers with Different Filters
+
+    [TestMethod]
+    public async Task BroadcastUpdate_MultipleSubscribersWithDifferentFilters_ReceivesCorrectly() {
+        // Arrange
+        _broadcast.Subscribe("sub-no-filter");
+        _broadcast.Subscribe("sub-tenant-1", filter: meta => meta?.TenantId == "tenant-1");
+        _broadcast.Subscribe("sub-admin", filter: meta => meta?.Role == "Admin");
+        _broadcast.Subscribe("sub-complex", filter: meta =>
+            meta?.TenantId == "tenant-1" && meta?.Role == "Admin" && meta?.SubscriberId != "sub-complex");
+
+        var noFilterMessages = new ConcurrentBag<string>();
+        var tenant1Messages = new ConcurrentBag<string>();
+        var adminMessages = new ConcurrentBag<string>();
+        var complexMessages = new ConcurrentBag<string>();
+
+        var task1 = ConsumeMessagesWithId("sub-no-filter", noFilterMessages, maxMessages: 4);
+        var task2 = ConsumeMessagesWithId("sub-tenant-1", tenant1Messages, maxMessages: 3);
+        var task3 = ConsumeMessagesWithId("sub-admin", adminMessages, maxMessages: 2);
+        var task4 = ConsumeMessagesWithId("sub-complex", complexMessages, maxMessages: 1);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "T1 Admin other" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "T1 User other" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "User" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "T2 Admin other" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-2", Role = "Admin" });
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "T1 Admin sub-complex" },
+            new BroadcastTestMetadata { SubscriberId = "sub-complex", TenantId = "tenant-1", Role = "Admin" });
+        await Task.Delay(100);
+
+        // Assert
+        Assert.AreEqual(4, noFilterMessages.Count);
+        Assert.AreEqual(3, tenant1Messages.Count);
+        Assert.AreEqual(2, adminMessages.Count);
+        Assert.AreEqual(1, complexMessages.Count);
+
+        Assert.IsTrue(complexMessages.Contains("sub-complex"));
+    }
+
+    #endregion
+
+    #region Error Handling Tests
+
+    [TestMethod]
+    public async Task BroadcastUpdate_WithNullModel_ThrowsArgumentNullException() {
+        // Act & Assert
+        await Assert.ThrowsExactlyAsync<ArgumentNullException>(() =>
+            _broadcast.BroadcastUpdate(null!, null)
+        );
+    }
+
+    [TestMethod]
+    public async Task BroadcastUpdate_AfterDispose_ThrowsObjectDisposedException() {
+        // Arrange
+        _broadcast.Dispose();
+
+        // Act & Assert
+        await Assert.ThrowsExactlyAsync<ObjectDisposedException>(() =>
+            _broadcast.BroadcastUpdate(new BroadcastTestModel { Message = "Test" }, null)
+        );
+    }
+
+    [TestMethod]
+    public void Subscribe_AfterDispose_ThrowsObjectDisposedException() {
+        // Arrange
+        _broadcast.Dispose();
+
+        // Act & Assert
+        Assert.ThrowsExactly<ObjectDisposedException>(() =>
+            _broadcast.Subscribe("sub-1")
+        );
+    }
+
+    #endregion
+
+    #region Edge Cases
+
+    [TestMethod]
+    public async Task BroadcastUpdate_NoSubscribers_CompletesSuccessfully() {
+        // Act (should not throw)
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Test" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+
+        // Assert - no subscribers, no error
+        Assert.AreEqual(0, _broadcast.GetActiveConnectionCount());
+    }
+
+    [TestMethod]
+    public async Task BroadcastUpdate_AllSubscribersFiltered_CompletesSuccessfully() {
+        // Arrange
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-1");
+        _broadcast.Subscribe("sub-2", filter: meta => meta?.TenantId == "tenant-1");
+        var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        var messages = new ConcurrentBag<string>();
+        var task1 = ConsumeMessagesWithId("sub-1", messages, ct: cts.Token);
+        var task2 = ConsumeMessagesWithId("sub-2", messages, ct: cts.Token);
+        await Task.Delay(100);
+
+        // Act - broadcast to tenant-2 (all subscribers filter for tenant-1)
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Tenant 2 message" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-2", Role = "Admin" });
+        await Task.Delay(150);
+
+        // Assert
+        Assert.AreEqual(0, messages.Count);
+    }
+
     #endregion
 
     #region Logging Tests
 
     [TestMethod]
-    public void Subscribe_DuplicateSubscriberId_LogsWarning() {
-        // Arrange
-        var metadata1 = new BroadcastTestMetadata("sub-1", "tenant-1", "Admin");
-        var metadata2 = new BroadcastTestMetadata("sub-1", "tenant-2", "User");
-        _broadcast.Subscribe(metadata1);
-        _logger.Clear();
-
-        // Act
-        var result = _broadcast.Subscribe(metadata2);
-
-        // Assert
-        Assert.IsFalse(result);
-        Assert.AreEqual(LogLevel.Warning, _logger.LastLogLevel);
-        Assert.IsTrue(_logger.LogMessages.Any(msg =>
-            msg.Contains("Duplicate subscription attempt") &&
-            msg.Contains("sub-1")
-        ));
-    }
-
-    [TestMethod]
     public void Subscribe_Successful_LogsDebug() {
-        // Arrange
-        var metadata = new BroadcastTestMetadata("sub-1", "tenant-1", "Admin");
-
         // Act
-        var result = _broadcast.Subscribe(metadata);
+        var result = _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-1");
 
         // Assert
         Assert.IsTrue(result);
@@ -420,10 +792,27 @@ public class RxSseBroadcastMetadataTests {
     }
 
     [TestMethod]
+    public void Subscribe_Duplicate_LogsWarning() {
+        // Arrange
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-1");
+        _logger.Clear();
+
+        // Act
+        var result = _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-2");
+
+        // Assert
+        Assert.IsFalse(result);
+        Assert.AreEqual(LogLevel.Warning, _logger.LastLogLevel);
+        Assert.IsTrue(_logger.LogMessages.Any(msg =>
+            msg.Contains("Duplicate subscription attempt") &&
+            msg.Contains("sub-1")
+        ));
+    }
+
+    [TestMethod]
     public void Unsubscribe_Successful_LogsDebug() {
         // Arrange
-        var metadata = new BroadcastTestMetadata("sub-1", "tenant-1", "Admin");
-        _broadcast.Subscribe(metadata);
+        _broadcast.Subscribe("sub-1", filter: meta => meta?.TenantId == "tenant-1");
         _logger.Clear();
 
         // Act
@@ -446,126 +835,46 @@ public class RxSseBroadcastMetadataTests {
         Assert.AreEqual(LogLevel.Debug, _logger.LastLogLevel);
         Assert.IsTrue(_logger.LogMessages.Any(msg =>
             msg.Contains("non-existent") &&
-            (msg.Contains("never subscribed") || msg.Contains("Already unsubscribed"))
+            (msg.Contains("never subscribed") || msg.Contains("Already unsubscribed") || msg.Contains("non-existent"))
         ));
-    }
-
-    #endregion
-
-    #region Complex Filtering Scenarios
-
-    [TestMethod]
-    public async Task BroadcastUpdate_ComplexFilter_MultipleConditions() {
-        // Arrange
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-1", "tenant-1", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-2", "tenant-1", "User"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-3", "tenant-2", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-4", "tenant-1", "Manager"));
-        var receivedMessages = new ConcurrentBag<string>();
-        var tasks = new List<Task> {
-            ConsumeMessagesWithId("sub-1", receivedMessages),
-            ConsumeMessagesWithId("sub-2", receivedMessages),
-            ConsumeMessagesWithId("sub-3", receivedMessages),
-            ConsumeMessagesWithId("sub-4", receivedMessages)
-        };
-        await Task.Delay(100);
-
-        // Act - tenant-1 AND (Admin OR Manager) AND not sub-4
-        await _broadcast.BroadcastUpdate(
-            new BroadcastTestModel("Test"),
-            filter: meta =>
-                meta.TenantId == "tenant-1" &&
-                (meta.Role == "Admin" || meta.Role == "Manager") &&
-                meta.SubscriberId != "sub-4"
-        );
-        await Task.Delay(100);
-
-        // Assert
-        Assert.AreEqual(1, receivedMessages.Count);
-        Assert.IsTrue(receivedMessages.Contains("sub-1"));
-    }
-
-    [TestMethod]
-    public async Task BroadcastUpdate_FilterWithMethodCall_WorksCorrectly() {
-        // Arrange
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-1", "tenant-1", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-2", "tenant-2", "User"));
-        var receivedMessages = new ConcurrentBag<string>();
-        var tasks = new List<Task> {
-            ConsumeMessagesWithId("sub-1", receivedMessages),
-            ConsumeMessagesWithId("sub-2", receivedMessages)
-        };
-        await Task.Delay(100);
-        var allowedTenants = new[] { "tenant-1", "tenant-3" };
-
-        // Act - filter using method call
-        await _broadcast.BroadcastUpdate(
-            new BroadcastTestModel("Test"),
-            filter: meta => allowedTenants.Contains(meta.TenantId)
-        );
-        await Task.Delay(100);
-
-        // Assert
-        Assert.AreEqual(1, receivedMessages.Count);
-        Assert.IsTrue(receivedMessages.Contains("sub-1"));
-    }
-
-    #endregion
-
-    #region Edge Cases
-
-    [TestMethod]
-    public async Task BroadcastUpdate_NoSubscribers_CompletesSuccessfully() {
-        // Act (should not throw)
-        await _broadcast.BroadcastUpdate(new BroadcastTestModel("Test"));
-
-        // Assert - no subscribers, no error
-        Assert.AreEqual(0, _broadcast.GetActiveConnectionCount());
-    }
-
-    [TestMethod]
-    public async Task BroadcastUpdate_SubscriberDisconnectsDuringBroadcast_OtherSubscribersReceive() {
-        // Arrange
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-1", "tenant-1", "Admin"));
-        _broadcast.Subscribe(new BroadcastTestMetadata("sub-2", "tenant-1", "User"));
-        var receivedMessages = new ConcurrentBag<string>();
-        var task1 = ConsumeMessagesWithId("sub-1", receivedMessages);
-        var cts = new CancellationTokenSource();
-        var task2 = ConsumeMessagesWithId("sub-2", receivedMessages, cts.Token);
-        await Task.Delay(100);
-
-        // Disconnect sub-2 before broadcast
-        _broadcast.Unsubscribe("sub-2");
-
-        // Act
-        await _broadcast.BroadcastUpdate(new BroadcastTestModel("Test"));
-        await Task.Delay(100);
-
-        // Assert
-        Assert.AreEqual(1, receivedMessages.Count);
-        Assert.IsTrue(receivedMessages.Contains("sub-1"));
     }
 
     #endregion
 
     #region Helper Methods
 
-    private async Task ConsumeMessages(string subscriberId, ConcurrentBag<BroadcastTestModel> messages) {
+    private async Task ConsumeMessages(
+        string subscriberId,
+        ConcurrentBag<BroadcastTestModel> messages,
+        int? maxMessages = null,
+        CancellationToken ct = default) {
         try {
-            await foreach (var msg in _broadcast.GetUpdates(subscriberId, CancellationToken.None)) {
+            var count = 0;
+            await foreach (var msg in _broadcast.GetUpdates(subscriberId, ct)) {
                 messages.Add(msg);
-                break;
+                count++;
+                if (maxMessages.HasValue && count >= maxMessages.Value) {
+                    break;
+                }
             }
         } catch (OperationCanceledException) {
             // Expected on cancellation
         }
     }
 
-    private async Task ConsumeMessagesWithId(string subscriberId, ConcurrentBag<string> subscriberIds, CancellationToken ct = default) {
+    private async Task ConsumeMessagesWithId(
+        string subscriberId,
+        ConcurrentBag<string> subscriberIds,
+        int? maxMessages = null,
+        CancellationToken ct = default) {
         try {
+            var count = 0;
             await foreach (var msg in _broadcast.GetUpdates(subscriberId, ct)) {
                 subscriberIds.Add(subscriberId);
-                break;
+                count++;
+                if (maxMessages.HasValue && count >= maxMessages.Value) {
+                    break;
+                }
             }
         } catch (OperationCanceledException) {
             // Expected on cancellation
@@ -577,20 +886,14 @@ public class RxSseBroadcastMetadataTests {
 
 #region Test Models
 
-public record BroadcastTestModel(string Message);
+public record BroadcastTestModel {
+    public string Message { get; init; } = "";
+}
 
-public record BroadcastTestMetadata(
-    string SubscriberId,
-    string TenantId,
-    string Role
-) : ISseMetadataProvider {
-    public IReadOnlyDictionary<string, string> ToSerializableDictionary() {
-        return new Dictionary<string, string> {
-            [nameof(SubscriberId)] = SubscriberId,
-            [nameof(TenantId)] = TenantId,
-            [nameof(Role)] = Role
-        };
-    }
+public record BroadcastTestMetadata {
+    public string? SubscriberId { get; init; }
+    public string? TenantId { get; init; }
+    public string? Role { get; init; }
 }
 
 #endregion

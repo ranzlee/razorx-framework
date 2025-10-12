@@ -9,8 +9,8 @@ services.AddAntiforgery();
 services.AddRxAntiforgery();
 services.AddProblemDetails();
 services.AddSingleton(sp => {
-    var logger = sp.GetRequiredService<ILogger<RxSseBroadcastService<SseMessage, SseMetadata>>>();
-    return new RxSseBroadcastService<SseMessage, SseMetadata>(logger);
+    var logger = sp.GetRequiredService<ILogger<RxSseBroadcastService<SseMessage, SseBroadcastMetadata>>>();
+    return new RxSseBroadcastService<SseMessage, SseBroadcastMetadata>(logger);
 });
 services.AddDistributedMemoryCache();
 
