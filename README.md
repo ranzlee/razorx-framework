@@ -218,15 +218,14 @@ RazorX is a hypermedia-driven framework that brings together:
 
 ### This is NOT Blazor
 
-| RazorX | Blazor |
-|--------|--------|
-| ✅ Pure HTTP/HTML | ❌ SignalR WebSockets |
-| ✅ Server renders everything | ❌ Client-side rendering |
-| ✅ Uses Razor for templating | ✅ Uses Razor components |
-| ✅ Hypermedia-driven | ❌ Event-driven |
-| ✅ Works with any browser | ❌ Requires JavaScript runtime |
+RazorX uses Razor components as a **templating engine** for server-side HTML generation. It is not Blazor and does not use the Blazor runtime, SignalR, or client-side rendering.
 
-**Key difference**: RazorX uses Razor components as a **templating engine**, not as an interactive component model.
+**How RazorX differs:**
+- Pure HTTP requests (not WebSockets)
+- Server renders HTML and sends it to the client
+- Client applies HTML to DOM using standard web APIs
+- No interactive component model or event system
+- No .NET runtime in the browser
 
 ### The Paradigm Shift
 
@@ -253,7 +252,6 @@ Server controls behavior
 - No state synchronization bugs
 - Faster development (no duplicate logic)
 - Better SEO (server-rendered HTML)
-- Progressive enhancement (works without JavaScript)
 
 ### Request Lifecycle
 
@@ -276,7 +274,7 @@ return await rxDriver.RenderPage<App, ProductPage, ProductModel>(
 );
 ```
 - Returns complete HTML document
-- Changes browser URL (if navigating)
+- Used when browser navigates to new URL
 - Includes layout/root component
 - Typically used in GET handlers
 
@@ -461,7 +459,7 @@ In your root layout (`App.razor`):
         // Required: Include CSRF token in requests
         addCookieToRequestHeader: 'RequestVerificationToken',
 
-        // Optional: Encode forms as JSON (default: false)
+        // Optional: Encode forms as JSON (default: true)
         encodeRequestFormDataAsJson: true,
 
         // Optional: Customize loading indicator classes
@@ -2432,8 +2430,8 @@ return rxDriver.With(context).RenderSse(
 <div data-rx-sse-connect="/api/status/stream"></div>
 ```
 - ✅ Instant updates (no delay)
-- ✅ ~90% lower server load (single connection)
-- ✅ ~90% lower bandwidth (updates only)
+- ✅ Significantly lower server load (single persistent connection)
+- ✅ Lower bandwidth (server sends only when data changes)
 - ✅ Multiple fragments + triggers per event
 
 ### Multi-Client Broadcasting
@@ -2622,8 +2620,8 @@ BroadcastUpdate() ──────> Publish ───────────�
 ```
 
 **Key points:**
-- Local clients get updates instantly (1-5ms)
-- Remote clients get updates via transport (10-50ms)
+- Local clients receive updates immediately (same-server delivery)
+- Remote clients receive updates via transport (latency depends on transport and network)
 - Subscription-time filters work across servers
 - Requires AOT-compatible `JsonTypeInfo<T>`
 
@@ -2953,6 +2951,97 @@ Or use different merge strategy:
 
 ---
 
+## Progressive Enhancement (Optional)
+
+**Note:** RazorX requires JavaScript for interactivity by default. However, you can implement progressive enhancement for graceful degradation.
+
+### JavaScript Requirement
+
+The examples in this README **require JavaScript** to function:
+- `data-rx-action` attributes need razorx.js to send requests
+- Without JavaScript, buttons and forms are inert
+- Initial page loads work (server-rendered HTML), but interactions don't
+
+### Implementing Progressive Enhancement
+
+If you need your app to work without JavaScript, use this pattern:
+
+**HTML (Dual attributes):**
+```html
+<!-- Works with AND without JavaScript -->
+<form action="/todos" method="POST"
+      data-rx-action="/todos"
+      data-rx-method="POST"
+      data-rx-trigger="submit">
+    <input name="title" required />
+    <button type="submit">Add Todo</button>
+</form>
+```
+
+**Server (Detect JavaScript):**
+```csharp
+public static async Task<IResult> CreateTodo(
+    HttpContext context,
+    IRxDriver rxDriver,
+    string title)
+{
+    var todo = new TodoItem(_nextId++, title, false);
+    _todos.Add(todo);
+
+    // Check if request came from RazorX (JavaScript enabled)
+    if (context.Request.Headers.ContainsKey("rx-request"))
+    {
+        // JavaScript enabled - return fragment
+        return await rxDriver
+            .With(context)
+            .AddFragment<TodoCard, TodoItem>(
+                todo,
+                "todo-list",
+                FragmentMergeStrategyType.AppendAfterBegin)
+            .AddTriggerToast("Todo added!", ToastType.Success)
+            .Render();
+    }
+    else
+    {
+        // No JavaScript - return full page
+        return await rxDriver.RenderPage<App, TodoListPage, List<TodoItem>>(
+            context,
+            _todos
+        );
+    }
+}
+```
+
+**How it works:**
+
+With JavaScript:
+1. razorx.js intercepts form submission
+2. Sends request with `rx-request` header
+3. Server returns HTML fragment
+4. Client updates DOM without page reload
+
+Without JavaScript:
+1. Browser handles form submission normally
+2. No `rx-request` header present
+3. Server returns full HTML page
+4. Browser loads new page (traditional behavior)
+
+**Trade-offs:**
+
+✅ **Pros:**
+- App works without JavaScript
+- Search engines can crawl forms
+- Accessible to all users
+
+❌ **Cons:**
+- More server-side logic (dual code paths)
+- Full page reload without JavaScript
+- Larger server responses (full page vs fragment)
+
+**Recommendation:** Only implement progressive enhancement if you have specific requirements (accessibility compliance, SEO for form-driven content, etc.). Most modern web apps assume JavaScript.
+
+---
+
 ## Requirements
 
 **Server:**
@@ -2962,7 +3051,7 @@ Or use different merge strategy:
 **Browser:**
 - Chrome/Edge 114+ (May 2023)
 - Safari 17+ (September 2023)
-- Firefox 125+ (April 2024)
+- Firefox 125+ (March 2024)
 
 These versions provide required APIs: Popover (toasts), EventSource (SSE), and ES modules. View Transitions API (Chrome/Safari only) is used when available but not required.
 
