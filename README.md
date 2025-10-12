@@ -6,6 +6,7 @@ A Server-Driven User Interface (SDUI) framework for ASP.NET Core that implements
 
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
+  - [ID-Based Architecture](#id-based-architecture)
 - [Installation](#installation)
 - [Setup and Configuration](#setup-and-configuration)
 - [Building Your First Feature](#building-your-first-feature)
@@ -84,6 +85,11 @@ app.Run();
     <meta charset="utf-8" />
     <title>My RazorX App</title>
     <link rel="stylesheet" href="/css/razorx.css" />
+
+    @if (HeadContent is not null)
+    {
+        <DynamicComponent Type="HeadContent" Parameters="HeadContentParameters" />
+    }
 </head>
 <body>
     <DynamicComponent Type="MainContent" Parameters="MainContentParameters" />
@@ -190,7 +196,7 @@ public class CounterHandler : RequestHandler
 dotnet run
 ```
 
-Visit `http://localhost:5000` and click the "Increment" button. The counter updates without a full page reload!
+Visit `http://localhost:<PORT>` (echoed in the terminal) and click the "Increment" button. The counter updates without a full page reload!
 
 **What just happened?**
 
@@ -293,6 +299,41 @@ return await rxDriver
 
 **Rule of thumb:** Full page navigation? Use `RenderPage`. Everything else? Use `AddFragment`.
 
+### ID-Based Architecture
+
+RazorX uses **ID-based targeting** for all DOM manipulation. This is a fundamental design decision.
+
+**How it works:**
+```csharp
+.AddFragment<Component>("user-123", ...)  // Targets element with id="user-123"
+.RemoveElement("notification-5")           // Removes element with id="notification-5"
+```
+
+**ID requirements:**
+- Elements with `data-rx-action` **must** have an `id` attribute (enforced at runtime)
+- Elements being targeted by `AddFragment()` must have matching IDs
+- Elements referenced by triggers (focus, loading indicators) must have IDs
+
+**This differs from frameworks like htmx:**
+- **RazorX:** ID-only targeting (`document.getElementById()`)
+- **htmx:** CSS selector support (`.class`, `[data-attr]`, etc.)
+
+**Design rationale:**
+- **Performance:** `getElementById()` is fastest DOM lookup (O(1) hash table)
+- **Clarity:** IDs are unique, unambiguous targets
+- **Simplicity:** No selector parsing or matching logic
+
+**Example - fragment must match target:**
+```csharp
+// Server
+.AddFragment<UserCard, UserModel>(user, "user-123", ...)
+
+// Component HTML - ID must match
+<div id="user-123">...</div>  // ✅ Correct
+<div id="user-card">...</div>  // ❌ Wrong - won't update
+<div class="user-123">...</div>  // ❌ Wrong - no ID
+```
+
 ### Component Types
 
 **Root Component** (`IRootComponent`) - Page layout:
@@ -338,7 +379,7 @@ return await rxDriver
 - Small, focused components
 - Implement `IComponentModel<T>` to receive data
 - Used with `AddFragment<T, TModel>()`
-- Must have unique IDs for updates
+- Root element must have ID matching the `targetId` parameter
 
 ---
 
@@ -404,21 +445,24 @@ app.Run();
 
 ```csharp
 builder.Services.AddRxDriver(options => {
-    // Disable JSON form encoding if you only use simple inputs
+    // Disable JSON encoding if you prefer form-encoded payloads
     options.AddJsonConverters = false;
 });
 ```
 
-**When to disable JSON converters:**
-- You only use simple text inputs (no arrays, checkboxes, multi-select)
-- You prefer traditional `application/x-www-form-urlencoded`
-- You're integrating with existing forms that don't use JSON
+**Both encoding methods are fully supported.** The choice affects ASP.NET model binding, not framework capability.
 
-**Keep enabled (default) if you use:**
-- Checkboxes (properly maps "on" → true)
-- Multi-select inputs
-- Array inputs (`name="tags[]"`)
-- Complex form structures
+**JSON encoding (default: enabled):**
+- Better support in ASP.NET minimal APIs (automatic model binding)
+- Complex types bind directly to parameters
+- Recommended for most applications
+
+**Form encoding (when disabled):**
+- Traditional `application/x-www-form-urlencoded`
+- Works fine, but may require manual binding for complex types
+- Use if integrating with existing form-based systems
+
+Both methods support checkboxes, arrays, multi-select, and all HTML form inputs equally well.
 
 #### Antiforgery Options
 
@@ -1763,24 +1807,88 @@ where THead : IComponent, IComponentModel<THeadModel>
 where TComponent : IComponent, IComponentModel<TModel>
 ```
 
-**SEO example:**
-```csharp
-var seoData = new ProductSeoModel {
-    Title = $"{product.Name} - Buy Online",
-    Description = product.ShortDescription,
-    ImageUrl = product.PrimaryImage
-};
+**Example with custom head content (SEO meta tags):**
 
-return await rxDriver.RenderPage<
-    App,
-    ProductHead,  // SEO meta tags
-    ProductPage,
-    ProductSeoModel,
-    ProductModel>(
-        context,
-        seoData,
-        product
+Define your models:
+```csharp
+public record ProductSeoModel(string Title, string Description, string ImageUrl);
+public record ProductModel(string Name, decimal Price, string Description);
+```
+
+Create a head component:
+```razor
+@* Components/Products/ProductHead.razor *@
+@using RazorX.Framework
+@implements IComponentModel<ProductSeoModel>
+
+<title>@Model.Title</title>
+<meta name="description" content="@Model.Description" />
+<meta property="og:title" content="@Model.Title" />
+<meta property="og:description" content="@Model.Description" />
+<meta property="og:image" content="@Model.ImageUrl" />
+
+@code {
+    [Parameter] public ProductSeoModel Model { get; set; } = null!;
+}
+```
+
+Use it in your handler:
+```csharp
+public static async Task<IResult> GetProduct(
+    HttpContext context,
+    IRxDriver rxDriver,
+    string id)
+{
+    var product = _products.Find(p => p.Id == id);
+
+    var seoData = new ProductSeoModel(
+        Title: $"{product.Name} - Buy Online",
+        Description: product.Description,
+        ImageUrl: product.ImageUrl
     );
+
+    return await rxDriver.RenderPage<
+        App,
+        ProductHead,      // Custom head with SEO tags
+        ProductPage,
+        ProductSeoModel,  // Head model
+        ProductModel>(    // Body model
+            context,
+            seoData,
+            product
+        );
+}
+```
+
+The layout renders it:
+```razor
+@* App.razor (from Quick Start) *@
+<head>
+    <meta charset="utf-8" />
+    <title>My RazorX App</title>
+    <link rel="stylesheet" href="/css/razorx.css" />
+
+    @if (HeadContent is not null)
+    {
+        <DynamicComponent Type="HeadContent" Parameters="HeadContentParameters" />
+    }
+</head>
+```
+
+Result in browser:
+```html
+<head>
+    <meta charset="utf-8" />
+    <title>My RazorX App</title>
+    <link rel="stylesheet" href="/css/razorx.css" />
+
+    <!-- ProductHead component rendered here -->
+    <title>Product XYZ - Buy Online</title>
+    <meta name="description" content="Amazing product..." />
+    <meta property="og:title" content="Product XYZ - Buy Online" />
+    <meta property="og:description" content="Amazing product..." />
+    <meta property="og:image" content="/images/product.jpg" />
+</head>
 ```
 
 ### IRxResponseBuilder Interface
@@ -2948,97 +3056,6 @@ Or use different merge strategy:
 // Update specific fields, not entire form
 .AddFragment<FieldError>(error, "error-message", FragmentMergeStrategyType.Swap)
 ```
-
----
-
-## Progressive Enhancement (Optional)
-
-**Note:** RazorX requires JavaScript for interactivity by default. However, you can implement progressive enhancement for graceful degradation.
-
-### JavaScript Requirement
-
-The examples in this README **require JavaScript** to function:
-- `data-rx-action` attributes need razorx.js to send requests
-- Without JavaScript, buttons and forms are inert
-- Initial page loads work (server-rendered HTML), but interactions don't
-
-### Implementing Progressive Enhancement
-
-If you need your app to work without JavaScript, use this pattern:
-
-**HTML (Dual attributes):**
-```html
-<!-- Works with AND without JavaScript -->
-<form action="/todos" method="POST"
-      data-rx-action="/todos"
-      data-rx-method="POST"
-      data-rx-trigger="submit">
-    <input name="title" required />
-    <button type="submit">Add Todo</button>
-</form>
-```
-
-**Server (Detect JavaScript):**
-```csharp
-public static async Task<IResult> CreateTodo(
-    HttpContext context,
-    IRxDriver rxDriver,
-    string title)
-{
-    var todo = new TodoItem(_nextId++, title, false);
-    _todos.Add(todo);
-
-    // Check if request came from RazorX (JavaScript enabled)
-    if (context.Request.Headers.ContainsKey("rx-request"))
-    {
-        // JavaScript enabled - return fragment
-        return await rxDriver
-            .With(context)
-            .AddFragment<TodoCard, TodoItem>(
-                todo,
-                "todo-list",
-                FragmentMergeStrategyType.AppendAfterBegin)
-            .AddTriggerToast("Todo added!", ToastType.Success)
-            .Render();
-    }
-    else
-    {
-        // No JavaScript - return full page
-        return await rxDriver.RenderPage<App, TodoListPage, List<TodoItem>>(
-            context,
-            _todos
-        );
-    }
-}
-```
-
-**How it works:**
-
-With JavaScript:
-1. razorx.js intercepts form submission
-2. Sends request with `rx-request` header
-3. Server returns HTML fragment
-4. Client updates DOM without page reload
-
-Without JavaScript:
-1. Browser handles form submission normally
-2. No `rx-request` header present
-3. Server returns full HTML page
-4. Browser loads new page (traditional behavior)
-
-**Trade-offs:**
-
-✅ **Pros:**
-- App works without JavaScript
-- Search engines can crawl forms
-- Accessible to all users
-
-❌ **Cons:**
-- More server-side logic (dual code paths)
-- Full page reload without JavaScript
-- Larger server responses (full page vs fragment)
-
-**Recommendation:** Only implement progressive enhancement if you have specific requirements (accessibility compliance, SEO for form-driven content, etc.). Most modern web apps assume JavaScript.
 
 ---
 
