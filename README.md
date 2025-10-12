@@ -12,7 +12,9 @@ A Server-Driven User Interface (SDUI) framework for ASP.NET Core that implements
 - [Building Your First Feature](#building-your-first-feature)
 - [Common Patterns](#common-patterns)
 - [Client Attributes Reference](#client-attributes-reference)
+  - [Complete Client Attributes Guide](CLIENT_ATTRIBUTES_GUIDE.md)
 - [Server API Reference](#server-api-reference)
+  - [Complete Server API Guide](SERVER_API_GUIDE.md)
 - [Advanced Features](#advanced-features)
   - [Server-Sent Events](#server-sent-events)
   - [Multi-Client Broadcasting](#multi-client-broadcasting)
@@ -2703,35 +2705,6 @@ broadcast.Subscribe(id, filter: null);
 // Broadcaster (no metadata needed)
 await broadcast.BroadcastUpdate(globalAnnouncement);
 ```
-
-#### Distributed Broadcasting (Multi-Server)
-
-For multi-server deployments, use a transport like Redis:
-
-```csharp
-builder.Services.AddRxSseBroadcast<TodoModel, TodoMetadata>(
-    MyAppJsonContext.Default.TodoModel,  // Your source-generated JsonTypeInfo
-    options => options.UseRedis("redis-connection-string")
-);
-```
-
-**How it works:**
-```
-Server A                    Redis                    Server B
-   ↓                         ↓                          ↓
-[HTTP POST]           [Pub/Sub Channel]       [SSE Client B1]
-   ↓                         ↓                          ↓
-BroadcastUpdate() ──────> Publish ─────────────────> Subscribe
-   ↓                                                    ↓
-[Local SSE Clients]                            [Deliver to B1]
-[Deliver immediately]
-```
-
-**Key points:**
-- Local clients receive updates immediately (same-server delivery)
-- Remote clients receive updates via transport (latency depends on transport and network)
-- Subscription-time filters work across servers
-- Requires AOT-compatible `JsonTypeInfo<T>`
 
 ---
 
