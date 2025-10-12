@@ -6972,11 +6972,12 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Click the toast
       toast.click()
-      await waitForMicrotasks()
 
-      // Toast should be removed
-      toast = document.querySelector('[popover]') as HTMLElement
-      expect(toast).toBeFalsy()
+      // Wait for toast to be removed (popover hide + element removal can take multiple event loops)
+      await waitFor(() => {
+        const currentToast = document.querySelector('[popover]') as HTMLElement
+        expect(currentToast).toBeFalsy()
+      })
     })
 
     test('toast with clickToDismiss false does not remove on click', async () => {
