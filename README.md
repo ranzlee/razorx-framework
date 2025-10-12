@@ -1,848 +1,1894 @@
 # RazorX.Framework
 
-**RazorX.Framework** is a Server-Driven UI (SDUI) hypermedia framework that rethinks where architectural decisions belong in web applications. Inspired by htmx's hypermedia approach, RazorX takes a fundamentally different path: it separates concerns based on their natural ownership - the server controls what happens to the UI, while the client controls when and how to request changes.
+A Server-Driven User Interface (SDUI) framework for ASP.NET Core that implements HATEOAS principles through HTML-over-the-wire. RazorX uses Razor components for server-side HTML templating and a TypeScript client library for DOM manipulation.
 
-This separation represents a philosophical stance about hypermedia applications. In RazorX, determining where a new todo appears in the DOM and how it merges with existing content is business logic that belongs on the server. The server understands the complete UI structure, relationships between components, and the semantic intent of updates. Meanwhile, the client owns interaction concerns - when users click a button that issues a request to an endpoint, the client handles the mechanics for the request, like queueing, encoding form data as JSON, or including state data that was persisted in a previous response.
+## Table of Contents
 
-By choosing deep ASP.NET Core integration over server-agnostic design, RazorX can fully realize this vision. Response headers carry precise DOM manipulation instructions while HTML attributes define request behaviors. The server orchestrates complex multi-element updates atomically through a fluent API, while the client remains a thin hypermedia agent that follows server directives without embedding application logic. This achieves what REST always promised: the server drives application state through hypermedia controls.
+- [Installation](#installation)
+- [Setup and Configuration](#setup-and-configuration)
+- [Server API Reference](#server-api-reference)
+- [Client Attributes Reference](#client-attributes-reference)
+- [Server-Sent Events](#server-sent-events)
+- [AOT Compilation](#aot-compilation)
+- [Common Patterns](#common-patterns)
 
-The result is a framework where responsibilities live where they belong. Business logic resides entirely on the server, expressed through Razor components and strongly-typed handlers. Interaction patterns stay on the client, managed through declarative attributes. This creates a coherent mental model where changing application behavior requires only server-side changes, while client-side code remains stable and reusable. It's hypermedia as it was meant to be - with the server as the single source of truth for both state and state transitions.
+---
 
-## Getting Started
+## Installation
 
-### Installation
-
-Install the RazorX.Framework NuGet package:
+Install via NuGet:
 
 ```bash
 dotnet add package RazorX.Framework
 ```
 
-### Basic Setup
+Or add to your `.csproj`:
 
-Configure RazorX in your ASP.NET Core application's `Program.cs`:
+```xml
+<PackageReference Include="RazorX.Framework" Version="1.0.0" />
+```
+
+The package copies `razorx.js` and `razorx.css` to your `wwwroot` folder during build.
+
+---
+
+## Setup and Configuration
+
+### Service Registration
 
 ```csharp
-using RazorX.Framework;
-
 var builder = WebApplication.CreateBuilder(args);
 
-// Add RazorX services
-builder.Services.AddRxDriver(); // Defaults to JSON form encoding
+// Required services
+builder.Services.AddRxDriver();
+builder.Services.AddAntiforgery();
+builder.Services.AddRxAntiforgery();
 
+// Optional: Configure form encoding
+builder.Services.AddRxDriver(options => {
+    options.AddJsonConverters = false; // Disable if not using JSON-encoded forms
+});
+
+// Optional: Custom antiforgery cookie
+builder.Services.AddRxAntiforgery(options => {
+    options.RequestVerificationTokenCookieName = "MyToken";
+});
+```
+
+### Middleware Configuration
+
+```csharp
 var app = builder.Build();
 
-// Serve static files (for razorx.js and razorx.css)
 app.UseStaticFiles();
+app.UseAntiforgery();
+app.UseRxAntiforgeryCookie();
 
-// Map RazorX routes
+// Option 1: Auto-discover handlers (uses assembly scanning)
 app.MapGroup(string.Empty).MapRoutes();
+
+// Option 2: Manual registration (recommended for AOT)
+var routes = app.MapGroup(string.Empty);
+new HomeHandler().MapRoutes(routes);
+new UserHandler().MapRoutes(routes);
 
 app.Run();
 ```
 
-**Note:** By default, RazorX encodes form data as JSON for optimal compatibility with ASP.NET Core minimal APIs, which provide better model binding for JSON payloads. If you're using traditional MVC controllers or prefer standard form encoding, you can disable JSON conversion:
+### Root Layout Component
 
-```csharp
-builder.Services.AddRxDriver(options => {
-    options.AddJsonConverters = false; // Use traditional form encoding
-});
-```
-
-### Client Setup
-
-The RazorX client files are automatically copied to your `wwwroot` folder during build:
-
-- **`razorx.js`** (~32KB) - The JavaScript client file (compiled from TypeScript source) that handles:
-  - Event delegation and trigger management
-  - AJAX request processing
-  - DOM manipulation via fragment merging
-  - Memory management with automatic cleanup
-  
-- **`razorx.css`** (~6KB) - Essential styles for:
-  - Toast notifications positioning and animations
-  - Loading indicator visibility states
-
-Initialize the client in your layout or page:
-
-```html
-<link rel="stylesheet" href="/css/razorx.css">
-<script type="module">
-    import { razorx } from '/js/razorx.js';
-    
-    razorx.init({
-        // encodeRequestFormDataAsJson: true is the default
-        // Set to false if using traditional form encoding
-    });
-</script>
-```
-
-**Note on script placement:** JavaScript modules are deferred by default, executing after the DOM is fully parsed regardless of placement in `<head>` or `<body>`. This ensures `razorx.init()` runs after all elements with `data-rx-*` attributes exist. Script placement is therefore a matter of preference - use `<head>` for organization or `<body>` for traditional placement.
-
-### Example Project
-
-For a complete working implementation, see the [RazorX Framework Example](https://github.com/ranzlee/razorx-framework-example) project. The examples below are simplified to demonstrate the general patterns and do not include all necessary code.
-
-### Step 1: Create a Layout (IRootComponent)
-
-First, create a layout component that implements `IRootComponent`. This serves as the shell for full page renders:
+Create `App.razor`:
 
 ```razor
-@* Components/Layout/App.razor *@
 @implements IRootComponent
 
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>@(Title ?? "RazorX App")</title>
-    <link rel="stylesheet" href="/css/razorx.css">
-    <script type="module">
-        import { razorx } from '/js/razorx.js';
-        razorx.init({
-            // Add CSRF token if using antiforgery
-            addCookieToRequestHeader: "RequestVerificationToken"
-        });
-    </script>
-    @if (HeadContent != null)
-    {
-        <DynamicComponent Type="@HeadContent" />
+    <meta charset="utf-8" />
+    <title>My RazorX App</title>
+    <link rel="stylesheet" href="/css/razorx.css" />
+    <link rel="stylesheet" href="/css/app.css" />
+
+    @if (HeadContent != null) {
+        <DynamicComponent Type="HeadContent" Parameters="HeadContentParameters" />
     }
 </head>
 <body>
-    <DynamicComponent Type="@MainContent" Parameters="@MainContentParameters" />
+    <DynamicComponent Type="MainContent" Parameters="MainContentParameters" />
+
+    <script type="module">
+        import { razorx } from '/js/razorx.js';
+        razorx.init({
+            encodeRequestFormDataAsJson: true,
+            addCookieToRequestHeader: 'RequestVerificationToken'
+        });
+    </script>
 </body>
 </html>
 
 @code {
     [Parameter] public Type? HeadContent { get; set; }
+    [Parameter] public Dictionary<string, object?> HeadContentParameters { get; set; } = [];
     [Parameter] public Type MainContent { get; set; } = null!;
     [Parameter] public Dictionary<string, object?> MainContentParameters { get; set; } = [];
-    [Parameter] public string? Title { get; set; }
 }
 ```
 
-**Note on DynamicComponent usage:** RazorX uses ASP.NET Core's `DynamicComponent` from Razor Components to enable runtime component selection. The RxDriver passes component *types* (not instances) to the layout:
+**Understanding DynamicComponent:**
 
-- `MainContent` receives the Type of the page component to render
-- `HeadContent` optionally receives a Type for additional head elements
-- `MainContentParameters` passes the model data as a dictionary to the MainContent component
-
-This pattern allows the server to dynamically control which components are rendered without the layout needing compile-time knowledge of specific page types. When `RenderPage<App, HomePage, HomeModel>()` is called, the framework passes `typeof(HomePage)` as MainContent and the model wrapped in MainContentParameters.
-
-### Step 2: Create Components
-
-Create your page and fragment components. Page components are full views, while fragment components are reusable pieces:
-
-```razor
-@* Components/Todo/TodoListPage.razor *@
-@implements IComponentModel<TodoListModel>
-
-<div id="todo-container">
-    <h1>Todo List</h1>
-
-    <!-- Search with debounce -->
-    <input id="search-todos"
-           type="search"
-           name="filter"
-           data-rx-action="/search-todos"
-           data-rx-trigger="input"
-           data-rx-debounce="400"
-           placeholder="Search todos...">
-
-    <!-- Todo list container -->
-    <div id="todo-list">
-        @foreach (var todo in Model.Todos)
-        {
-            <TodoItem Model="@todo" />
-        }
-    </div>
-
-    <!-- Add new todo button -->
-    <button id="add-todo-btn"
-            data-rx-action="/todo/new"
-            data-rx-method="GET">
-        Add Todo
-    </button>
-</div>
-
-@code {
-    [Parameter] public TodoListModel Model { get; set; } = null!;
-}
-```
-
-```razor
-@* Components/Todo/TodoItem.razor *@
-@implements IComponentModel<TodoModel>
-
-<article id="todo-item-@Model.Id">
-    <div>@Model.Text</div>
-    <button data-rx-action="/todo/@Model.Id"
-            data-rx-method="DELETE"
-            data-rx-loading-indicator="delete-spinner-@Model.Id">
-        Delete
-        <span id="delete-spinner-@Model.Id"
-              class="rx-loading-hidden"
-              aria-busy="true"></span>
-    </button>
-</article>
-
-@code {
-    [Parameter] public TodoModel Model { get; set; } = null!;
-}
-```
-
-### Step 3: Create a Request Handler
-
-Create a handler that serves both full page requests and fragment updates:
+The `<DynamicComponent>` tag renders components dynamically at runtime. When you call:
 
 ```csharp
-using RazorX.Framework;
+rxDriver.RenderPage<App, ProductPage, ProductModel>(context, product);
+```
 
-// Model definitions
-public record TodoModel(int Id, string Text, bool IsComplete);
-public record TodoListModel(List<TodoModel> Todos, int TotalCount);
+The framework:
+1. Sets `MainContent = typeof(ProductPage)`
+2. Sets `MainContentParameters = new Dictionary { ["Model"] = product }`
+3. The layout's `<DynamicComponent>` renders the type with the parameters
+4. The page component receives the model via its `[Parameter] public TModel Model { get; set; }` property
 
-public class TodoHandler : RequestHandler
+This decouples your layout from specific page types while maintaining type safety.
+
+---
+
+## Server API Reference
+
+### IRxDriver Interface
+
+The main framework interface, injected via dependency injection (scoped per HTTP request).
+
+#### With()
+
+Creates a response builder for composing responses.
+
+```csharp
+IRxResponseBuilder With(HttpContext context)
+```
+
+**Returns:** `IRxResponseBuilder` for method chaining
+
+**Example:**
+
+```csharp
+public static async Task<IResult> MyHandler(
+    HttpContext context,
+    IRxDriver rxDriver)
 {
-    private static readonly List<TodoModel> _todos = [];
-
-    public override void MapRoutes(IEndpointRouteBuilder router)
-    {
-        router.MapGet("/", GetTodoPage);
-        router.MapGet("/search-todos", SearchTodos);
-        router.MapDelete("/todo/{id:int}", DeleteTodo);
-        router.MapGet("/todo/new", GetNewTodoForm);
-        router.MapPost("/todo", CreateTodo);
-    }
-
-    // Full page render (initial load)
-    public static async Task<IResult> GetTodoPage(
-        HttpContext context,
-        IRxDriver rxDriver)
-    {
-        var model = new TodoListModel(_todos, _todos.Count);
-
-        return await rxDriver.RenderPage<App, TodoListPage, TodoListModel>(
-            context,
-            model,
-            "Todo List"
-        );
-    }
-
-    // Search with fragment updates
-    public static async Task<IResult> SearchTodos(
-        HttpContext context,
-        IRxDriver rxDriver,
-        string filter = "")
-    {
-        var filtered = _todos
-            .Where(t => t.Text.Contains(filter, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        return await rxDriver
-            .With(context)
-            .AddFragment<TodoList, List<TodoModel>>(
-                filtered,
-                "todo-list",
-                FragmentMergeStrategyType.SwapInner)
-            .AddTriggerSetState("filter", filter, MetadataScope.Session, updateUrl: true)
-            .Render();
-    }
-
-    // Delete with element removal
-    public static async Task<IResult> DeleteTodo(
-        HttpContext context,
-        IRxDriver rxDriver,
-        int id)
-    {
-        var todo = _todos.FirstOrDefault(t => t.Id == id);
-        if (todo == null)
-        {
-            return Results.NotFound();
-        }
-
-        _todos.Remove(todo);
-
-        return await rxDriver
-            .With(context)
-            .RemoveElement($"todo-item-{id}")
-            .AddTriggerToast("Todo deleted", ToastType.Success)
-            .Render();
-    }
-
-    // Return a form fragment for creating new todo
-    public static async Task<IResult> GetNewTodoForm(
-        HttpContext context,
-        IRxDriver rxDriver)
-    {
-        return await rxDriver
-            .With(context)
-            .AddFragment<TodoForm>("todo-container", FragmentMergeStrategyType.AppendBeforeEnd)
-            .AddTriggerFocusElement("todo-text-input", positionCursorEnd: true)
-            .Render();
-    }
-
-    // Create todo and update multiple fragments
-    public static async Task<IResult> CreateTodo(
-        HttpContext context,
-        IRxDriver rxDriver,
-        [FromForm] string text)
-    {
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return await rxDriver
-                .With(context)
-                .AddTriggerToast("Text is required", ToastType.Error)
-                .Render();
-        }
-
-        var todo = new TodoModel(_todos.Count + 1, text, false);
-        _todos.Add(todo);
-
-        return await rxDriver
-            .With(context)
-            .AddFragment<TodoItem, TodoModel>(
-                todo,
-                "todo-list",
-                FragmentMergeStrategyType.AppendAfterBegin)
-            .RemoveElement("todo-form")
-            .AddTriggerToast("Todo created!", ToastType.Success)
-            .AddTriggerFocusElement("add-todo-btn")
-            .Render();
-    }
+    return await rxDriver
+        .With(context)
+        .AddFragment<Component, Model>(model, "target")
+        .Render();
 }
 ```
 
-### Antiforgery Support
+#### RenderPage() - Full Page Rendering
 
-To add CSRF protection to your application:
+Renders a complete HTML page with layout and content.
+
+**Overload 1: Page with Model**
 
 ```csharp
-var builder = WebApplication.CreateBuilder(args);
-
-// Services
-builder.Services.AddRxDriver();
-builder.Services.AddAntiforgery();     // ASP.NET Core antiforgery
-builder.Services.AddRxAntiforgery();   // RazorX antiforgery integration
-
-var app = builder.Build();
-
-// Middleware pipeline
-app.UseStaticFiles();
-app.UseAntiforgery();
-app.UseRxAntiforgeryCookie();  // Manages CSRF tokens for AJAX requests
-
-// Routes
-app.MapGroup(string.Empty).MapRoutes();
-
-app.Run();
+Task<IResult> RenderPage<TRoot, TComponent, TModel>(
+    HttpContext context,
+    TModel model,
+    CancellationToken cancellationToken = default
+)
+where TRoot : IRootComponent
+where TComponent : IComponent, IComponentModel<TModel>
 ```
 
-Then update your client initialization:
+**Example:**
 
-```javascript
-razorx.init({
-    addCookieToRequestHeader: "RequestVerificationToken"
-});
+```csharp
+return await rxDriver.RenderPage<App, ProductPage, ProductModel>(
+    context,
+    product
+);
 ```
 
-### Important Notes
+**Overload 2: Page without Model**
 
-- **Templating**: RazorX uses Razor Components (.razor files) exclusively. Traditional Razor Pages (.cshtml) are not supported.
+```csharp
+Task<IResult> RenderPage<TRoot, TComponent>(
+    HttpContext context,
+    CancellationToken cancellationToken = default
+)
+where TRoot : IRootComponent
+where TComponent : IComponent
+```
 
-- **Routing**: RazorX uses the `RequestHandler` pattern with minimal APIs by default. Traditional MVC controllers can coexist - simply add `services.AddControllers()` and `app.MapControllers()`. Controllers can return Razor Components using the same `IRxDriver` methods.
+**Overload 3: Page with Custom Head (No Model) and Body with Model**
 
-- **Request Detection**: RazorX automatically detects whether to return a full page or fragment based on the presence of the "rx-request" header. You can check this in your handlers using the `IsRxRequest()` extension method:
+```csharp
+Task<IResult> RenderPage<TRoot, THead, TComponent, TModel>(
+    HttpContext context,
+    TModel model,
+    CancellationToken cancellationToken = default
+)
+where TRoot : IRootComponent
+where THead : IComponent
+where TComponent : IComponent, IComponentModel<TModel>
+```
 
-  ```csharp
-  // Useful for error handling or conditional logic
-  if (context.Request.IsRxRequest())
-  {
-      // This is an AJAX request from RazorX client
-      // Return 202 Accepted with location header for redirects
-      return TypedResults.Accepted("/error");
-  }
-  else
-  {
-      // This is a regular page navigation
-      return TypedResults.Redirect("/error");
-  }
-  ```
+**Overload 4: Page with Custom Head and Body (No Models)**
 
-- **Element IDs**: Any element with a `data-rx-action` attribute must have a unique ID for proper request tracking. The framework will throw an error if an ID is missing.
+```csharp
+Task<IResult> RenderPage<TRoot, THead, TComponent>(
+    HttpContext context,
+    CancellationToken cancellationToken = default
+)
+where TRoot : IRootComponent
+where THead : IComponent
+where TComponent : IComponent
+```
 
-- **Special Triggers**: The `initialized`, `poll`, and `revealed` triggers must use GET method. They cannot be debounced and don't support `data-rx-disable-queueing`.
+**Overload 5: Page with Separate Head and Body Models**
 
-## Framework Mechanics Reference
+```csharp
+Task<IResult> RenderPage<TRoot, THead, TComponent, THeadModel, TModel>(
+    HttpContext context,
+    THeadModel headModel,
+    TModel model,
+    CancellationToken cancellationToken = default
+)
+where TRoot : IRootComponent
+where THead : IComponent, IComponentModel<THeadModel>
+where TComponent : IComponent, IComponentModel<TModel>
+```
 
-### RxDriver API
+**Example with SEO metadata:**
 
-The `IRxDriver` interface provides methods for rendering pages and building AJAX responses.
+```csharp
+// Example - assumes ProductSeoModel and ProductPageModel exist
+var headData = new ProductSeoModel {
+    Title = $"{product.Name} - Buy Online",
+    Description = product.ShortDescription,
+    ImageUrl = product.PrimaryImage
+};
 
-#### Page Rendering Methods
+var bodyData = new ProductPageModel {
+    Product = product,
+    Reviews = reviews  // Pass in reviews from your data layer
+};
 
-#### `RenderPage<TRoot, TComponent>(HttpContext context, string? title)`
+return await rxDriver.RenderPage<App, ProductHead, ProductPage, ProductSeoModel, ProductPageModel>(
+    context,
+    headData,
+    bodyData
+);
+```
 
-Renders a full HTML page without a model.
+---
 
-#### `RenderPage<TRoot, TComponent, TModel>(HttpContext context, TModel model, string? title)`
+### IRxResponseBuilder Interface
 
-Renders a full HTML page with a model.
+Fluent API for building responses with fragments and triggers.
 
-#### `RenderPage<TRoot, THead, TComponent>(HttpContext context, string? title)`
+#### Fragment Management
 
-Renders a full HTML page with custom head content.
+**AddFragment<TComponent, TModel>()** - Add component with model
 
-#### `RenderPage<TRoot, THead, TComponent, TModel>(HttpContext context, TModel model, string? title)`
+```csharp
+IRxResponseBuilder AddFragment<TComponent, TModel>(
+    TModel model,
+    string targetId,
+    FragmentMergeStrategyType fragmentMergeStrategy = FragmentMergeStrategyType.Swap
+)
+where TComponent : IComponent, IComponentModel<TModel>
+```
 
-Renders a full HTML page with custom head content and a model.
+**Parameters:**
+- `model` - Data to pass to the component
+- `targetId` - DOM element ID to target
+- `fragmentMergeStrategy` - How to update the DOM (default: Swap)
 
-#### Response Builder Methods
+**Example:**
 
-#### `With(HttpContext context)`
+```csharp
+return await rxDriver
+    .With(context)
+    .AddFragment<UserCard, UserModel>(user, "user-123", FragmentMergeStrategyType.Morph)
+    .Render();
+```
 
-Starts building a response for the given HTTP context. Returns `IRxResponseBuilder`.
+**AddFragment<TComponent>()** - Add component without model
 
-#### IRxResponseBuilder Methods
+```csharp
+IRxResponseBuilder AddFragment<TComponent>(
+    string targetId,
+    FragmentMergeStrategyType fragmentMergeStrategy = FragmentMergeStrategyType.Swap
+)
+where TComponent : IComponent
+```
 
-#### Fragment Methods
+**RemoveElement()** - Remove element from DOM
 
-- **`AddFragment<TComponent>(string targetId, FragmentMergeStrategyType strategy)`**
-  Adds a component fragment without a model.
+```csharp
+IRxResponseBuilder RemoveElement(string targetId)
+```
 
-- **`AddFragment<TComponent, TModel>(TModel model, string targetId, FragmentMergeStrategyType strategy)`**
-  Adds a component fragment with a model.
+**Example:**
 
-- **`RemoveElement(string targetId)`**
-  Removes an element from the DOM.
+```csharp
+return await rxDriver
+    .With(context)
+    .RemoveElement($"todo-{id}")
+    .AddTriggerToast("Deleted", ToastType.Success)
+    .Render();
+```
 
-#### Trigger Methods
+#### Server Triggers
 
-- **`AddTriggerToast(string message, ToastType type, ...)`**
-  Shows a toast notification. Optional parameters: duration, vertical position, horizontal position, click to dismiss.
+**AddTriggerToast()** - Display toast notification
 
-- **`AddTriggerFocusElement(string elementId, bool positionCursorEnd = false)`**
-  Sets focus to an element, optionally positioning cursor at end.
+```csharp
+IRxResponseBuilder AddTriggerToast(
+    string message,
+    ToastType type = ToastType.Success,
+    int duration = 3500,
+    ToastVerticalPosition verticalPosition = ToastVerticalPosition.Top,
+    ToastHorizontalPosition horizontalPosition = ToastHorizontalPosition.Right,
+    bool clickToDismiss = true
+)
+```
 
-- **`AddTriggerSetState(string key, string value, MetadataScope scope, bool updateUrl = false)`**
-  Persists a single state value to browser storage.
+**Parameters:**
+- `message` - Text to display
+- `type` - `Info`, `Success`, `Warning`, `Error`
+- `duration` - Milliseconds before auto-dismiss (0 = permanent)
+- `verticalPosition` - `Top`, `Center`, `Bottom`
+- `horizontalPosition` - `Left`, `Middle`, `Right`
+- `clickToDismiss` - Allow clicking to dismiss
 
-- **`AddTriggerSetStateBatch(Dictionary<string, string> states, MetadataScope scope, bool updateUrl = false)`**
-  Persists multiple state values to browser storage.
+**Examples:**
 
-- **`AddTriggerCloseDialog(string dialogId, string? onCloseData = null, string? resetFormId = null)`**
-  Closes a dialog element, optionally resetting a form.
+```csharp
+// Success toast (default: top-right, 3.5s)
+.AddTriggerToast("User created", ToastType.Success)
 
-#### Render Method
+// Error toast (bottom-left, 5s)
+.AddTriggerToast(
+    "Failed to save",
+    ToastType.Error,
+    duration: 5000,
+    verticalPosition: ToastVerticalPosition.Bottom,
+    horizontalPosition: ToastHorizontalPosition.Left
+)
 
-- **`Render(bool ignoreActiveElementValueOnMorph = false)`**
-  Executes the response, returning an `IResult`.
+// Permanent warning (stays until clicked)
+.AddTriggerToast(
+    "Session expiring soon",
+    ToastType.Warning,
+    duration: 0,
+    clickToDismiss: true
+)
+```
 
-#### Fragment Merge Strategies
+**AddTriggerFocusElement()** - Set focus to element
 
-- **`Swap`** - Replaces entire target element (default)
-- **`SwapInner`** - Replaces inner content only
-- **`Morph`** - Intelligent DOM diffing (preserves state)
-- **`AppendAfterBegin`** - Insert as first child
-- **`AppendBeforeEnd`** - Insert as last child
-- **`AppendBeforeBegin`** - Insert before target
-- **`AppendAfterEnd`** - Insert after target
+```csharp
+IRxResponseBuilder AddTriggerFocusElement(
+    string elementId,
+    bool positionCursorEnd = false
+)
+```
 
-#### Enums
+**Parameters:**
+- `elementId` - ID of element to focus
+- `positionCursorEnd` - If true, moves cursor to end of input value
 
-- **`ToastType`**: Info, Success, Warning, Error
-- **`ToastVerticalPosition`**: Top, Center, Bottom
-- **`ToastHorizontalPosition`**: Left, Middle, Right
-- **`MetadataScope`**: Session (sessionStorage), Persistent (localStorage)
+**Examples:**
 
-### Client Attributes Reference
+```csharp
+// Focus username field
+.AddTriggerFocusElement("username")
 
-#### Core Attributes
+// Focus and position cursor at end
+.AddTriggerFocusElement("comment-input", positionCursorEnd: true)
+```
 
-| Attribute | Required | Description | Example |
-|-----------|----------|-------------|----------|
-| `data-rx-action` | Yes | URL/path for the request | `data-rx-action="/api/todos"` |
-| `data-rx-method` | No | HTTP method (GET, POST, PUT, PATCH, DELETE). Defaults: GET for most elements, POST for forms | `data-rx-method="DELETE"` |
-| `data-rx-trigger` | No | Event(s) that trigger the request. Default: "click" for buttons, "submit" for forms, "change" for inputs | `data-rx-trigger="input"` or `data-rx-trigger='["click", "blur"]'` |
+**AddTriggerSetState()** - Set state in browser storage
 
-#### Request Modifiers
+```csharp
+IRxResponseBuilder AddTriggerSetState(
+    string key,
+    string value,
+    MetadataScope scope = MetadataScope.Session,
+    bool updateUrl = false
+)
+```
 
-| Attribute | Description | Example |
-|-----------|-------------|----------|
-| `data-rx-debounce` | Delay in milliseconds before sending request | `data-rx-debounce="500"` |
-| `data-rx-disable-in-flight` | Disable element while request is in progress | `data-rx-disable-in-flight` or `data-rx-disable-in-flight="true"` |
-| `data-rx-disable-queueing` | Skip request queue, allow parallel requests | `data-rx-disable-queueing` |
-| `data-rx-allow-event-default` | Don't prevent default browser behavior | `data-rx-allow-event-default="true"` |
+**Parameters:**
+- `key` - Storage key name (alphanumeric, hyphens, underscores only)
+- `value` - Value to store
+- `scope` - `Session` (sessionStorage) or `Persistent` (localStorage)
+- `updateUrl` - If true, also updates URL query parameters
 
-#### UI Feedback
+**Examples:**
 
-| Attribute | Description | Example |
-|-----------|-------------|----------|
-| `data-rx-loading-indicator` | ID of element to show/hide during request | `data-rx-loading-indicator="spinner"` |
+```csharp
+// Set filter in session storage
+.AddTriggerSetState("filter", "active", MetadataScope.Session)
 
-#### State Management
+// Set with URL sync
+.AddTriggerSetState("page", "2", MetadataScope.Session, updateUrl: true)
+// URL becomes: /products?page=2
 
-| Attribute | Description | Example |
-|-----------|-------------|----------|
-| `data-rx-include-state` | Browser storage keys to include in request. String for single key, JSON array for multiple | `data-rx-include-state="theme"` or `data-rx-include-state='["theme", "locale", "userId"]'` |
+// Persistent preference
+.AddTriggerSetState("theme", "dark", MetadataScope.Persistent)
+```
 
-#### Delegation
+**AddTriggerSetStateBatch()** - Set multiple state values
 
-| Attribute | Description | Example |
-|-----------|-------------|----------|
-| `data-rx-delegate-action-to` | ID of element to transfer the action to | `data-rx-delegate-action-to="confirm-dialog-ok"` |
+```csharp
+IRxResponseBuilder AddTriggerSetStateBatch(
+    Dictionary<string, string> state,
+    MetadataScope scope,
+    bool updateUrl = false
+)
+```
 
-#### File Upload
+**Example:**
 
-| Attribute | Description | Example |
-|-----------|-------------|----------|
-| `data-rx-file-upload-max-size` | Maximum file size in bytes | `data-rx-file-upload-max-size="5242880"` |
-| `data-rx-file-upload-timeout` | Upload timeout in milliseconds | `data-rx-file-upload-timeout="60000"` |
-| `data-rx-file-upload-progress-id` | ID of progress element to update | `data-rx-file-upload-progress-id="upload-progress"` |
+```csharp
+.AddTriggerSetStateBatch(
+    new Dictionary<string, string> {
+        { "filter", "active" },
+        { "sort", "date" },
+        { "page", "1" }
+    },
+    MetadataScope.Session,
+    updateUrl: true
+)
+// URL: /products?filter=active&sort=date&page=1
+```
 
-### Special Triggers
+**AddTriggerCloseDialog()** - Close HTML dialog
 
-Special triggers use JSON syntax in the `data-rx-trigger` attribute.
+```csharp
+IRxResponseBuilder AddTriggerCloseDialog(
+    string dialogId,
+    string? onCloseData = null,
+    string? resetFormId = null
+)
+```
 
-#### Initialized
+**Parameters:**
+- `dialogId` - ID of `<dialog>` to close
+- `onCloseData` - Optional data to pass to close handler
+- `resetFormId` - Optional form ID to reset after closing
 
-Fires once when element enters DOM.
+**Examples:**
+
+```csharp
+// Simple dialog close
+.AddTriggerCloseDialog("edit-dialog")
+
+// Close and reset form
+.AddTriggerCloseDialog("edit-dialog", resetFormId: "edit-form")
+
+// Pass data to close handler
+.AddTriggerCloseDialog("confirm-dialog", onCloseData: "cancelled")
+```
+
+#### Rendering
+
+**Render()** - Execute builder and return response
+
+```csharp
+Task<IResult> Render(
+    bool ignoreActiveElementValueOnMorph = false,
+    CancellationToken cancellationToken = default
+)
+```
+
+**Parameters:**
+- `ignoreActiveElementValueOnMorph` - When true, preserves focused input value during morph
+- `cancellationToken` - Cancellation token
+
+**Returns:** `IResult` for ASP.NET Core
+
+**Behavior:**
+1. Renders all fragments in parallel (Task.WhenAll)
+2. Sets response headers (rx-merge, rx-trigger-*)
+3. Returns `IResult` with HTML content
+
+**Examples:**
+
+```csharp
+// Basic render
+return await rxDriver
+    .With(context)
+    .AddFragment<Component>("target")
+    .Render();
+
+// Preserve input value during morph
+return await rxDriver
+    .With(context)
+    .AddFragment<EditForm, Model>(model, "form", FragmentMergeStrategyType.Morph)
+    .Render(ignoreActiveElementValueOnMorph: true);
+
+// With cancellation
+return await rxDriver
+    .With(context)
+    .AddFragment<LargeComponent>("target")
+    .Render(cancellationToken: ct);
+```
+
+**RenderSse()** - Stream fragments via Server-Sent Events
+
+```csharp
+IResult RenderSse<TModel>(
+    IAsyncEnumerable<TModel> models,
+    Func<TModel, IRxResponseBuilder, Task> configureEvent,
+    string eventType = "rx-server-sent-event",
+    CancellationToken cancellationToken = default
+)
+```
+
+**Parameters:**
+- `models` - Async stream of data to send to client
+- `configureEvent` - Callback to build response for each model
+- `eventType` - SSE event type name for client filtering
+- `cancellationToken` - Stops stream when cancelled
+
+**Example:**
+
+```csharp
+return rxDriver.With(context).RenderSse(
+    GetNotificationsAsync(userId, ct),
+    async (notification, builder) => {
+        builder
+            .AddFragment<NotificationCard, Notification>(notification, "notifications", FragmentMergeStrategyType.AppendAfterBegin)
+            .AddTriggerToast(notification.Message, ToastType.Info);
+    },
+    eventType: "notification",
+    cancellationToken: ct
+);
+```
+
+---
+
+### Fragment Merge Strategies
+
+Merge strategies control how fragments update the DOM.
+
+#### Swap
+Replaces entire target element with fragment.
+
+```csharp
+.AddFragment<UserCard, UserModel>(user, "user-123", FragmentMergeStrategyType.Swap)
+```
+
+**Use cases:**
+- Complete element replacement
+- Element attributes change
+
+#### SwapInner
+Replaces inner HTML only, preserves element itself.
+
+```csharp
+.AddFragment<ContentOnly>("container", FragmentMergeStrategyType.SwapInner)
+```
+
+**Use cases:**
+- Update content but keep wrapper
+- Preserve element ID and classes
+- Element has event listeners
+
+#### Morph
+Intelligently updates DOM using [Idiomorph](https://github.com/bigskysoftware/idiomorph), preserving state where possible.
+
+```csharp
+.AddFragment<EditForm, Model>(model, "edit-form", FragmentMergeStrategyType.Morph)
+```
+
+**Preserves:**
+- Focused element state
+- Input values (if focused)
+- Event listeners
+- Scroll position
+- CSS transitions
+
+**Updates:**
+- Attributes
+- Text content
+- Non-focused elements
+- Classes
+
+**Use cases:**
+- Forms while user is editing
+- Real-time collaboration
+- Live updates without disruption
+
+**Controlling morph behavior:**
+
+```csharp
+// Default: Preserve focused input values
+.Render(ignoreActiveElementValueOnMorph: false)
+
+// Force server value even if user is typing
+.Render(ignoreActiveElementValueOnMorph: true)
+```
+
+#### AppendAfterBegin
+Inserts fragment as first child.
+
+```csharp
+.AddFragment<TodoItem, TodoModel>(newTodo, "todo-list", FragmentMergeStrategyType.AppendAfterBegin)
+```
+
+**Use cases:**
+- Prepend to list (newest first)
+- Add notifications at top
+
+#### AppendBeforeEnd
+Inserts fragment as last child.
+
+```csharp
+.AddFragment<TodoItem, TodoModel>(newTodo, "todo-list", FragmentMergeStrategyType.AppendBeforeEnd)
+```
+
+**Use cases:**
+- Append to list (oldest first)
+- Infinite scroll (load more)
+
+#### AppendAfterEnd
+Inserts fragment after target element.
+
+```csharp
+.AddFragment<ExtraField>("last-field", FragmentMergeStrategyType.AppendAfterEnd)
+```
+
+**Use cases:**
+- Adding sibling elements
+- Dynamic form fields
+
+#### AppendBeforeBegin
+Inserts fragment before target element.
+
+```csharp
+.AddFragment<Alert>("main-content", FragmentMergeStrategyType.AppendBeforeBegin)
+```
+
+**Use cases:**
+- Inserting before specific element
+- Adding headers dynamically
+
+---
+
+## Client Attributes Reference
+
+### Request Configuration
+
+#### data-rx-action
+Specifies the URL to send the request to.
+
+**Type:** `string` (URL or path)
+
+**Required:** Yes
+
+**Examples:**
 
 ```html
-<div data-rx-action="/api/load" data-rx-trigger='{"type": "initialized"}'></div>
-<div data-rx-action="/api/load" data-rx-trigger='{"type": "initialized", "delay": 1000}'></div>
+<!-- Relative path -->
+<button data-rx-action="/api/users">Load Users</button>
+
+<!-- Absolute URL -->
+<button data-rx-action="https://api.example.com/data">Load External</button>
+
+<!-- Dynamic path (from Razor) -->
+<button data-rx-action="/api/users/@userId">Load User</button>
 ```
 
-#### Poll
+#### data-rx-method
+Specifies the HTTP method for the request.
 
-Fires repeatedly at intervals.
+**Type:** `string`
 
-```html
-<div data-rx-action="/api/status" data-rx-trigger='{"type": "poll", "interval": 5000}'></div>
-```
+**Valid Values:** `GET`, `POST`, `PUT`, `PATCH`, `DELETE`
 
-#### Revealed
+**Default:**
+- For `<form>` elements or elements inside forms: `POST`
+- For all other elements: `GET`
 
-Fires when element enters viewport.
-
-```html
-<div data-rx-action="/api/lazy" data-rx-trigger='{"type": "revealed"}'></div>
-<div data-rx-action="/api/lazy" data-rx-trigger='{"type": "revealed", "margin": "200px"}'></div>
-```
-
-#### Combining Triggers
-
-Mix regular and special triggers.
+**Examples:**
 
 ```html
-<button data-rx-action="/api/data" data-rx-trigger='["click", {"type": "poll", "interval": 30000}]'>Click or Auto-refresh</button>
-<div data-rx-action="/api/update" data-rx-trigger='["input", "blur", {"type": "initialized"}]'>Content</div>
-```
+<!-- Explicit DELETE -->
+<button data-rx-action="/api/users/123" data-rx-method="DELETE">
+  Delete User
+</button>
 
-**Note**: Special triggers must use GET method and cannot be debounced.
-
-### Complete Element Examples
-
-Common attribute combinations:
-
-```html
-<!-- Search input with debounce -->
-<input data-rx-action="/api/search" data-rx-trigger="input" data-rx-debounce="300" />
-
-<!-- Form with loading indicator -->
-<form data-rx-action="/api/save" data-rx-method="POST" data-rx-disable-in-flight data-rx-loading-indicator="save-spinner">
-  <!-- form content -->
+<!-- PUT request (update resource) -->
+<form data-rx-action="/api/users/123" data-rx-method="PUT">
+    <input name="name">
+    <button>Update</button>
 </form>
 
-<!-- Button with state inclusion -->
-<button data-rx-action="/api/filter" data-rx-include-state='["sort", "filter", "page"]'>Apply Filter</button>
-
-<!-- Delete with delegation to confirmation -->
-<button data-rx-action="/api/item/1" data-rx-method="DELETE" data-rx-delegate-action-to="confirm-ok">Delete</button>
-
-<!-- File input with progress -->
-<input type="file" data-rx-action="/api/upload" data-rx-file-upload-progress-id="progress" data-rx-file-upload-max-size="10485760" />
-
-<!-- Lazy loading with revealed trigger -->
-<div data-rx-action="/api/content" data-rx-trigger='{"type": "revealed", "margin": "100px"}'>Loading...</div>
-
-<!-- Dashboard with multiple triggers -->
-<div data-rx-action="/api/metrics" data-rx-trigger='[{"type": "initialized"}, {"type": "poll", "interval": 10000}]'>Dashboard</div>
+<!-- GET form (search) -->
+<form data-rx-action="/search" data-rx-method="GET">
+    <input name="query">
+    <button>Search</button>
+</form>
 ```
 
-### Response Headers
+#### data-rx-trigger
+Defines when the request should be sent.
 
-Headers sent by the server to control client behavior.
+**Type:** `string` (event name) or `JSON` (special trigger configuration)
 
-| Header | Description |
-|--------|-------------|
-| `rx-merge` | JSON array of fragment merge strategies |
-| `rx-trigger-close-dialog` | JSON object with dialog close instructions |
-| `rx-trigger-focus-element` | JSON object with focus instructions |
-| `rx-trigger-set-state` | JSON array of state updates |
-| `rx-trigger-toast` | JSON object with toast notification |
-| `rx-morph-ignore-active` | Boolean flag to preserve active element value |
+**Default:** `click` for buttons, `submit` for forms
 
-### Request Headers
+**DOM Event Triggers:**
 
-Headers sent by the client.
+```html
+<!-- Click event -->
+<button data-rx-action="/api/click" data-rx-trigger="click">
 
-| Header | Description |
-|--------|-------------|
-| `rx-request` | Present on all AJAX requests (empty value) |
+<!-- Input event (real-time search) -->
+<input data-rx-action="/search" data-rx-trigger="input">
 
-### CSS Classes
+<!-- Change event (dropdown selection) -->
+<select data-rx-action="/filter" data-rx-trigger="change">
 
-Classes used by the framework.
+<!-- Form submission -->
+<form data-rx-action="/submit" data-rx-trigger="submit">
 
-| Class | Description |
-|-------|-------------|
-| `rx-loading-visible` | Applied to loading indicators when visible |
-| `rx-loading-hidden` | Applied to loading indicators when hidden |
+<!-- Mouse hover -->
+<div data-rx-action="/preview" data-rx-trigger="mouseover">
 
-### Extension Methods
+<!-- Focus -->
+<input data-rx-action="/activate" data-rx-trigger="focus">
+```
 
-#### `HttpContext.Request.IsRxRequest()`
+**Common Events:**
+- `click` - User clicks element
+- `input` - Input value changes (fires on every keystroke)
+- `change` - Input value changes (fires on blur/selection)
+- `submit` - Form submission
+- `focus` - Element receives focus
+- `blur` - Element loses focus
+- `mouseover` / `mouseout` - Mouse enters/leaves element
+- `keyup` / `keydown` - Keyboard events
 
-Returns `true` if the request is an AJAX request from the RazorX client.
+**Special Triggers:**
 
-### Component Interfaces
+**1. initialized** - Fires once when element added to DOM
 
-#### `IRootComponent`
+Configuration:
+```typescript
+{
+  "type": "initialized",
+  "delay": number  // Optional delay in ms (default: 0)
+}
+```
 
-Implemented by layout components for full page rendering.
+Examples:
+```html
+<!-- Load immediately when page loads -->
+<div data-rx-action="/api/stats"
+     data-rx-trigger='{"type":"initialized"}'>
+</div>
 
-#### `IComponentModel<TModel>`
+<!-- Load after 500ms delay -->
+<div data-rx-action="/api/recommendations"
+     data-rx-trigger='{"type":"initialized","delay":500}'>
+</div>
+```
 
-Implemented by components that accept a model parameter.
+**2. poll** - Fires repeatedly at intervals
 
-### Request Handler Pattern
+Configuration:
+```typescript
+{
+  "type": "poll",
+  "interval": number  // Interval in ms (default: 1000)
+}
+```
 
-#### `RequestHandler`
+Examples:
+```html
+<!-- Poll every 5 seconds -->
+<div data-rx-action="/api/status"
+     data-rx-trigger='{"type":"poll","interval":5000}'>
+  Loading...
+</div>
 
-Abstract base class for defining routes and handlers.
+<!-- Live metrics (every 2 seconds) -->
+<div data-rx-action="/api/metrics"
+     data-rx-trigger='{"type":"poll","interval":2000}'>
+</div>
+```
+
+Note: Consider using Server-Sent Events instead of polling for better performance.
+
+**3. revealed** - Fires when element enters viewport
+
+Configuration:
+```typescript
+{
+  "type": "revealed",
+  "margin": string  // IntersectionObserver rootMargin (default: "0px")
+}
+```
+
+Examples:
+```html
+<!-- Infinite scroll - load when bottom sentinel visible -->
+<div id="load-more-sentinel"
+     data-rx-action="/api/items/next/100"
+     data-rx-trigger='{"type":"revealed"}'>
+</div>
+
+<!-- Load earlier (200px before visible) -->
+<div data-rx-action="/api/images/page2"
+     data-rx-trigger='{"type":"revealed","margin":"200px"}'>
+</div>
+```
+
+---
+
+### Request Behavior
+
+#### data-rx-debounce
+Delays request execution until user stops triggering events.
+
+**Type:** `number` (milliseconds)
+
+**Default:** `0` (no debounce)
+
+**Use Cases:**
+- Real-time search (wait for user to stop typing)
+- Auto-save (wait for editing pause)
+- Reducing server load
+
+**Examples:**
+
+```html
+<!-- Search as user types (300ms delay) -->
+<input type="search"
+       data-rx-action="/search"
+       data-rx-trigger="input"
+       data-rx-debounce="300"
+       placeholder="Search...">
+
+<!-- Auto-save textarea (1 second after editing stops) -->
+<textarea data-rx-action="/save-draft"
+          data-rx-trigger="input"
+          data-rx-debounce="1000">
+</textarea>
+
+<!-- Real-time validation (500ms) -->
+<input type="email"
+       data-rx-action="/validate-email"
+       data-rx-trigger="input"
+       data-rx-debounce="500">
+```
+
+**How It Works:**
+```
+User types: "h" → Timer starts (300ms)
+User types: "he" → Timer resets (300ms)
+User types: "hel" → Timer resets (300ms)
+User types: "hello" → Timer resets (300ms)
+User stops typing → Timer expires → Request sent
+```
+
+**Recommended Values:**
+- Search: 300-500ms
+- Auto-save: 1000-2000ms
+- Validation: 500ms
+
+#### data-rx-disable-in-flight
+Disables element while request is in progress.
+
+**Type:** Boolean (presence = true)
+
+**Use Cases:**
+- Prevent double-submission
+- Disable buttons during save
+- Prevent form re-submission
+
+**Examples:**
+
+```html
+<!-- Disable button during request -->
+<button data-rx-action="/api/submit"
+        data-rx-method="POST"
+        data-rx-disable-in-flight>
+  Submit
+</button>
+
+<!-- Disable entire form -->
+<form data-rx-action="/api/save"
+      data-rx-method="POST"
+      data-rx-disable-in-flight>
+  <!-- All inputs disabled during submission -->
+</form>
+
+<!-- Combine with loading indicator -->
+<button data-rx-action="/api/process"
+        data-rx-disable-in-flight
+        data-rx-loading-indicator="spinner">
+  Process
+  <span id="spinner" class="rx-loading-hidden">⏳</span>
+</button>
+```
+
+**Behavior:**
+- Element gets `disabled` attribute
+- For forms, all child inputs are disabled
+- Automatically re-enabled when response received
+- Works with buttons, inputs, forms
+
+#### data-rx-disable-queueing
+Allows this element's requests to execute immediately without waiting in the queue.
+
+**Type:** Boolean (presence = true)
+
+**Default:** All requests use a single global queue and execute sequentially
+
+RazorX uses a single, global request queue to execute all requests sequentially across the entire page. This ensures predictable order and prevents race conditions.
+
+Both modes (queued and non-queued) always prevent duplicate requests for the same element.
+
+**Examples:**
+
+```html
+<!-- DEFAULT: Waits in global queue -->
+<button data-rx-action="/save-user">
+  Save User
+</button>
+
+<button data-rx-action="/save-settings">
+  Save Settings
+</button>
+
+<!-- User clicks both buttons quickly -->
+<!-- → Save User runs first, Save Settings waits in queue -->
+<!-- → Save Settings runs after Save User completes -->
+
+
+<!-- WITH disable-queueing: Runs concurrently -->
+<button data-rx-action="/update-sidebar"
+        data-rx-disable-queueing>
+  Update Sidebar
+</button>
+
+<button data-rx-action="/refresh-stats"
+        data-rx-disable-queueing>
+  Refresh Stats
+</button>
+
+<!-- User clicks both buttons quickly -->
+<!-- → BOTH requests run concurrently (don't wait for each other) -->
+```
+
+**When to use:**
+- Independent operations that can safely run in parallel
+- Real-time widgets that shouldn't wait for form submissions
+- Background refresh while user continues interacting
+
+**When NOT to use:**
+- Sequential operations where order matters
+- Operations that modify shared state
+
+#### data-rx-allow-event-default
+Allows default browser behavior for the event.
+
+**Type:** Boolean (presence = true)
+
+**Default:** `false` (preventDefault() called)
+
+**Examples:**
+
+```html
+<!-- Let checkbox state update before sending request -->
+<input type="checkbox"
+       data-rx-action="/toggle"
+       data-rx-trigger="change"
+       data-rx-allow-event-default>
+
+<!-- Form with native HTML validation -->
+<form data-rx-action="/submit"
+      data-rx-allow-event-default>
+  <input required>
+  <button>Submit</button>
+</form>
+```
+
+---
+
+### State Management
+
+#### data-rx-include-state
+Includes stored state values in the request as query parameters.
+
+**Type:** `string` (JSON array) or `string` (single key)
+
+**Examples:**
+
+```html
+<!-- Include single state key -->
+<button data-rx-action="/search"
+        data-rx-include-state="filter">
+  Search
+</button>
+
+<!-- Include multiple state keys -->
+<button data-rx-action="/api/data"
+        data-rx-include-state='["filter", "sort", "page"]'>
+  Load Data
+</button>
+
+<!-- Include instance ID for SSE -->
+<form data-rx-action="/submit"
+      data-rx-include-state='["rx-instance-id"]'>
+</form>
+```
+
+**How It Works:**
+
+1. Server sets state via `AddTriggerSetState()`:
+```csharp
+return await rxDriver
+    .With(context)
+    .AddTriggerSetState("filter", "active", MetadataScope.Session, updateUrl: true)
+    .Render();
+```
+
+2. Browser stores in sessionStorage or localStorage
+
+3. Client includes in next request:
+```http
+GET /search?filter=active
+```
+
+**Storage Scopes:**
+- `Session` → sessionStorage (cleared when tab closes)
+- `Persistent` → localStorage (survives browser restart)
+
+**Storage Priority:**
+- Checks sessionStorage first
+- Falls back to localStorage if key not in session
+- Appends to URL query parameters
+
+**Special State Keys:**
+- `rx-instance-id` - Unique page instance ID (auto-generated)
+- Custom keys - Set via server `AddTriggerSetState()`
+
+**URL Synchronization:**
+
+When `updateUrl: true`, state is also added to URL query params:
+```
+https://example.com/page?filter=active&sort=date
+```
+
+This enables:
+- Shareable URLs
+- Browser back/forward works correctly
+- Bookmarking preserves state
+
+---
+
+### UI Feedback
+
+#### data-rx-loading-indicator
+Shows/hides element while request is in progress.
+
+**Type:** `string` (element ID) or `boolean` (`false` to disable)
+
+**Examples:**
+
+```html
+<!-- Simple spinner -->
+<button data-rx-action="/api/save"
+        data-rx-loading-indicator="spinner">
+  Save
+  <span id="spinner" class="rx-loading-hidden">⏳</span>
+</button>
+
+<!-- Loading text -->
+<form data-rx-action="/submit"
+      data-rx-loading-indicator="loading-text">
+  <button>Submit</button>
+</form>
+<div id="loading-text" class="rx-loading-hidden">
+  Submitting...
+</div>
+
+<!-- Disable indicator (inherit from parent) -->
+<button data-rx-action="/api/action"
+        data-rx-loading-indicator="false">
+  No Indicator
+</button>
+```
+
+**CSS Classes:**
+
+RazorX toggles classes on the indicator element:
+
+```css
+/* Hidden state (default) */
+.rx-loading-hidden {
+  display: none;
+}
+
+/* Visible state (during request) */
+.rx-loading-visible {
+  display: inline-block;
+}
+```
+
+**Customize classes** via `razorx.init()`:
+```javascript
+razorx.init({
+  loadingIndicatorClasses: {
+    hidden: 'my-hidden-class',
+    visible: 'my-visible-class'
+  }
+});
+```
+
+---
+
+### Advanced Features
+
+#### data-rx-delegate-action-to
+Transfers `data-rx-action` and `data-rx-method` to another element.
+
+**Type:** `string` (target element ID)
+
+**Use Cases:**
+- Dialog buttons that submit forms
+- External submit buttons
+- Composite UI patterns
+
+**Examples:**
+
+```html
+<!-- Button outside form that submits it -->
+<form id="user-form" data-rx-action="/api/users" data-rx-method="POST">
+  <input name="name" placeholder="Name">
+  <!-- No submit button inside form -->
+</form>
+
+<button data-rx-delegate-action-to="user-form">
+  Save User
+</button>
+
+<!-- Dialog pattern -->
+<dialog id="edit-dialog">
+  <form id="edit-form" data-rx-action="/edit" data-rx-method="PUT">
+    <textarea name="content"></textarea>
+  </form>
+  <footer>
+    <button data-rx-delegate-action-to="edit-form">Save</button>
+    <button onclick="this.closest('dialog').close()">Cancel</button>
+  </footer>
+</dialog>
+
+<!-- Multiple actions for same form -->
+<form id="draft-form" data-rx-action="/save-draft">
+  <textarea name="content"></textarea>
+</form>
+
+<button data-rx-delegate-action-to="draft-form">
+  Save Draft
+</button>
+
+<button data-rx-delegate-action-to="draft-form"
+        data-rx-action="/publish"
+        data-rx-method="POST">
+  Publish Now
+</button>
+```
+
+**How It Works:**
+
+When button is clicked:
+1. Find target element by ID
+2. Copy `data-rx-action` and `data-rx-method` from target
+3. Collect form data from target (if form)
+4. Send request with target's configuration
+
+#### File Uploads
+
+**data-rx-file-upload-progress-id** - Progress element ID
+
+```html
+<form data-rx-action="/upload" data-rx-method="POST">
+  <input type="file"
+         name="file"
+         data-rx-file-upload-progress-id="upload-progress">
+  <button>Upload</button>
+</form>
+
+<progress id="upload-progress" value="0" max="100"></progress>
+```
+
+**data-rx-file-upload-timeout** - Upload timeout in milliseconds
+
+```html
+<!-- 60 second timeout -->
+<input type="file"
+       data-rx-action="/upload"
+       data-rx-file-upload-timeout="60000">
+```
+
+**data-rx-file-upload-max-size** - Maximum file size in bytes
+
+```html
+<!-- 5MB max file size -->
+<input type="file"
+       data-rx-action="/upload"
+       data-rx-file-upload-max-size="5242880">
+
+<!-- 10MB with progress -->
+<input type="file"
+       data-rx-action="/upload"
+       data-rx-file-upload-max-size="10485760"
+       data-rx-file-upload-progress-id="progress">
+```
+
+**Complete Upload Example:**
+
+```html
+<form data-rx-action="/upload" data-rx-method="POST">
+  <input type="file"
+         name="file"
+         data-rx-file-upload-max-size="10485760"
+         data-rx-file-upload-timeout="30000"
+         data-rx-file-upload-progress-id="progress"
+         accept="image/*">
+
+  <progress id="progress" value="0" max="100"></progress>
+  <span id="progress-text">0%</span>
+
+  <button type="submit">Upload Image</button>
+</form>
+```
+
+---
+
+### Server-Sent Events Attributes
+
+#### data-rx-sse-connect
+Establishes a Server-Sent Events connection to the specified URL.
+
+**Type:** `string` (URL)
+
+**Examples:**
+
+```html
+<!-- Basic SSE connection -->
+<div data-rx-sse-connect="/stream"></div>
+
+<!-- With instance ID tracking -->
+<div data-rx-sse-connect="/stream"
+     data-rx-include-state='["rx-instance-id"]'>
+</div>
+```
+
+#### data-rx-sse-events
+Filter which SSE event types to listen for.
+
+**Type:** `string` (single event) or `JSON array` (multiple events)
+
+**Default:** Listens to all events
+
+**Examples:**
+
+```html
+<!-- Listen to single event type -->
+<div data-rx-sse-connect="/stream"
+     data-rx-sse-events="user-update">
+</div>
+
+<!-- Listen to multiple event types -->
+<div data-rx-sse-connect="/stream"
+     data-rx-sse-events='["user-update", "comment-added", "notification"]'>
+</div>
+```
+
+#### data-rx-sse-connect-delay
+Delays the SSE connection by the specified milliseconds.
+
+**Type:** `number` (milliseconds)
+
+**Default:** `0` (connect immediately)
+
+**Example:**
+
+```html
+<!-- Connect after 500ms -->
+<div data-rx-sse-connect="/stream"
+     data-rx-sse-connect-delay="500">
+</div>
+```
+
+**Connection Behavior:**
+- Auto-reconnect with exponential backoff: 1s → 2s → 4s → 8s → 16s → 30s max
+- State tracked via `data-sse-state` attribute: `"connected"` or `"error"`
+- Automatic cleanup when element removed from DOM
+
+---
+
+## Server-Sent Events
+
+### Basic SSE Stream
+
+SSE enables real-time server-to-client updates over HTTP.
+
+**Client Setup:**
+
+```html
+<div data-rx-sse-connect="/stream/notifications"></div>
+
+<!-- Target element -->
+<div id="notifications">
+    <!-- Updates appear here -->
+</div>
+```
+
+**Server Handler:**
 
 ```csharp
-public abstract class RequestHandler
+public static IResult StreamNotifications(
+    HttpContext context,
+    IRxDriver rxDriver,
+    INotificationService notifications,
+    CancellationToken ct)
 {
-    public abstract void MapRoutes(IEndpointRouteBuilder router);
+    var userId = context.User.Identity?.Name ?? "anonymous";
+
+    return rxDriver
+        .With(context)
+        .RenderSse(
+            notifications.GetUserNotificationsAsync(userId, ct),
+            async (notification, builder) => {
+                builder
+                    .AddFragment<NotificationCard, Notification>(
+                        notification,
+                        "notifications",
+                        FragmentMergeStrategyType.AppendAfterBegin)
+                    .AddTriggerToast(
+                        $"New notification: {notification.Title}",
+                        ToastType.Success,
+                        3000)
+                    .RemoveElement($"notification-{notification.ReadNotificationId}");
+            },
+            ct
+        );
 }
 ```
 
-Routes are automatically discovered and registered at startup.
+**Full Builder API Available:**
 
-## Events and Callbacks
+You can use all `IRxResponseBuilder` methods in SSE events:
 
-RazorX provides three ways to hook into the framework's lifecycle: DOM events, global callbacks, and element callbacks.
+```csharp
+async (update, builder) => {
+    // Multiple fragments
+    builder
+        .AddFragment<Component1, Data1Model>(data1, "target1", FragmentMergeStrategyType.Swap)
+        .AddFragment<Component2, Data2Model>(data2, "target2", FragmentMergeStrategyType.Morph);
 
-### Client Events
+    // All triggers
+    builder
+        .AddTriggerToast("Update received", ToastType.Info)
+        .AddTriggerFocusElement("input")
+        .AddTriggerSetState("last-update", DateTime.UtcNow.ToString("o"), MetadataScope.Session)
+        .AddTriggerCloseDialog("loading-dialog");
 
-The framework dispatches custom events on the document that you can listen to:
+    // Remove elements
+    builder.RemoveElement("old-notification");
 
-```javascript
-document.addEventListener('rx:before-fetch', (event) => {
-    console.log('Request starting:', event.detail.requestConfiguration.action);
-});
-```
-
-#### Available Events
-
-| Event | Detail Properties | Cancelable | Description |
-|-------|------------------|------------|-------------|
-| `rx:before-document-processed` | None | No | Fired before initial document processing |
-| `rx:after-document-processed` | None | No | Fired after initial document processing |
-| `rx:before-initialize-element` | `{ element: HTMLElement }` | Yes | Fired before element initialization. Call `preventDefault()` to cancel |
-| `rx:after-initialize-element` | `{ element: HTMLElement }` | No | Fired after element initialization |
-| `rx:before-fetch` | `{ triggerElement: HTMLElement, requestConfiguration: RequestConfiguration }` | No | Fired before AJAX request. Use `requestConfiguration.abort()` to cancel (see "Aborting Requests") |
-| `rx:after-fetch` | `{ triggerElement: HTMLElement, requestDetail: RequestDetail, response: Response }` | No | Fired after AJAX response |
-| `rx:before-document-update` | `{ triggerElement: HTMLElement, mergeElement: HTMLElement, strategy: MergeStrategyType }` | Yes | Fired before DOM update. Call `preventDefault()` to cancel |
-| `rx:after-document-update` | `{ triggerElement: HTMLElement }` | No | Fired after DOM update |
-| `rx:element-added` | `{ element: HTMLElement }` | No | Fired when element added to DOM |
-| `rx:element-morphed` | `{ element: HTMLElement }` | No | Fired when element morphed |
-| `rx:element-removed` | `{ element: HTMLElement }` | No | Fired when element removed from DOM |
-| `rx:element-trigger-error` | `{ triggerElement: HTMLElement, error: unknown }` | No | Fired on request error |
-| `rx:file-selected` | `{ fileInput: HTMLInputElement, files: FileInfo[], error?: Error }` | No | Fired when files selected |
-| `rx:file-upload-progress` | `{ fileInput: HTMLInputElement, progressContext: FileUploadProgressContext }` | No | Fired during upload progress |
-
-### Global Callbacks
-
-Register callbacks that apply to all RazorX elements:
-
-```javascript
-razorx.addCallbacks({
-    beforeFetch: (element, config) => {
-        // Add auth header to all requests
-        config.headers.set('Authorization', 'Bearer ' + token);
-    },
-
-    afterFetch: (element, request, response) => {
-        // Log all responses
-        console.log(`${request.method} ${request.action}: ${response.status}`);
-    },
-
-    onElementTriggerError: (element, error) => {
-        // Global error handler
-        console.error('Request failed:', error);
+    // Conditional logic
+    if (update.IsUrgent) {
+        builder.AddTriggerToast("URGENT", ToastType.Warning);
     }
-});
-```
-
-#### Available Global Callbacks
-
-| Callback | Parameters | Return Value | Description |
-|----------|------------|--------------|-------------|
-| `beforeDocumentProcessed` | None | void | Called before initial processing |
-| `afterDocumentProcessed` | None | void | Called after initial processing |
-| `beforeInitializeElement` | `(element: HTMLElement)` | boolean | Return false to prevent initialization |
-| `afterInitializeElement` | `(element: HTMLElement)` | void | Called after element initialized |
-| `beforeFetch` | `(element: HTMLElement, config: RequestConfiguration)` | void | Called before request. Can modify config or call `config.abort()` to cancel |
-| `afterFetch` | `(element: HTMLElement, request: RequestDetail, response: Response)` | void | Called after response received |
-| `beforeDocumentUpdate` | `(triggerElement: HTMLElement, mergeElement: HTMLElement, strategy: MergeStrategyType)` | boolean | Return false to prevent update |
-| `afterDocumentUpdate` | `(element: HTMLElement)` | void | Called after DOM update |
-| `onElementTriggerError` | `(element: HTMLElement, error: unknown)` | void | Called on request error |
-| `onElementAdded` | `(addedElement: HTMLElement)` | void | Called when element with data-rx attributes is added to DOM |
-| `onElementMorphed` | `(element: HTMLElement)` | void | Called after element morphed |
-| `onElementRemoved` | `(removedElement: HTMLElement)` | void | Called when element with data-rx attributes is removed from DOM |
-| `onFileSelected` | `(fileInput: HTMLInputElement, files: FileInfo[], error?: Error)` | void | Called when files selected |
-| `onFileUploadProgress` | `(fileInput: HTMLInputElement, context: FileUploadProgressContext)` | void | Called during upload |
-
-### Element Callbacks
-
-Register callbacks for specific elements:
-
-```javascript
-const searchInput = document.getElementById('search');
-searchInput.addRxCallbacks({
-    beforeFetch: (config) => {
-        // Add search-specific header
-        config.headers.set('X-Search-Context', 'navbar');
-    },
-
-    afterDocumentUpdate: () => {
-        // Highlight search results
-        highlightMatches(searchInput.value);
-    }
-});
-```
-
-#### Available Element Callbacks
-
-| Callback | Parameters | Return Value | Description |
-|----------|------------|--------------|-------------|
-| `beforeFetch` | `(config: RequestConfiguration)` | void | Called before this element's request. Can modify config or call `config.abort()` to cancel |
-| `afterFetch` | `(request: RequestDetail, response: Response)` | void | Called after this element's response |
-| `beforeDocumentUpdate` | `(mergeElement: HTMLElement, strategy: MergeStrategyType)` | boolean | Return false to prevent this element's update |
-| `afterDocumentUpdate` | None | void | Called after this element triggers DOM update |
-| `onElementTriggerError` | `(error: unknown)` | void | Called on this element's request error |
-| `onFileUploadProgress` | `(context: FileUploadProgressContext)` | void | Called during this file input's upload |
-| `onFileSelected` | `(files: FileInfo[], error?: Error)` | void | Called when files selected on this input |
-
-### Special Patterns
-
-#### Aborting Requests
-
-In `beforeFetch` callbacks, call `config.abort()` to cancel the request:
-
-```javascript
-razorx.addCallbacks({
-    beforeFetch: (element, config) => {
-        if (!userIsAuthenticated()) {
-            config.abort(); // Prevents the request
-            showLoginModal();
-        }
-    }
-});
-```
-
-#### Preventing Updates
-
-Return `false` from `beforeDocumentUpdate` to cancel DOM updates:
-
-```javascript
-element.addRxCallbacks({
-    beforeDocumentUpdate: (mergeElement, strategy) => {
-        if (mergeElement.querySelector('.unsaved-changes')) {
-            return confirm('Discard unsaved changes?');
-        }
-        return true; // Allow update
-    }
-});
-```
-
-#### Request Configuration
-
-The `RequestConfiguration` object in `beforeFetch`:
-
-```typescript
-{
-    trigger: Event,              // The triggering event
-    action: string,              // Request URL
-    method: string,              // HTTP method
-    body?: FormData | string,    // Request body
-    headers: Headers,            // Request headers (modifiable)
-    abort: (reason?: string) => void  // Function to cancel request
 }
 ```
 
-#### File Upload Context
+### Multi-Client Broadcasting
 
-The `FileUploadProgressContext` object:
+For scenarios where multiple clients should receive the same updates (notifications, dashboards, collaborative editing), use `RxSseBroadcastService<T, TMetadata>`.
 
-```typescript
-{
-    file: File,                 // The file being uploaded
-    loaded: number,             // Bytes uploaded
-    total: number,              // Total file size
-    percentage: number          // Upload percentage (0-100)
+#### Define Metadata Type
+
+```csharp
+public record TenantMetadata(
+    string SubscriberId,  // Required by IMetadataProvider
+    string TenantId,      // Application-specific
+    string Role           // Application-specific
+) : IMetadataProvider {
+    public IReadOnlyDictionary<string, string> ToSerializableDictionary() {
+        return new Dictionary<string, string> {
+            [nameof(SubscriberId)] = SubscriberId,
+            [nameof(TenantId)] = TenantId,
+            [nameof(Role)] = Role
+        };
+    }
 }
 ```
 
-### Event vs Callback Precedence
+#### Register Service
 
-When both events and callbacks are registered, they execute in this order:
-
-1. Element callback (if defined)
-2. Global callback (if defined)
-3. DOM event (always dispatched)
-
-For cancelable operations (`beforeInitializeElement`, `beforeDocumentUpdate`):
-
-- Element callback returning `false` cancels immediately
-- Global callback returning `false` cancels immediately
-- Event `preventDefault()` cancels if not already canceled
-
-### Common Use Cases
-
-```javascript
-// Global auth header
-razorx.addCallbacks({
-    beforeFetch: (element, config) => {
-        config.headers.set('Authorization', `Bearer ${getToken()}`);
-    }
-});
-
-// Loading overlay
-document.addEventListener('rx:before-fetch', () => {
-    showLoadingOverlay();
-});
-document.addEventListener('rx:after-fetch', () => {
-    hideLoadingOverlay();
-});
-
-// Error toast
-razorx.addCallbacks({
-    onElementTriggerError: (element, error) => {
-        showErrorToast(error.message);
-    }
-});
-
-// Analytics tracking
-document.addEventListener('rx:after-fetch', (event) => {
-    analytics.track('ajax_request', {
-        url: event.detail.requestDetail.action,
-        status: event.detail.response.status
-    });
+```csharp
+// In Program.cs
+builder.Services.AddSingleton(sp => {
+    var logger = sp.GetRequiredService<ILogger<RxSseBroadcastService<TodoModel, TenantMetadata>>>();
+    return new RxSseBroadcastService<TodoModel, TenantMetadata>(logger);
 });
 ```
+
+#### SSE Stream Handler
+
+```csharp
+public static IResult StreamUpdates(
+    HttpContext context,
+    [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
+    IRxDriver rxDriver,
+    RxSseBroadcastService<TodoModel, TenantMetadata> broadcast,
+    CancellationToken ct)
+{
+    var metadata = new TenantMetadata(
+        SubscriberId: rxInstanceId,
+        TenantId: context.User.FindFirst("TenantId")!.Value,
+        Role: context.User.FindFirst(ClaimTypes.Role)!.Value
+    );
+
+    broadcast.Subscribe(metadata);
+    ct.Register(() => broadcast.Unsubscribe(rxInstanceId));
+
+    return rxDriver
+        .With(context)
+        .RenderSse(
+            broadcast.GetUpdates(rxInstanceId, ct),
+            async (todo, builder) => {
+                builder.AddFragment<TodoCard, TodoModel>(todo, "list", FragmentMergeStrategyType.AppendBeforeEnd);
+            },
+            ct
+        );
+}
+```
+
+#### Broadcast with Filtering
+
+```csharp
+public static async Task<IResult> UpdateTodo(
+    HttpContext context,
+    [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
+    IRxDriver rxDriver,
+    RxSseBroadcastService<TodoModel, TenantMetadata> broadcast,
+    TodoModel todo,
+    IYourRepository repository)  // Inject your repository
+{
+    var tenantId = context.User.FindFirst("TenantId")!.Value;
+
+    // Save using your data layer
+    await repository.SaveAsync(todo);
+
+    // Filter by tenant and exclude triggering client (echo suppression)
+    await broadcast.BroadcastUpdate(
+        todo,
+        filter: meta =>
+            meta.TenantId == tenantId &&
+            meta.SubscriberId != rxInstanceId
+    );
+
+    return await rxDriver
+        .With(context)
+        .AddFragment<TodoCard, TodoModel>(todo, $"todo-{todo.Id}", FragmentMergeStrategyType.Swap)
+        .Render();
+}
+```
+
+#### Common Filtering Patterns
+
+```csharp
+// Echo suppression only (most common)
+await broadcast.BroadcastUpdate(
+    model,
+    filter: meta => meta.SubscriberId != rxInstanceId
+);
+
+// Tenant isolation
+await broadcast.BroadcastUpdate(
+    model,
+    filter: meta => meta.TenantId == currentTenantId
+);
+
+// Role-based broadcasting
+await broadcast.BroadcastUpdate(
+    adminAlert,
+    filter: meta => meta.Role == "Admin"
+);
+
+// Complex multi-criteria
+await broadcast.BroadcastUpdate(
+    notification,
+    filter: meta =>
+        meta.TenantId == tenantId &&
+        meta.Role == "Admin" &&
+        meta.SubscriberId != rxInstanceId
+);
+
+// Broadcast to all (no filter)
+await broadcast.BroadcastUpdate(globalAnnouncement);
+```
+
+
+---
+
+## AOT Compilation
+
+The framework supports Native AOT compilation for faster startup and smaller deployments.
+
+### Requirements
+
+#### 1. Route Handler Preservation (REQUIRED)
+
+**Option A: Root Assembly Preservation (Simplest)**
+
+```xml
+<!-- In your .csproj file -->
+<ItemGroup>
+  <TrimmerRootAssembly Include="YourApplicationName" />
+</ItemGroup>
+```
+
+**Option B: Manual Handler Registration (Most AOT-Friendly)**
+
+```csharp
+// Instead of this:
+app.MapGroup(string.Empty).MapRoutes();
+
+// Do this:
+var routes = app.MapGroup(string.Empty);
+new HomeHandler().MapRoutes(routes);
+new UserHandler().MapRoutes(routes);
+new ProductHandler().MapRoutes(routes);
+```
+
+#### 2. Component Type Preservation
+
+Razor component types are automatically preserved by the Razor compiler. No action needed.
+
+#### 3. Model Type Preservation
+
+If you use complex models with components, ensure they're used in a way the trimmer can track:
+
+```csharp
+// This approach works well with trimming
+public record UserModel(int Id, string Name);
+
+public static async Task<IResult> GetUser(IRxDriver driver, HttpContext context, int id)
+{
+    var model = new UserModel(id, "John");
+    return await driver
+        .With(context)
+        .AddFragment<UserCard, UserModel>(model, "user-container")
+        .Render();
+}
+```
+
+### Project Configuration for AOT
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+
+    <!-- AOT Configuration -->
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <!-- Optional: Trim aggressively -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+
+    <!-- Optional: Single file output -->
+    <PublishSingleFile>true</PublishSingleFile>
+
+    <!-- Optional: Self-contained -->
+    <SelfContained>true</SelfContained>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RazorX.Framework" Version="1.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Preserve all types in your app -->
+    <TrimmerRootAssembly Include="YourApplicationName" />
+  </ItemGroup>
+</Project>
+```
+
+### Publishing
+
+```bash
+# Development build
+dotnet publish -c Release -r linux-x64
+
+# Production build (Full AOT)
+dotnet publish -c Release -r linux-x64 -p:PublishAot=true
+
+# Platform-specific builds
+dotnet publish -c Release -r linux-x64 -p:PublishAot=true
+dotnet publish -c Release -r win-x64 -p:PublishAot=true
+dotnet publish -c Release -r osx-arm64 -p:PublishAot=true
+```
+
+### Expected Results
+
+**Binary Size:**
+
+| Configuration | Size (Approx) |
+|--------------|---------------|
+| Normal .NET publish | ~80-100 MB |
+| Trimmed publish | ~30-50 MB |
+| AOT publish | ~15-25 MB |
+
+**Startup Time:**
+
+| Configuration | Cold Start |
+|--------------|------------|
+| Normal .NET | ~500-1000ms |
+| Trimmed | ~300-600ms |
+| AOT | ~50-150ms |
+
+**Memory Usage:**
+- Lower baseline memory (no JIT compiler)
+- Faster warm-up (no JIT compilation phase)
+- More predictable (all code pre-compiled)
+
+### Verification Checklist
+
+Before deploying your AOT application:
+
+- [ ] Build completes successfully
+- [ ] All route handlers are discovered
+- [ ] All components render correctly
+- [ ] Form submissions work (if using JSON-encoded forms)
+- [ ] Database queries work (if using EF/Dapper)
+- [ ] Custom models serialize/deserialize correctly
+- [ ] Application starts quickly
+- [ ] Binary size is acceptable
+- [ ] All tests pass against AOT build
+
+---
+
+## Common Patterns
+
+### CRUD Operations
+
+#### Create
+
+```csharp
+// Example - assumes IYourRepository is injected
+public static async Task<IResult> CreateUser(
+    HttpContext context,
+    IRxDriver rxDriver,
+    UserModel user,
+    IYourRepository repository)
+{
+    // Save using your data layer
+    var created = await repository.CreateUserAsync(user);
+
+    return await rxDriver
+        .With(context)
+        .AddFragment<UserCard, UserModel>(
+            created,
+            "user-list",
+            FragmentMergeStrategyType.AppendAfterBegin
+        )
+        .AddTriggerCloseDialog("create-dialog", resetFormId: "create-form")
+        .AddTriggerToast("User created", ToastType.Success)
+        .Render();
+}
+```
+
+#### Read
+
+```csharp
+// Example - assumes IYourRepository is injected
+public static async Task<IResult> GetUser(
+    HttpContext context,
+    IRxDriver rxDriver,
+    int id,
+    IYourRepository repository)
+{
+    // Fetch using your data layer
+    var user = await repository.GetUserAsync(id);
+
+    if (user == null) {
+        return await rxDriver
+            .With(context)
+            .AddFragment<NotFound>("content", FragmentMergeStrategyType.Swap)
+            .AddTriggerToast("User not found", ToastType.Error)
+            .Render();
+    }
+
+    return await rxDriver
+        .With(context)
+        .AddFragment<UserDetails, UserModel>(user, "content", FragmentMergeStrategyType.Swap)
+        .Render();
+}
+```
+
+#### Update
+
+```csharp
+// Example - assumes IYourRepository is injected
+public static async Task<IResult> UpdateUser(
+    HttpContext context,
+    IRxDriver rxDriver,
+    int id,
+    UserModel user,
+    IYourRepository repository)
+{
+    // Update using your data layer
+    var updated = await repository.UpdateUserAsync(id, user);
+
+    return await rxDriver
+        .With(context)
+        .AddFragment<UserCard, UserModel>(
+            updated,
+            $"user-{id}",
+            FragmentMergeStrategyType.Morph
+        )
+        .AddTriggerCloseDialog("edit-dialog")
+        .AddTriggerToast("User updated", ToastType.Success)
+        .Render();
+}
+```
+
+#### Delete
+
+```csharp
+// Example - assumes IYourRepository is injected
+public static async Task<IResult> DeleteUser(
+    HttpContext context,
+    IRxDriver rxDriver,
+    int id,
+    IYourRepository repository)
+{
+    // Delete using your data layer
+    await repository.DeleteUserAsync(id);
+
+    return await rxDriver
+        .With(context)
+        .RemoveElement($"user-{id}")
+        .AddTriggerCloseDialog("confirm-delete-dialog")
+        .AddTriggerToast("User deleted", ToastType.Success)
+        .Render();
+}
+```
+
+### Real-Time Search
+
+```html
+<input type="search"
+       name="query"
+       data-rx-action="/search"
+       data-rx-trigger="input"
+       data-rx-debounce="300"
+       data-rx-disable-queueing
+       placeholder="Search...">
+
+<div id="search-results">
+  <!-- Server updates this with results -->
+</div>
+```
+
+### Infinite Scroll
+
+```html
+<div id="items-container">
+  <!-- Items rendered here -->
+</div>
+
+<!-- Sentinel element at bottom -->
+<div id="load-more"
+     data-rx-action="/items/next/20"
+     data-rx-trigger='{"type":"revealed","margin":"200px"}'>
+  Loading more...
+</div>
+```
+
+### Auto-Save Form
+
+```html
+<form id="draft-form">
+  <textarea name="content"
+            data-rx-action="/save-draft"
+            data-rx-method="POST"
+            data-rx-trigger="input"
+            data-rx-debounce="2000"
+            data-rx-loading-indicator="save-status">
+  </textarea>
+
+  <span id="save-status" class="rx-loading-hidden">Saving...</span>
+</form>
+```
+
+### Modal Form Submission
+
+```html
+<dialog id="edit-dialog">
+  <form id="edit-form"
+        data-rx-action="/update"
+        data-rx-method="PUT"
+        data-rx-disable-in-flight
+        data-rx-loading-indicator="submit-spinner">
+    <input name="title">
+    <textarea name="body"></textarea>
+  </form>
+
+  <footer>
+    <button type="button" onclick="this.closest('dialog').close()">
+      Cancel
+    </button>
+    <button data-rx-delegate-action-to="edit-form">
+      Save
+      <span id="submit-spinner" class="rx-loading-hidden">⏳</span>
+    </button>
+  </footer>
+</dialog>
+```
+
+### Live Dashboard with SSE
+
+```csharp
+public static IResult StreamMetrics(
+    HttpContext context,
+    IRxDriver rxDriver,
+    CancellationToken ct)
+{
+    return rxDriver.With(context).RenderSse(
+        GetMetricsAsync(ct),
+        async (metric, builder) => {
+            // Update multiple widgets per event
+            builder
+                .AddFragment<CpuGauge, CpuMetric>(metric.Cpu, "cpu-gauge", FragmentMergeStrategyType.Morph)
+                .AddFragment<MemoryGauge, MemoryMetric>(metric.Memory, "memory-gauge", FragmentMergeStrategyType.Morph)
+                .AddFragment<RequestCounter, int>(metric.Requests, "request-count", FragmentMergeStrategyType.Swap);
+
+            // Conditional toast for alerts
+            if (metric.Cpu.Usage > 90) {
+                builder.AddTriggerToast(
+                    $"High CPU: {metric.Cpu.Usage}%",
+                    ToastType.Warning,
+                    duration: 5000
+                );
+            }
+        },
+        eventType: "metrics",
+        cancellationToken: ct
+    );
+}
+```
+
+---
+
+## Requirements
+
+- .NET 10.0 or later
+- ASP.NET Core
+- Modern browser with ES6 module support
+
+## License
+
+MIT
+
+## Repository
+
+https://github.com/ranzlee/razorx-framework
