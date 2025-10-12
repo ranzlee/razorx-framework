@@ -7591,13 +7591,13 @@ describe('RazorX Framework API Surface Tests', () => {
         const submitEvent = new Event('submit', { bubbles: true, cancelable: true })
         form.dispatchEvent(submitEvent)
 
-        // Wait for async fetch to complete (extra time for CI environments)
-        await waitForDOMUpdates()
-        await new Promise(resolve => setTimeout(resolve, 10))
+        // Wait for fetch to be called and body to be captured
+        await waitFor(() => {
+          expect(typeof capturedBody).toBe('string')
+          expect(capturedBody).toBeTruthy()
+        })
 
         // Check that the final request body is JSON and contains only the text field
-        expect(typeof capturedBody).toBe('string')
-        expect(capturedBody).toBeTruthy()
         const bodyJson = JSON.parse(capturedBody as string)
         expect(bodyJson.textfield).toBe('test value')
         expect(bodyJson.testfile).toBeUndefined()
