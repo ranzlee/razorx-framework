@@ -130,16 +130,20 @@ describe('RazorX Framework API Surface Tests', () => {
     });
   })
 
-  beforeEach(() => {
+  beforeEach(async () => {
     testCounter++
-    
+
     // Reset DOM to clean state
     document.body.innerHTML = ''
     document.head.innerHTML = ''
-    
+
+    // CRITICAL: Wait for MutationObserver callbacks to complete
+    // This ensures toast cleanup (and other cleanup) finishes before disconnecting observer
+    await waitForMicrotasks()
+
     // Reset all timers
     vi.clearAllTimers()
-    
+
     // Reset window.location to clean state
     Object.defineProperty(window, 'location', {
       value: {
@@ -150,17 +154,17 @@ describe('RazorX Framework API Surface Tests', () => {
       writable: true,
       configurable: true
     })
-    
+
     // Setup fresh fetch mock for each test
     mockFetch = vi.fn()
     globalThis.fetch = mockFetch
-    
+
     // Setup storage mocks
     mockStorage = {
       sessionStorage: new Map(),
       localStorage: new Map()
     }
-    
+
     Object.defineProperty(globalThis, 'sessionStorage', {
       value: {
         getItem: vi.fn((key: string) => mockStorage.sessionStorage.get(key) || null),
@@ -170,7 +174,7 @@ describe('RazorX Framework API Surface Tests', () => {
       },
       writable: true
     })
-    
+
     Object.defineProperty(globalThis, 'localStorage', {
       value: {
         getItem: vi.fn((key: string) => mockStorage.localStorage.get(key) || null),
@@ -1464,6 +1468,49 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert - URL should update even with 204 response
       expect(sessionStorage.setItem).toHaveBeenCalledWith('filter', 'active')
       expect(replaceStateSpy).toHaveBeenCalled()
+    })
+
+    test('handles 204 No Content with remove strategy', async () => {
+      // Arrange
+      const targetId = getUniqueId('remove-target')
+      const btnId = getUniqueId('no-content-remove-btn')
+
+      const target = createElementWithId('div', targetId, {})
+      target.textContent = 'Element to remove'
+      document.body.appendChild(target)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/no-content-remove'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {
+          'rx-merge': JSON.stringify([{ target: targetId, strategy: 'remove' }]),
+          'rx-trigger-toast': JSON.stringify({
+            message: 'Deleted',
+            type: 'Success',
+            duration: 3000,
+            verticalPosition: 'Top',
+            horizontalPosition: 'Right',
+            clickToDismiss: true
+          })
+        }
+      }))
+
+      // Act
+      button.dispatchEvent(new Event('click', { bubbles: true }))
+      await waitForDOMUpdates()
+
+      // Assert - Element should be removed even with 204 response
+      expect(document.getElementById(targetId)).toBeNull()
+
+      // Toast should still be triggered
+      const toast = document.querySelector('[popover]')
+      expect(toast).toBeTruthy()
+      expect(toast?.textContent).toBe('Deleted')
     })
 
     test('updates browser URL when updateUrl is true', async () => {

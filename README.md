@@ -257,7 +257,7 @@ Server controls behavior
 
 **Benefits:**
 - Simpler mental model (server controls everything)
-- No state synchronization bugs
+- No state synchronization complexity
 - Faster development (no duplicate logic)
 - Better SEO (server-rendered HTML)
 
@@ -299,7 +299,7 @@ return await rxDriver
 - Updates specific DOM elements
 - Typically used in POST/PUT/DELETE handlers
 
-**Rule of thumb:** Full page navigation? Use `RenderPage`. Everything else? Use `AddFragment`.
+**Rule of thumb:** Full page navigation? Use `RenderPage`. Everything else? Use `AddFragment` | `RemoveElement` | `AddTrigger*` + `Render`.
 
 ### ID-Based Architecture
 
@@ -314,7 +314,7 @@ RazorX uses **ID-based targeting** for all DOM manipulation. This is a fundament
 **ID requirements:**
 - Elements with `data-rx-action` **must** have an `id` attribute (enforced at runtime)
 - Elements being targeted by `AddFragment()` must have matching IDs
-- Elements referenced by triggers (focus, loading indicators) must have IDs
+- Elements referenced by triggers (focus, loading indicators) must have matching IDs
 
 **This differs from frameworks like htmx:**
 - **RazorX:** ID-only targeting (`document.getElementById()`)
@@ -343,11 +343,33 @@ RazorX uses **ID-based targeting** for all DOM manipulation. This is a fundament
 @implements IRootComponent
 <!DOCTYPE html>
 <html>
-<head>...</head>
+<head>
+    <meta charset="utf-8" />
+    <title>My App</title>
+    <link rel="stylesheet" href="/css/razorx.css" />
+    <script type="module">
+        import { razorx } from '/js/razorx.js';
+        razorx.init({
+            addCookieToRequestHeader: 'RequestVerificationToken'
+        });
+    </script>
+    ...
+    @if (HeadContent is not null)
+    {
+        <DynamicComponent Type="HeadContent" Parameters="HeadContentParameters" />
+    }
+</head>
 <body>
     <DynamicComponent Type="MainContent" Parameters="MainContentParameters" />
 </body>
 </html>
+
+@code {
+    [Parameter] public Type? HeadContent { get; set; }
+    [Parameter] public Dictionary<string, object?> HeadContentParameters { get; set; } = [];
+    [Parameter] public Type MainContent { get; set; } = null!;
+    [Parameter] public Dictionary<string, object?> MainContentParameters { get; set; } = [];
+}
 ```
 - Defines HTML document structure
 - Contains `<html>`, `<head>`, `<body>` tags
@@ -456,8 +478,10 @@ builder.Services.AddRxDriver(options => {
 
 **JSON encoding (default: enabled):**
 - Better support in ASP.NET minimal APIs (automatic model binding)
-- Complex types bind directly to parameters
+- Model types bind directly to handler delegate parameter **
 - Recommended for most applications
+
+** Component model properties must be nullable or have a default value if it is possible for the property to be excluded in the request payload. This is true even if the property is later validated as required in the handler delegate for the request.
 
 **Form encoding (when disabled):**
 - Traditional `application/x-www-form-urlencoded`
@@ -541,6 +565,8 @@ using MyApp.Models;
 
 namespace MyApp.Components.Todos;
 
+public record CreateTodoRequest(string Title);
+
 public class TodoHandler : RequestHandler
 {
     // In-memory storage (use a database in production)
@@ -575,9 +601,9 @@ public class TodoHandler : RequestHandler
     public static async Task<IResult> CreateTodo(
         HttpContext context,
         IRxDriver rxDriver,
-        string title)
+        CreateTodoRequest request)
     {
-        if (string.IsNullOrWhiteSpace(title))
+        if (string.IsNullOrWhiteSpace(request.Title))
         {
             return await rxDriver
                 .With(context)
@@ -585,7 +611,7 @@ public class TodoHandler : RequestHandler
                 .Render();
         }
 
-        var todo = new TodoItem(_nextId++, title, false);
+        var todo = new TodoItem(_nextId++, request.Title, false);
         _todos.Add(todo);
 
         return await rxDriver
@@ -691,6 +717,7 @@ public class TodoHandler : RequestHandler
 
 <div id="todo-@Model.Id" class="todo-card @(Model.IsCompleted ? "completed" : "")">
     <input type="checkbox"
+           id="todo-checkbox-@Model.Id"
            checked="@Model.IsCompleted"
            data-rx-action="/todos/@Model.Id/complete"
            data-rx-method="POST"
@@ -700,7 +727,8 @@ public class TodoHandler : RequestHandler
 
     <span>@Model.Title</span>
 
-    <button data-rx-action="/todos/@Model.Id"
+    <button id="todo-delete-@Model.Id"
+            data-rx-action="/todos/@Model.Id"
             data-rx-method="DELETE"
             data-rx-trigger="click">
         Delete
@@ -791,10 +819,10 @@ public static async Task<IResult> GetUser(
             .Render();
     }
 
-    return await rxDriver.RenderPage<App, UserDetailsPage, UserModel>(
-        context,
-        user
-    );
+    return await rxDriver
+        .With(context)
+        .AddFragment<UserDetail, UserModel>(user, $"user-{id}")
+        .Render();
 }
 ```
 
@@ -839,7 +867,7 @@ public static async Task<IResult> DeleteUser(
     IRxDriver rxDriver,
     Guid id)
 {
-    _users.RemoveAll(u => u.Id == id);
+    _users.Remove(u => u.Id == id);
 
     return await rxDriver
         .With(context)
@@ -2448,7 +2476,7 @@ public static IResult StreamNotifications(
                         ToastType.Success,
                         3000);
             },
-            ct
+            cancellationToken: ct
         );
 }
 

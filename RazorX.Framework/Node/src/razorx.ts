@@ -1959,9 +1959,16 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             return; 
         }
         processCloseDialogTrigger(ele, parsedHeaders?.closeDialog);
-        // Handle 204 No Content - no merge processing required
+        // Handle 204 No Content - process removals but skip fragment merging
         if (response.status === 204) {
-            // Skip merge processing but still handle callbacks and triggers
+            // Process removals if present (no HTML body needed for removals)
+            if (parsedHeaders?.merge) {
+                const removals = parsedHeaders.merge.filter((s: MergeStrategy): boolean => s.strategy === "remove");
+                if (removals.length > 0) {
+                    removeElements(ele, removals);
+                }
+            }
+            // Handle callbacks and triggers
             if (ele._rxCallbacks?.afterDocumentUpdate) {
                 ele._rxCallbacks.afterDocumentUpdate();
             }
