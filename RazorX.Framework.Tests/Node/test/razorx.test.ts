@@ -6771,6 +6771,13 @@ describe('RazorX Framework API Surface Tests', () => {
       triggerDOMContentLoaded()
     })
 
+    afterEach(() => {
+      // Clean up any remaining toast elements to prevent test interference
+      document.querySelectorAll('[popover]').forEach(toast => {
+        toast.remove()
+      })
+    })
+
     // Helper to create toast trigger with defaults matching server behavior
     const createToastTrigger = (overrides: Partial<{
       message: string,

@@ -662,13 +662,15 @@ internal record MergeStrategy(string Target, string Strategy);
 /// <param name="FocusElement">Optional focus element trigger.</param>
 /// <param name="SetState">Optional array of set state triggers.</param>
 /// <param name="CloseDialog">Optional close dialog trigger.</param>
+/// <param name="ResetForm">Optional reset form trigger.</param>
 internal record SseEventPayload(
     MergeStrategy[] Merge,
     string? Fragments,
     ToastTrigger? Toast,
     FocusElementTrigger? FocusElement,
     SetStateTrigger[]? SetState,
-    CloseDialogTrigger? CloseDialog
+    CloseDialogTrigger? CloseDialog,
+    ResetFormTrigger? ResetForm
 );
 
 /// <summary>
@@ -966,7 +968,8 @@ internal sealed class RxResponseBuilder(
             Toast: toastTrigger,
             FocusElement: focusElementTrigger,
             SetState: setStateTriggers.Count > 0 ? [.. setStateTriggers] : null,
-            CloseDialog: closeDialogTrigger
+            CloseDialog: closeDialogTrigger,
+            ResetForm: resetFormTrigger
         );
     }
 

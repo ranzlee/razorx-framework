@@ -93,6 +93,26 @@ public class RxResponseBuilderSseTests {
     }
 
     [TestMethod]
+    public void RenderSse_WithResetFormTrigger_ReturnsValidResult() {
+        // Arrange
+        var models = CreateTestModelStream(1);
+
+        // Act
+        var result = _rxDriver
+            .With(_httpContext)
+            .RenderSse(
+                models,
+                async (model, builder) => {
+                    builder.AddTriggerResetForm(new[] { "form-id", "input-id", "textarea-id" });
+                    await Task.CompletedTask;
+                }
+            );
+
+        // Assert
+        Assert.IsNotNull(result);
+    }
+
+    [TestMethod]
     public void RenderSse_WithAllTriggers_ReturnsValidResult() {
         // Arrange
         var models = CreateTestModelStream(1);
@@ -107,7 +127,8 @@ public class RxResponseBuilderSseTests {
                         .AddTriggerToast("Toast message", ToastType.Info, 3000)
                         .AddTriggerFocusElement("input-id", positionCursorEnd: true)
                         .AddTriggerSetState("key1", "value1", MetadataScope.Session, updateUrl: true)
-                        .AddTriggerCloseDialog("dialog-id");
+                        .AddTriggerCloseDialog("dialog-id")
+                        .AddTriggerResetForm(new[] { "form-1", "input-1" });
                     await Task.CompletedTask;
                 }
             );
