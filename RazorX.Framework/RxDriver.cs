@@ -15,14 +15,25 @@ namespace RazorX.Framework;
 /// </summary>
 /// <param name="DialogId">The ID of the dialog element to close.</param>
 /// <param name="OnCloseData">Optional data to pass to the close handler.</param>
-/// <param name="ResetFormId">Optional ID of a form element to reset after closing.</param>
-public record CloseDialogTrigger(string DialogId, string? OnCloseData, string? ResetFormId);
+public record CloseDialogTrigger(string DialogId, string? OnCloseData);
 /// <summary>
 /// Represents a trigger that sets focus to a specific element in the client.
 /// </summary>
 /// <param name="ElementId">The ID of the element to focus.</param>
 /// <param name="PositionCursorEnd">When true, positions the cursor at the end of the element's content (for input/textarea elements).</param>
 public record FocusElementTrigger(string ElementId, bool PositionCursorEnd);
+/// <summary>
+/// Represents a trigger that resets form elements or individual input elements to their default state.
+/// </summary>
+/// <param name="ElementIds">Array of element IDs to reset.</param>
+/// <remarks>
+/// Client intelligently handles each element type:
+/// - Forms: Calls form.reset() to restore all inputs to default values
+/// - Text inputs/textarea: value = defaultValue (or "" if none)
+/// - Checkboxes/radio buttons: checked = defaultChecked
+/// - Select elements: Restores default selected option
+/// </remarks>
+public record ResetFormTrigger(string[] ElementIds);
 /// <summary>
 /// Represents a trigger that sets state in browser storage (session or local storage).
 /// </summary>
@@ -304,12 +315,12 @@ public interface IRxResponseBuilder {
     /// </summary>
     /// <param name="dialogId">The ID of the dialog element to close.</param>
     /// <param name="onCloseData">Optional data to pass to the dialog's close handler.</param>
-    /// <param name="resetFormId">Optional ID of a form to reset after closing the dialog.</param>
     /// <returns>The response builder for method chaining.</returns>
     /// <remarks>
-    /// This trigger will close HTML dialog elements and optionally reset associated forms.
+    /// This trigger will close HTML dialog elements.
+    /// To reset a form after closing, use AddTriggerResetForm() in the same response.
     /// </remarks>
-    IRxResponseBuilder AddTriggerCloseDialog(string dialogId, string? onCloseData = null, string? resetFormId = null);
+    IRxResponseBuilder AddTriggerCloseDialog(string dialogId, string? onCloseData = null);
 
     /// <summary>
     /// Adds a trigger to set focus to a specific element.
@@ -322,6 +333,21 @@ public interface IRxResponseBuilder {
     /// The positionCursorEnd parameter is particularly useful for input and textarea elements.
     /// </remarks>
     IRxResponseBuilder AddTriggerFocusElement(string elementId, bool positionCursorEnd = false);
+
+    /// <summary>
+    /// Adds a trigger to reset form elements or individual input elements to their default state.
+    /// </summary>
+    /// <param name="elementIds">Array of element IDs to reset.</param>
+    /// <returns>The response builder for method chaining.</returns>
+    /// <remarks>
+    /// Client intelligently handles each element type:
+    /// - Forms: Calls form.reset() to restore all inputs to default values
+    /// - Text inputs/textarea: value = defaultValue (or "" if none)
+    /// - Checkboxes/radio buttons: checked = defaultChecked
+    /// - Select elements: Restores default selected option
+    /// Can mix forms and individual elements in the same array.
+    /// </remarks>
+    IRxResponseBuilder AddTriggerResetForm(IEnumerable<string> elementIds);
 
     /// <summary>
     /// Adds a trigger to set a single state value in browser storage.
@@ -679,6 +705,7 @@ internal sealed class RxResponseBuilder(
     private readonly List<MergeStrategy> mergeStrategies = [];
     private CloseDialogTrigger? closeDialogTrigger = null;
     private FocusElementTrigger? focusElementTrigger = null;
+    private ResetFormTrigger? resetFormTrigger = null;
     private readonly List<SetStateTrigger> setStateTriggers = [];
     private ToastTrigger? toastTrigger = null;
     private readonly HashSet<string> stateKeysInResponse = [];
@@ -746,17 +773,29 @@ internal sealed class RxResponseBuilder(
         return this;
     }
 
-    public IRxResponseBuilder AddTriggerCloseDialog(string dialogId, string? onCloseData = null, string? resetFormId = null) {
+    public IRxResponseBuilder AddTriggerCloseDialog(string dialogId, string? onCloseData = null) {
         ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         CheckRenderingStatus();
-        closeDialogTrigger = new(dialogId, onCloseData, resetFormId);
+        closeDialogTrigger = new(dialogId, onCloseData);
         return this;
     }
 
     public IRxResponseBuilder AddTriggerFocusElement(string elementId, bool positionCursorEnd = false) {
         ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
         CheckRenderingStatus();
-        focusElementTrigger = new(elementId, positionCursorEnd); 
+        focusElementTrigger = new(elementId, positionCursorEnd);
+        return this;
+    }
+
+    public IRxResponseBuilder AddTriggerResetForm(IEnumerable<string> elementIds) {
+        ObjectDisposedException.ThrowIf(disposed, nameof(RxResponseBuilder));
+        CheckRenderingStatus();
+        ArgumentNullException.ThrowIfNull(elementIds);
+        var elementIdArray = elementIds.ToArray();
+        if (elementIdArray.Length == 0) {
+            throw new ArgumentException("ElementIds cannot be empty", nameof(elementIds));
+        }
+        resetFormTrigger = new(elementIdArray);
         return this;
     }
 
@@ -822,6 +861,9 @@ internal sealed class RxResponseBuilder(
         }
         if (focusElementTrigger != null) {
             context.Response.Headers.Append("rx-trigger-focus-element", RxJsonSerializer.Serialize(focusElementTrigger));
+        }
+        if (resetFormTrigger != null) {
+            context.Response.Headers.Append("rx-trigger-reset-form", RxJsonSerializer.Serialize(resetFormTrigger));
         }
         if (setStateTriggers.Count > 0) {
             foreach (var t in setStateTriggers) {
@@ -934,6 +976,7 @@ internal sealed class RxResponseBuilder(
         mergeStrategies.Clear();
         closeDialogTrigger = null;
         focusElementTrigger = null;
+        resetFormTrigger = null;
         setStateTriggers.Clear();
         toastTrigger = null;
         stateKeysInResponse.Clear();

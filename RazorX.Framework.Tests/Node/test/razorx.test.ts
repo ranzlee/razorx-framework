@@ -7014,7 +7014,7 @@ describe('RazorX Framework API Surface Tests', () => {
       await waitForMicrotasks()
 
       // Assert - toast exists initially
-      let toast = document.querySelector('[popover]') as HTMLElement
+      const toast = document.querySelector('[popover]') as HTMLElement
       expect(toast).toBeTruthy()
 
       // Click the toast
@@ -7282,6 +7282,411 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(toast.classList.contains('custom-toast')).toBe(true)
       expect(toast.classList.contains('custom-success')).toBe(true)
       expect(toast.classList.contains('custom-top-right')).toBe(true)
+    })
+  })
+
+  describe('Reset Form Feature', () => {
+    beforeEach(() => {
+      mockFetch.mockImplementation(mockSuccessResponse())
+      razorx.init()
+      triggerDOMContentLoaded()
+    })
+
+    test('resets entire form using form ID', async () => {
+      // Arrange
+      const formId = getUniqueId('test-form')
+      const btnId = getUniqueId('reset-btn')
+
+      const form = document.createElement('form')
+      form.id = formId
+      const input = document.createElement('input')
+      input.type = 'text'
+      input.name = 'username'
+      input.defaultValue = 'default'
+      input.value = 'changed'
+      form.appendChild(input)
+      document.body.appendChild(form)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/reset-form'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-reset-form': JSON.stringify({ elementIds: [formId] })
+      }))
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert - Form should be reset
+      expect(input.value).toBe('default')
+    })
+
+    test('resets individual text input to defaultValue', async () => {
+      // Arrange
+      const inputId = getUniqueId('test-input')
+      const btnId = getUniqueId('reset-btn')
+
+      const input = document.createElement('input')
+      input.id = inputId
+      input.type = 'text'
+      input.defaultValue = 'original'
+      input.value = 'modified'
+      document.body.appendChild(input)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/reset-input'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-reset-form': JSON.stringify({ elementIds: [inputId] })
+      }))
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(input.value).toBe('original')
+    })
+
+    test('resets checkbox to defaultChecked state', async () => {
+      // Arrange
+      const checkboxId = getUniqueId('test-checkbox')
+      const btnId = getUniqueId('reset-btn')
+
+      const checkbox = document.createElement('input')
+      checkbox.id = checkboxId
+      checkbox.type = 'checkbox'
+      checkbox.defaultChecked = true
+      checkbox.checked = false
+      document.body.appendChild(checkbox)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/reset-checkbox'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-reset-form': JSON.stringify({ elementIds: [checkboxId] })
+      }))
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(checkbox.checked).toBe(true)
+    })
+
+    test('resets textarea to defaultValue', async () => {
+      // Arrange
+      const textareaId = getUniqueId('test-textarea')
+      const btnId = getUniqueId('reset-btn')
+
+      const textarea = document.createElement('textarea')
+      textarea.id = textareaId
+      textarea.defaultValue = 'default text'
+      textarea.value = 'edited text'
+      document.body.appendChild(textarea)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/reset-textarea'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-reset-form': JSON.stringify({ elementIds: [textareaId] })
+      }))
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(textarea.value).toBe('default text')
+    })
+
+    test('resets select element to defaultSelected option', async () => {
+      // Arrange
+      const selectId = getUniqueId('test-select')
+      const btnId = getUniqueId('reset-btn')
+
+      const select = document.createElement('select')
+      select.id = selectId
+      const option1 = document.createElement('option')
+      option1.value = '1'
+      option1.text = 'Option 1'
+      const option2 = document.createElement('option')
+      option2.value = '2'
+      option2.text = 'Option 2'
+      option2.defaultSelected = true
+      select.appendChild(option1)
+      select.appendChild(option2)
+      select.selectedIndex = 0
+      document.body.appendChild(select)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/reset-select'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-reset-form': JSON.stringify({ elementIds: [selectId] })
+      }))
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(select.selectedIndex).toBe(1)
+    })
+
+    test('resets multiple elements at once', async () => {
+      // Arrange
+      const inputId = getUniqueId('input')
+      const checkboxId = getUniqueId('checkbox')
+      const btnId = getUniqueId('reset-btn')
+
+      const input = document.createElement('input')
+      input.id = inputId
+      input.type = 'text'
+      input.defaultValue = 'default'
+      input.value = 'changed'
+      document.body.appendChild(input)
+
+      const checkbox = document.createElement('input')
+      checkbox.id = checkboxId
+      checkbox.type = 'checkbox'
+      checkbox.defaultChecked = false
+      checkbox.checked = true
+      document.body.appendChild(checkbox)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/reset-multiple'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-reset-form': JSON.stringify({ elementIds: [inputId, checkboxId] })
+      }))
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(input.value).toBe('default')
+      expect(checkbox.checked).toBe(false)
+    })
+
+    test('handles mix of form and individual elements', async () => {
+      // Arrange
+      const formId = getUniqueId('form')
+      const inputId = getUniqueId('standalone-input')
+      const btnId = getUniqueId('reset-btn')
+
+      const form = document.createElement('form')
+      form.id = formId
+      const formInput = document.createElement('input')
+      formInput.type = 'text'
+      formInput.defaultValue = 'form-default'
+      formInput.value = 'form-changed'
+      form.appendChild(formInput)
+      document.body.appendChild(form)
+
+      const input = document.createElement('input')
+      input.id = inputId
+      input.type = 'text'
+      input.defaultValue = 'standalone-default'
+      input.value = 'standalone-changed'
+      document.body.appendChild(input)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/reset-mix'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-reset-form': JSON.stringify({ elementIds: [formId, inputId] })
+      }))
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(formInput.value).toBe('form-default')
+      expect(input.value).toBe('standalone-default')
+    })
+
+    test('warns when element not found', async () => {
+      // Arrange
+      const btnId = getUniqueId('reset-btn')
+      const warnSpy = vi.spyOn(console, 'warn')
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/reset-missing'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-reset-form': JSON.stringify({ elementIds: ['non-existent-id'] })
+      }))
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Element with id="non-existent-id" not found'))
+      warnSpy.mockRestore()
+    })
+
+    test('warns for unsupported element types', async () => {
+      // Arrange
+      const divId = getUniqueId('test-div')
+      const btnId = getUniqueId('reset-btn')
+      const warnSpy = vi.spyOn(console, 'warn')
+
+      const div = document.createElement('div')
+      div.id = divId
+      document.body.appendChild(div)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/reset-div'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-reset-form': JSON.stringify({ elementIds: [divId] })
+      }))
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('not a resettable type'))
+      warnSpy.mockRestore()
+    })
+
+    test('handles invalid trigger structure with error', async () => {
+      // Arrange
+      const btnId = getUniqueId('reset-btn')
+      const errorSpy = vi.spyOn(console, 'error')
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/reset-invalid'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-reset-form': JSON.stringify({ elementIds: [] })
+      }))
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('missing or empty elementIds array'), expect.any(Object))
+      errorSpy.mockRestore()
+    })
+
+    test('resets all HTML input types correctly', async () => {
+      // Arrange
+      const emailId = getUniqueId('email')
+      const passwordId = getUniqueId('password')
+      const numberId = getUniqueId('number')
+      const btnId = getUniqueId('reset-btn')
+
+      const email = document.createElement('input')
+      email.id = emailId
+      email.type = 'email'
+      email.defaultValue = 'test@example.com'
+      email.value = 'changed@example.com'
+      document.body.appendChild(email)
+
+      const password = document.createElement('input')
+      password.id = passwordId
+      password.type = 'password'
+      password.defaultValue = 'default123'
+      password.value = 'changed456'
+      document.body.appendChild(password)
+
+      const number = document.createElement('input')
+      number.id = numberId
+      number.type = 'number'
+      number.defaultValue = '10'
+      number.value = '20'
+      document.body.appendChild(number)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/reset-types'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(mockSuccessResponse({
+        'rx-trigger-reset-form': JSON.stringify({ elementIds: [emailId, passwordId, numberId] })
+      }))
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(email.value).toBe('test@example.com')
+      expect(password.value).toBe('default123')
+      expect(number.value).toBe('10')
+    })
+
+    test('works with 204 No Content response', async () => {
+      // Arrange
+      const inputId = getUniqueId('input')
+      const btnId = getUniqueId('reset-btn')
+
+      const input = document.createElement('input')
+      input.id = inputId
+      input.type = 'text'
+      input.defaultValue = 'default'
+      input.value = 'modified'
+      document.body.appendChild(input)
+
+      const button = createElementWithId('button', btnId, {
+        'data-rx-action': '/reset-204'
+      })
+      document.body.appendChild(button)
+      processNewElements()
+
+      mockFetch.mockImplementation(async () => new Response(null, {
+        status: 204,
+        headers: {
+          'rx-trigger-reset-form': JSON.stringify({ elementIds: [inputId] })
+        }
+      }))
+
+      // Act
+      button.click()
+      await waitForDOMUpdates()
+
+      // Assert
+      expect(input.value).toBe('default')
     })
   })
 
@@ -8778,7 +9183,7 @@ describe('RazorX Framework API Surface Tests', () => {
       processNewElements()
 
       // Use Element.addRxCallbacks() API
-      button.addRxCallbacks({
+      button.addRxCallbacks?.({
         beforeFetch: beforeFetchSpy,
         afterFetch: afterFetchSpy
       })

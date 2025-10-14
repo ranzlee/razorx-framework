@@ -5,6 +5,7 @@ namespace RazorX.Framework;
 
 [JsonSerializable(typeof(CloseDialogTrigger))]
 [JsonSerializable(typeof(FocusElementTrigger))]
+[JsonSerializable(typeof(ResetFormTrigger))]
 [JsonSerializable(typeof(SetStateTrigger))]
 [JsonSerializable(typeof(ToastTrigger))]
 [JsonSerializable(typeof(List<MergeStrategy>))]
@@ -81,6 +82,7 @@ internal static class RxJsonSerializer {
         return value switch {
             CloseDialogTrigger trigger => JsonSerializer.Serialize(trigger, context.CloseDialogTrigger),
             FocusElementTrigger trigger => JsonSerializer.Serialize(trigger, context.FocusElementTrigger),
+            ResetFormTrigger trigger => JsonSerializer.Serialize(trigger, context.ResetFormTrigger),
             SetStateTrigger trigger => JsonSerializer.Serialize(trigger, context.SetStateTrigger),
             ToastTrigger trigger => JsonSerializer.Serialize(trigger, context.ToastTrigger),
             List<MergeStrategy> strategies => JsonSerializer.Serialize(strategies, context.ListMergeStrategy),

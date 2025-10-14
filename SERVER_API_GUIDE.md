@@ -67,16 +67,19 @@ Fluent API for building fragment responses. All methods return `IRxResponseBuild
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| **AddTriggerCloseDialog** | `AddTriggerCloseDialog(string dialogId, string? onCloseData = null, string? resetFormId = null)` | Closes HTML dialog element |
+| **AddTriggerCloseDialog** | `AddTriggerCloseDialog(string dialogId, string? onCloseData = null)` | Closes HTML dialog element |
 | **AddTriggerFocusElement** | `AddTriggerFocusElement(string elementId, bool positionCursorEnd = false)` | Sets focus to element, optionally positions cursor at end |
+| **AddTriggerResetForm** | `AddTriggerResetForm(IEnumerable<string> elementIds)` | Resets forms or input elements to default state (supports forms, inputs, textareas, selects, checkboxes, radio buttons) |
 | **AddTriggerSetState** | `AddTriggerSetState(string key, string value, MetadataScope scope = Session, bool updateUrl = false)` | Sets single state value in browser storage |
 | **AddTriggerSetStateBatch** | `AddTriggerSetStateBatch(Dictionary<string, string> state, MetadataScope scope, bool updateUrl = false)` | Sets multiple state values in browser storage |
 | **AddTriggerToast** | `AddTriggerToast(string message, ToastType type = Success, int duration = 3500, ToastVerticalPosition verticalPosition = Top, ToastHorizontalPosition horizontalPosition = Right, bool clickToDismiss = true)` | Displays toast notification |
 
 **Syntax:**
 ```csharp
-.AddTriggerCloseDialog("edit-dialog", resetFormId: "edit-form")
+.AddTriggerCloseDialog("edit-dialog", "close-data")
 .AddTriggerFocusElement("username", positionCursorEnd: true)
+.AddTriggerResetForm(new[] { "new-todo-form" })  // Reset entire form
+.AddTriggerResetForm(new[] { "input-1", "checkbox-2" })  // Reset specific elements
 .AddTriggerSetState("filter", "active", MetadataScope.Session, updateUrl: true)
 .AddTriggerSetStateBatch(new Dictionary<string, string> { { "page", "1" } }, MetadataScope.Session)
 .AddTriggerToast("Saved!", ToastType.Success, duration: 3500)
@@ -151,8 +154,9 @@ Fluent API for building fragment responses. All methods return `IRxResponseBuild
 | Header | Type | Description |
 |--------|------|-------------|
 | `rx-merge` | JSON array | Merge strategies: `[{"target":"id","strategy":"swap"}]` |
-| `rx-trigger-close-dialog` | JSON object | Close dialog: `{"dialogId":"id","onCloseData":null,"resetFormId":"form-id"}` |
+| `rx-trigger-close-dialog` | JSON object | Close dialog: `{"dialogId":"id","onCloseData":null}` |
 | `rx-trigger-focus-element` | JSON object | Focus element: `{"elementId":"id","positionCursorEnd":false}` |
+| `rx-trigger-reset-form` | JSON object | Reset form/elements: `{"elementIds":["form-1","input-2"]}` |
 | `rx-trigger-set-state` | JSON object | Set state: `{"key":"filter","value":"active","scope":"Session","updateUrl":true}` (can appear multiple times) |
 | `rx-trigger-toast` | JSON object | Toast: `{"message":"text","type":"Success","duration":3500,"verticalPosition":"Top","horizontalPosition":"Right","clickToDismiss":true}` |
 | `rx-morph-ignore-active` | string | When `"True"`, preserves focused input value during morph |

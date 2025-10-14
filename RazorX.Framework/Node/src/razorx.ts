@@ -539,8 +539,6 @@ export type RxCloseDialogTrigger = {
     dialogId: string,
     /** Optional data to pass to close handler */
     onCloseData?: string,
-    /** Optional form ID to reset after closing */
-    resetFormId?: string
 }
 
 /**
@@ -553,6 +551,21 @@ export type RxFocusElementTrigger = {
     elementId: string,
     /** Whether to position cursor at end of content */
     positionCursorEnd: boolean,
+}
+
+/**
+ * Server trigger to reset form elements or individual inputs to their default state.
+ * @remarks
+ * Sent via rx-trigger-reset-form response header.
+ * Client intelligently handles each element type:
+ * - Forms: Calls form.reset()
+ * - Text inputs/textarea: value = defaultValue (or "" if none)
+ * - Checkboxes/radio: checked = defaultChecked
+ * - Select: Restores default selected option
+ */
+export type RxResetFormTrigger = {
+    /** Array of element IDs to reset */
+    elementIds: string[],
 }
 
 /**
@@ -640,6 +653,7 @@ type ParsedRxHeaders = {
     setState?: RxSetStateTrigger[];
     closeDialog?: RxCloseDialogTrigger;
     focusElement?: RxFocusElementTrigger;
+    resetForm?: RxResetFormTrigger;
     toast?: RxToastTrigger;
     morphIgnoreActive?: boolean;
 };
@@ -1896,6 +1910,16 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 throw new Error(errorMsg);
             }
         }
+        const resetFormHeader = response.headers.get("rx-trigger-reset-form");
+        if (resetFormHeader) {
+            try {
+                parsed.resetForm = JSON.parse(resetFormHeader);
+            } catch (parseError) {
+                const errorMsg = `Failed to parse "rx-trigger-reset-form" header as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`;
+                console.error(errorMsg, { header: resetFormHeader });
+                throw new Error(errorMsg);
+            }
+        }
         const toastHeader = response.headers.get("rx-trigger-toast");
         if (toastHeader) {
             try {
@@ -1977,6 +2001,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             }
             _dispatchAfterDocumentUpdate(ele);
             processFocusElementTrigger(ele, parsedHeaders?.focusElement);
+            processResetFormTrigger(ele, parsedHeaders?.resetForm);
             processToastTrigger(ele, parsedHeaders?.toast);
             return;
         }
@@ -1995,6 +2020,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             _callbacks.afterDocumentUpdate(ele);
         }
         processFocusElementTrigger(ele, parsedHeaders?.focusElement);
+        processResetFormTrigger(ele, parsedHeaders?.resetForm);
         processToastTrigger(ele, parsedHeaders?.toast);
     }
 
@@ -2181,6 +2207,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             fragments?: string,
             toast?: RxToastTrigger,
             focusElement?: RxFocusElementTrigger,
+            resetForm?: RxResetFormTrigger,
             setState?: RxSetStateTrigger[],
             closeDialog?: RxCloseDialogTrigger
         }
@@ -2205,6 +2232,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         }
         _dispatchAfterDocumentUpdate(element);
         processFocusElementTrigger(element, data.focusElement);
+        processResetFormTrigger(element, data.resetForm);
         processToastTrigger(element, data.toast);
     }
 
@@ -2300,12 +2328,6 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
         const modal = getCachedElement(closeDialogTrigger.dialogId);
         if (modal instanceof HTMLDialogElement) {
             modal.close(closeDialogTrigger.onCloseData);
-            if (closeDialogTrigger.resetFormId) {
-                const form = getCachedElement(closeDialogTrigger.resetFormId);
-                if (form instanceof HTMLFormElement) {
-                    form.reset();
-                }
-            }
         }
     }
 
@@ -2339,6 +2361,66 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                 }   
             }, 0);
         }
+    }
+
+    function processResetFormTrigger(ele: HTMLElement, resetFormTrigger?: RxResetFormTrigger): void {
+        if (!resetFormTrigger) {
+            return;
+        }
+        if (!resetFormTrigger.elementIds || !Array.isArray(resetFormTrigger.elementIds) || resetFormTrigger.elementIds.length === 0) {
+            const errorMsg = `Invalid "rx-trigger-reset-form" structure - missing or empty elementIds array`;
+            console.error(errorMsg, { parsed: resetFormTrigger });
+            const error = new Error(errorMsg);
+            if (ele._rxCallbacks?.onElementTriggerError) {
+                ele._rxCallbacks.onElementTriggerError(error);
+            }
+            if (_callbacks.onElementTriggerError) {
+                _callbacks.onElementTriggerError(ele, error);
+            }
+            return;
+        }
+        resetFormTrigger.elementIds.forEach((elementId: string): void => {
+            const element = getCachedElement(elementId);
+            if (!element) {
+                console.warn(`Reset form trigger: Element with id="${elementId}" not found`);
+                return;
+            }
+            // Handle forms
+            if (element instanceof HTMLFormElement) {
+                element.reset();
+                return;
+            }
+            // Handle text inputs and textareas
+            if (element instanceof HTMLInputElement && (element.type === "text" || element.type === "email" || element.type === "password" || element.type === "search" || element.type === "tel" || element.type === "url" || element.type === "number")) {
+                element.value = element.defaultValue;
+                return;
+            }
+            if (element instanceof HTMLTextAreaElement) {
+                element.value = element.defaultValue;
+                return;
+            }
+            // Handle checkboxes and radio buttons
+            if (element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio")) {
+                element.checked = element.defaultChecked;
+                return;
+            }
+            // Handle select elements
+            if (element instanceof HTMLSelectElement) {
+                // Reset to default selected option
+                for (let i = 0; i < element.options.length; i++) {
+                    const option = element.options[i];
+                    if (option && option.defaultSelected) {
+                        element.selectedIndex = i;
+                        return;
+                    }
+                }
+                // If no default selected, reset to first option
+                element.selectedIndex = element.options.length > 0 ? 0 : -1;
+                return;
+            }
+            // Unsupported element type
+            console.warn(`Reset form trigger: Element #${elementId} is not a resettable type (form, input, textarea, select). Found: <${element.tagName.toLowerCase()}>`);
+        });
     }
 
     function processToastTrigger(ele: HTMLElement, toastTrigger?: RxToastTrigger): void {

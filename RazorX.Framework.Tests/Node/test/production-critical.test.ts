@@ -1,4 +1,4 @@
-import { describe, test, expect, vi, beforeEach, afterEach, type Mock } from 'vitest'
+import { describe, test, expect, vi, beforeEach, afterEach, beforeAll, type Mock } from 'vitest'
 import { razorx } from '../src/razorx'
 
 /**
@@ -42,10 +42,6 @@ function triggerMutationObserver(addedNodes: Node[] = [], removedNodes: Node[] =
 
 const processNewElements = function(): void {
   triggerMutationObserver([document.body])
-}
-
-function waitForMicrotasks(): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, 0))
 }
 
 function waitForDOMUpdates(): Promise<void> {

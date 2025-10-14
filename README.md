@@ -621,6 +621,7 @@ public class TodoHandler : RequestHandler
                 "todo-list",
                 FragmentMergeStrategyType.AppendAfterBegin)
             .AddTriggerToast("Todo added!", ToastType.Success)
+            .AddTriggerResetForm(new[] { "new-todo-form" })
             .AddTriggerFocusElement("new-todo-input")
             .Render();
     }
@@ -1053,7 +1054,8 @@ public static async Task<IResult> UpdateUser(
             updated,
             $"user-{id}",
             FragmentMergeStrategyType.Morph)
-        .AddTriggerCloseDialog("edit-dialog", resetFormId: "edit-form")
+        .AddTriggerCloseDialog("edit-dialog")
+        .AddTriggerResetForm(new[] { "edit-form" })
         .AddTriggerToast("User updated", ToastType.Success)
         .Render();
 }
@@ -2102,8 +2104,7 @@ Close HTML dialog element.
 ```csharp
 IRxResponseBuilder AddTriggerCloseDialog(
     string dialogId,
-    string? onCloseData = null,
-    string? resetFormId = null
+    string? onCloseData = null
 )
 ```
 
@@ -2112,12 +2113,41 @@ IRxResponseBuilder AddTriggerCloseDialog(
 // Simple close
 .AddTriggerCloseDialog("edit-dialog")
 
-// Close and reset form
-.AddTriggerCloseDialog("edit-dialog", resetFormId: "edit-form")
-
-// Pass data to close handler
+// Close with data
 .AddTriggerCloseDialog("confirm-dialog", onCloseData: "cancelled")
+
+// Close and reset form (use separate triggers)
+.AddTriggerCloseDialog("edit-dialog")
+.AddTriggerResetForm(new[] { "edit-form" })
 ```
+
+#### AddTriggerResetForm()
+
+Reset forms or individual input elements to their default state.
+
+```csharp
+IRxResponseBuilder AddTriggerResetForm(
+    IEnumerable<string> elementIds
+)
+```
+
+**Examples:**
+```csharp
+// Reset entire form
+.AddTriggerResetForm(new[] { "new-todo-form" })
+
+// Reset specific elements
+.AddTriggerResetForm(new[] { "username-input", "email-input" })
+
+// Mix forms and elements
+.AddTriggerResetForm(new[] { "contact-form", "newsletter-checkbox" })
+```
+
+**Supported element types:**
+- **Forms**: Calls `form.reset()` to restore all inputs
+- **Text inputs/textarea**: `value = defaultValue`
+- **Checkboxes/radio**: `checked = defaultChecked`
+- **Select**: Restores default selected option
 
 #### Render()
 

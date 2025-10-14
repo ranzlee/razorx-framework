@@ -306,11 +306,11 @@ public class RxDriverTests {
     public async Task AddTriggerCloseDialog_SetsCorrectHeader() {
         // Arrange
         _httpContext.Request.Headers["rx-request"] = "";
-        
+
         // Act
         await _rxDriver
             .With(_httpContext)
-            .AddTriggerCloseDialog("test-dialog", "close-data", "test-form")
+            .AddTriggerCloseDialog("test-dialog", "close-data")
             .Render();
 
         // Assert
@@ -318,7 +318,23 @@ public class RxDriverTests {
         var triggerHeader = _httpContext.Response.Headers["rx-trigger-close-dialog"].ToString();
         Assert.IsTrue(triggerHeader.Contains("\"dialogId\":\"test-dialog\""));
         Assert.IsTrue(triggerHeader.Contains("\"onCloseData\":\"close-data\""));
-        Assert.IsTrue(triggerHeader.Contains("\"resetFormId\":\"test-form\""));
+    }
+
+    [TestMethod]
+    public async Task AddTriggerResetForm_SetsCorrectHeader() {
+        // Arrange
+        _httpContext.Request.Headers["rx-request"] = "";
+
+        // Act
+        await _rxDriver
+            .With(_httpContext)
+            .AddTriggerResetForm(new[] { "form-1", "input-1" })
+            .Render();
+
+        // Assert
+        Assert.IsTrue(_httpContext.Response.Headers.ContainsKey("rx-trigger-reset-form"));
+        var triggerHeader = _httpContext.Response.Headers["rx-trigger-reset-form"].ToString();
+        Assert.IsTrue(triggerHeader.Contains("\"elementIds\":[\"form-1\",\"input-1\"]"));
     }
 
     [TestMethod]
