@@ -2193,6 +2193,7 @@ IResult RenderSse<TModel>(
     IAsyncEnumerable<TModel> models,
     Func<TModel, IRxResponseBuilder, Task> configureEvent,
     string eventType = "rx-server-sent-event",
+    TimeSpan? heartbeatInterval = null,
     CancellationToken cancellationToken = default
 )
 ```
@@ -2201,10 +2202,12 @@ IResult RenderSse<TModel>(
 - `models` - Async stream of data
 - `configureEvent` - Callback to build response for each model
 - `eventType` - SSE event type for client filtering
+- `heartbeatInterval` - Keep-alive interval to prevent proxy timeouts (default: 30 seconds when specified)
 - `cancellationToken` - Stops stream when cancelled
 
 **Example:**
 ```csharp
+// Basic SSE stream
 return rxDriver.With(context).RenderSse(
     GetNotificationsAsync(userId, ct),
     async (notification, builder) => {
@@ -2216,6 +2219,19 @@ return rxDriver.With(context).RenderSse(
             .AddTriggerToast(notification.Message, ToastType.Info);
     },
     eventType: "notification",
+    cancellationToken: ct
+);
+
+// With heartbeat to prevent proxy/firewall timeouts
+return rxDriver.With(context).RenderSse(
+    GetDashboardMetricsAsync(ct),
+    async (metric, builder) => {
+        builder.AddFragment<MetricCard, Metric>(
+            metric,
+            $"metric-{metric.Id}",
+            FragmentMergeStrategyType.Morph);
+    },
+    heartbeatInterval: TimeSpan.FromSeconds(15), // Send keep-alive every 15 seconds
     cancellationToken: ct
 );
 ```
@@ -2579,6 +2595,42 @@ return rxDriver.With(context).RenderSse(
 </div>
 ```
 
+#### SSE Heartbeat/Keep-Alive
+
+Many proxies, load balancers, and firewalls terminate idle connections after 30-60 seconds. The heartbeat feature prevents connection drops by sending periodic keep-alive messages.
+
+**When to use heartbeat:**
+- Behind corporate proxies or firewalls
+- Using cloud load balancers (AWS ALB, Azure Application Gateway)
+- Long periods between data events
+- Critical real-time connections that must stay alive
+
+**How it works:**
+```csharp
+return rxDriver.With(context).RenderSse(
+    GetSparseUpdatesAsync(ct),  // May have long gaps between events
+    async (update, builder) => {
+        builder.AddFragment<UpdateCard, Update>(update, "updates");
+    },
+    heartbeatInterval: TimeSpan.FromSeconds(20), // Heartbeat every 20s
+    ct
+);
+```
+
+The framework:
+1. Sends a heartbeat SSE comment (`:heartbeat\n\n`) at the specified interval
+2. Resets the timer after each data event (heartbeats only during idle periods)
+3. Continues heartbeats even after the data stream ends (keeps connection alive)
+4. Automatically handled by browsers (transparent to client code)
+
+**Recommended intervals:**
+- AWS ALB: 15-20 seconds (default timeout: 60s)
+- Azure Application Gateway: 20-30 seconds (default timeout: 60-120s)
+- Cloudflare: 30-60 seconds (default timeout: 100s)
+- Corporate proxies: 10-20 seconds (varies widely)
+
+**Note:** Setting heartbeatInterval to `null` disables heartbeats entirely (default behavior).
+
 #### Polling vs SSE Comparison
 
 **Before (Polling):**
@@ -2601,6 +2653,7 @@ return rxDriver.With(context).RenderSse(
 - ✅ Significantly lower server load (single persistent connection)
 - ✅ Lower bandwidth (server sends only when data changes)
 - ✅ Multiple fragments + triggers per event
+- ✅ Heartbeat support prevents proxy timeouts
 
 ### Multi-Client Broadcasting
 

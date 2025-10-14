@@ -1079,7 +1079,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     function setTriggers(ele: HTMLElement): void {
         if (ele.dataset.rxAction && (!ele.id || ele.id.trim() === "")) {
-            throw new Error(`Element with "data-rx-action" must have a unique ID.`);
+            throw new Error(`Element with data-rx-action="${ele.dataset.rxAction}" must have a unique ID attribute. Add id="some-unique-id" to the element.`);
         }
         if (!ele.dataset.rxAction && ele.dataset.rxTrigger) {
             console.warn(`Element has data-rx-trigger but no data-rx-action. Triggers will not function.`, ele);
@@ -1362,7 +1362,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
 
     function configureElement(ele: HTMLElement): void {
         if (!ele.id || ele.id.trim() === "") {
-            const err = `Element with "data-rx-action" must have a unique ID.`;
+            const err = `Element with data-rx-action="${ele.dataset.rxAction}" must have a unique ID attribute. Add id="some-unique-id" to the element.`;
             throw new Error(err);
         }
         //id is required and mustn't be modified
@@ -2597,7 +2597,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
             case "DELETE":
                 return m;
             default:
-                throw new Error(`Invalid data-rx-method on element #${ele.id}: "${m}". Expected: GET, POST, PUT, PATCH, or DELETE.`);
+                throw new Error(`Invalid data-rx-method="${m}" on element #${ele.id}. Valid HTTP methods are: GET, POST, PUT, PATCH, DELETE (case-insensitive).`);
         }
     }
 
@@ -3058,7 +3058,7 @@ const _init = (options?: Options, callbacks?: DocumentCallbacks): void => {
                         }
                         if (oldNode.dataset.rxAction) {
                             if (!oldNode.id || oldNode.id.trim() === "") {
-                                throw new Error(`Element with "data-rx-action" must have a unique ID after morphing.`);
+                                throw new Error(`Element with data-rx-action="${oldNode.dataset.rxAction}" must have a unique ID attribute after morphing. Add id="some-unique-id" to the element.`);
                             }
                             setTriggers(oldNode);
                         }

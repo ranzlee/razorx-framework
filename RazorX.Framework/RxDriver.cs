@@ -423,6 +423,7 @@ public interface IRxResponseBuilder {
     /// <param name="models">Async stream of models to process.</param>
     /// <param name="configureEvent">Callback to configure fragments and triggers for each model.</param>
     /// <param name="eventType">The SSE event type name (default: "rx-server-sent-event"). Used for namespace isolation.</param>
+    /// <param name="heartbeatInterval">Optional interval for sending keep-alive heartbeats to prevent proxy timeouts (default: 30 seconds).</param>
     /// <param name="cancellationToken">Cancellation token for the SSE connection.</param>
     /// <returns>An IResult that streams Server-Sent Events to the client.</returns>
     /// <remarks>
@@ -432,6 +433,9 @@ public interface IRxResponseBuilder {
     ///
     /// The eventType parameter enables namespace isolation from custom SSE endpoints.
     /// The client can filter which event types to process using data-rx-sse-events attribute.
+    ///
+    /// The heartbeatInterval parameter sends periodic keep-alive messages to maintain the connection
+    /// through proxies and firewalls. Set to null to disable heartbeats.
     ///
     /// The builder's state is automatically reset between events.
     /// The SSE connection remains open until the models stream completes or the client disconnects.
@@ -448,6 +452,7 @@ public interface IRxResponseBuilder {
     ///                 .AddFragment&lt;UnreadBadge, int&gt;(notification.UnreadCount, "badge", Swap)
     ///                 .AddTriggerToast($"New: {notification.Title}", Success, 3000);
     ///         },
+    ///         heartbeatInterval: TimeSpan.FromSeconds(15), // Custom heartbeat interval
     ///         ct
     ///     );
     /// </code>
@@ -456,6 +461,7 @@ public interface IRxResponseBuilder {
         IAsyncEnumerable<TModel> models,
         Func<TModel, IRxResponseBuilder, Task> configureEvent,
         string eventType = "rx-server-sent-event",
+        TimeSpan? heartbeatInterval = null,
         CancellationToken cancellationToken = default
     );
 }
@@ -1007,10 +1013,73 @@ internal sealed class RxResponseBuilder(
         }
     }
 
+    private async IAsyncEnumerable<SseItem<string>> StreamEventsWithHeartbeatInternal<TModel>(
+        IAsyncEnumerable<TModel> models,
+        Func<TModel, IRxResponseBuilder, Task> configureEvent,
+        string eventType,
+        TimeSpan heartbeatInterval,
+        [EnumeratorCancellation] CancellationToken cancellationToken
+    ) {
+        using var timer = new PeriodicTimer(heartbeatInterval);
+        var modelEnumerator = models.GetAsyncEnumerator(cancellationToken);
+        var hasMoreData = true;
+        var nextHeartbeatTask = timer.WaitForNextTickAsync(cancellationToken).AsTask();
+
+        try {
+            while (!cancellationToken.IsCancellationRequested) {
+                // Try to get next model
+                Task<bool> nextModelTask = hasMoreData
+                    ? modelEnumerator.MoveNextAsync().AsTask()
+                    : Task.FromResult(false);
+
+                // Race between next data and heartbeat
+                var completedTask = await Task.WhenAny(nextModelTask, nextHeartbeatTask)
+                    .ConfigureAwait(false);
+
+                if (completedTask == nextModelTask) {
+                    hasMoreData = await nextModelTask.ConfigureAwait(false);
+                    if (hasMoreData) {
+                        // Process the model
+                        await configureEvent(modelEnumerator.Current, this).ConfigureAwait(false);
+                        if (renderTasks.Count > 0) {
+                            if (logger.IsEnabled(LogLevel.Debug)) {
+                                logger.LogDebug("Rendering SSE event fragments");
+                            }
+                            await Task.WhenAll(renderTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+                        }
+                        var payload = BuildEventPayload();
+                        var json = RxJsonSerializer.Serialize(payload);
+                        yield return new SseItem<string>(json, eventType: eventType);
+                        ResetBuilderState();
+
+                        // Reset heartbeat timer since we sent data
+                        nextHeartbeatTask = timer.WaitForNextTickAsync(cancellationToken).AsTask();
+                    } else {
+                        // No more data, but keep sending heartbeats
+                        // Send one heartbeat then exit if still no data
+                        await nextHeartbeatTask.ConfigureAwait(false);
+                        // Send heartbeat as SSE comment
+                        yield return new SseItem<string>(":heartbeat", eventType: null);
+                        break;
+                    }
+                } else {
+                    // Heartbeat timer expired
+                    await nextHeartbeatTask.ConfigureAwait(false);
+                    // Send heartbeat as SSE comment (: prefix makes it a comment)
+                    yield return new SseItem<string>(":heartbeat", eventType: null);
+                    nextHeartbeatTask = timer.WaitForNextTickAsync(cancellationToken).AsTask();
+                }
+            }
+        } finally {
+            await modelEnumerator.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
     public IResult RenderSse<TModel>(
         IAsyncEnumerable<TModel> models,
         Func<TModel, IRxResponseBuilder, Task> configureEvent,
         string eventType = "rx-server-sent-event",
+        TimeSpan? heartbeatInterval = null,
         CancellationToken cancellationToken = default
     ) {
         ArgumentNullException.ThrowIfNull(models);
@@ -1022,10 +1091,15 @@ internal sealed class RxResponseBuilder(
             throw new InvalidOperationException("Render has already been called and may only be called once per request.");
         }
         isRendering = true;
-        isSseStreaming = true;  
-        return TypedResults.ServerSentEvents(
-            StreamEventsInternal(models, configureEvent, eventType, cancellationToken)
-        );
+        isSseStreaming = true;
+
+        // Use heartbeat if specified, otherwise stream without heartbeat
+        var effectiveHeartbeat = heartbeatInterval ?? TimeSpan.FromSeconds(30);
+        var eventStream = heartbeatInterval.HasValue
+            ? StreamEventsWithHeartbeatInternal(models, configureEvent, eventType, effectiveHeartbeat, cancellationToken)
+            : StreamEventsInternal(models, configureEvent, eventType, cancellationToken);
+
+        return TypedResults.ServerSentEvents(eventStream);
     }
 
     /// <summary>

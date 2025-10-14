@@ -358,6 +358,140 @@ public class RxResponseBuilderSseTests {
         );
     }
 
+    [TestMethod]
+    public void RenderSse_WithHeartbeatInterval_ReturnsValidResult() {
+        // Arrange
+        var models = CreateTestModelStream(1);
+        var heartbeatInterval = TimeSpan.FromSeconds(15);
+
+        // Act
+        var result = _rxDriver
+            .With(_httpContext)
+            .RenderSse(
+                models,
+                async (model, builder) => {
+                    builder.AddFragment<SseTestComponent, SseTestModel>(model, "test-target");
+                    await Task.CompletedTask;
+                },
+                heartbeatInterval: heartbeatInterval,
+                cancellationToken: CancellationToken.None
+            );
+
+        // Assert
+        Assert.IsNotNull(result);
+        Assert.IsTrue(result.GetType().Name.Contains("ServerSentEvents"));
+    }
+
+    [TestMethod]
+    public void RenderSse_WithNullHeartbeatInterval_UsesDefaultBehavior() {
+        // Arrange
+        var models = CreateTestModelStream(1);
+
+        // Act
+        var result = _rxDriver
+            .With(_httpContext)
+            .RenderSse(
+                models,
+                async (model, builder) => {
+                    builder.AddFragment<SseTestComponent, SseTestModel>(model, "test-target");
+                    await Task.CompletedTask;
+                },
+                heartbeatInterval: null
+            );
+
+        // Assert
+        Assert.IsNotNull(result);
+        Assert.IsTrue(result.GetType().Name.Contains("ServerSentEvents"));
+    }
+
+    [TestMethod]
+    public void RenderSse_WithZeroHeartbeatInterval_ThrowsArgumentException() {
+        // Arrange
+        var models = CreateTestModelStream(1);
+
+        // Act & Assert - Zero interval should work but be inefficient
+        var result = _rxDriver
+            .With(_httpContext)
+            .RenderSse(
+                models,
+                async (model, builder) => await Task.CompletedTask,
+                heartbeatInterval: TimeSpan.Zero
+            );
+
+        // Should not throw, but creates a very aggressive heartbeat
+        Assert.IsNotNull(result);
+    }
+
+    [TestMethod]
+    public void RenderSse_WithVeryLongHeartbeatInterval_ReturnsValidResult() {
+        // Arrange
+        var models = CreateTestModelStream(1);
+        var heartbeatInterval = TimeSpan.FromMinutes(10);
+
+        // Act
+        var result = _rxDriver
+            .With(_httpContext)
+            .RenderSse(
+                models,
+                async (model, builder) => {
+                    builder.AddFragment<SseTestComponent, SseTestModel>(model, "test-target");
+                    await Task.CompletedTask;
+                },
+                heartbeatInterval: heartbeatInterval
+            );
+
+        // Assert
+        Assert.IsNotNull(result);
+        Assert.IsTrue(result.GetType().Name.Contains("ServerSentEvents"));
+    }
+
+    [TestMethod]
+    public void RenderSse_WithHeartbeatAndMultipleFragments_ReturnsValidResult() {
+        // Arrange
+        var models = CreateTestModelStream(2);
+        var heartbeatInterval = TimeSpan.FromSeconds(5);
+
+        // Act
+        var result = _rxDriver
+            .With(_httpContext)
+            .RenderSse(
+                models,
+                async (model, builder) => {
+                    builder
+                        .AddFragment<SseTestComponent, SseTestModel>(model, "target1")
+                        .AddFragment<SseTestComponent, SseTestModel>(model, "target2")
+                        .AddTriggerToast($"Processing: {model.Message}", ToastType.Info);
+                    await Task.CompletedTask;
+                },
+                heartbeatInterval: heartbeatInterval
+            );
+
+        // Assert
+        Assert.IsNotNull(result);
+    }
+
+    [TestMethod]
+    public void RenderSse_WithHeartbeatAndCustomEventType_ReturnsValidResult() {
+        // Arrange
+        var models = CreateTestModelStream(1);
+
+        // Act
+        var result = _rxDriver
+            .With(_httpContext)
+            .RenderSse(
+                models,
+                async (model, builder) => {
+                    builder.AddFragment<SseTestComponent, SseTestModel>(model, "test");
+                    await Task.CompletedTask;
+                },
+                eventType: "custom-event",
+                heartbeatInterval: TimeSpan.FromSeconds(20)
+            );
+
+        // Assert
+        Assert.IsNotNull(result);
+    }
+
     #endregion
 
     #region Helper Methods

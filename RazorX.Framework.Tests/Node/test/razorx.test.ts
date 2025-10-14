@@ -643,7 +643,7 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert - error should be logged, not thrown
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: `Invalid data-rx-method on element #${btnId}: "INVALID". Expected: GET, POST, PUT, PATCH, or DELETE.`
+          message: `Invalid data-rx-method="INVALID" on element #${btnId}. Valid HTTP methods are: GET, POST, PUT, PATCH, DELETE (case-insensitive).`
         })
       )
       expect(mockFetch).not.toHaveBeenCalled()
@@ -670,7 +670,7 @@ describe('RazorX Framework API Surface Tests', () => {
       // Assert - error should be logged, not thrown
       expect(consoleSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: `Invalid data-rx-method on element #${btnId}: "HEAD". Expected: GET, POST, PUT, PATCH, or DELETE.`
+          message: `Invalid data-rx-method="HEAD" on element #${btnId}. Valid HTTP methods are: GET, POST, PUT, PATCH, DELETE (case-insensitive).`
         })
       )
       expect(mockFetch).not.toHaveBeenCalled()
@@ -5652,7 +5652,7 @@ describe('RazorX Framework API Surface Tests', () => {
       expect(() => {
         document.body.appendChild(button)
         processNewElements()
-      }).toThrow('Element with "data-rx-action" must have a unique ID')
+      }).toThrow('Element with data-rx-action="/test" must have a unique ID attribute. Add id="some-unique-id" to the element.')
     })
 
     test('malformed JSON in response headers throws error', async () => {
