@@ -6751,7 +6751,9 @@ describe('RazorX Framework API Surface Tests', () => {
       // Complete button2's request
       resolveRequest2!()
       await waitForDOMUpdates()
-      
+      // Extra wait to ensure response processing and indicator state update complete
+      await waitForMicrotasks()
+
       // Now indicator should be hidden
       expect(indicator.classList.contains('rx-loading-hidden')).toBe(true)
       expect(indicator.classList.contains('rx-loading-visible')).toBe(false)
