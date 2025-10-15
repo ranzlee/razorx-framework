@@ -88,7 +88,9 @@ internal static class RxJsonSerializer {
             List<MergeStrategy> strategies => JsonSerializer.Serialize(strategies, context.ListMergeStrategy),
             SseEventPayload payload => JsonSerializer.Serialize(payload, context.SseEventPayload),
             TransportMessage msg => JsonSerializer.Serialize(msg, context.TransportMessage),
-            _ => JsonSerializer.Serialize(value, value.GetType(), context)
+            _ => throw new InvalidOperationException(
+                $"Type {typeof(T).Name} is not registered in RxJsonSerializerContext. " +
+                "Add [JsonSerializable(typeof({typeof(T).Name}))] to RxJsonSerializerContext.")
         };
     }
 }
