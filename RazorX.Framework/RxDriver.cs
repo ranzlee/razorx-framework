@@ -703,7 +703,7 @@ internal sealed class RxResponseBuilder(
     private readonly HttpContext context = context;
     private readonly IHtmlRendererWrapper htmlRenderer = htmlRenderer;
     private readonly ILogger logger = logger;
-    private readonly RxMemoryPool memoryPool = memoryPool;
+    private readonly IDisposable? correlationScope = logger.BeginCorrelationScope(context);
     private bool isRendering = false;
     private bool isSseStreaming = false;
     private bool disposed = false;
@@ -1119,6 +1119,7 @@ internal sealed class RxResponseBuilder(
             return;
         }
         content.Dispose();
+        correlationScope?.Dispose();
         disposed = true;
     }
 }

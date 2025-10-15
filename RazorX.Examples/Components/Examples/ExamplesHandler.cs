@@ -10,7 +10,7 @@ public class TodoModel(int id, string text, bool isComplete) {
     public bool IsComplete { get; set; } = isComplete;
 };
 
-public record ExampleModel(IEnumerable<TodoModel> Todos, int Total, int Completed, FileUploadModel FileUpload);
+public record ExampleModel(IEnumerable<TodoModel> Todos, int Total, int Completed, FileUploadModel FileUpload, string? CorrelationId = null);
 public record TodoFormModel(int Id, string Text, bool IsComplete, bool HasError, bool IsEdit);
 public record FileUploadModel(string FileId, string FileName, string NewFileName, Stream? File);
 public record SseMessage(TodoModel Todo, string Action);
@@ -42,7 +42,10 @@ public class ExamplesHandler : RequestHandler {
     private static FileUploadModel Upload = new(string.Empty, string.Empty, string.Empty, null);
 
     public static async Task<IResult> Get(HttpContext context, IRxDriver rxDriver, string filter = "") {
-        return await rxDriver.RenderPage<App, ExamplesHeader, ExamplesPage, ExampleModel>(context, new ExampleModel([], 0, 0, Upload));
+        var correlationId = context.GetCorrelationId();
+        return await rxDriver.RenderPage<App, ExamplesHeader, ExamplesPage, ExampleModel>(
+            context,
+            new ExampleModel([], 0, 0, Upload, correlationId));
     }
 
     public static IResult ServerStream(
@@ -50,12 +53,17 @@ public class ExamplesHandler : RequestHandler {
         [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
         IRxDriver rxDriver,
         RxSseBroadcastService<SseMessage, SseBroadcastMetadata> broadcast,
+        ILogger<ExamplesHandler> logger,
         CancellationToken ct) {
+        // Correlation ID is automatically included in this log entry
+        logger.LogInformation("SSE connection established for instance: {InstanceId}", rxInstanceId);
+
         broadcast.Subscribe(
             rxInstanceId,
             filter: meta => meta?.SubscriberId != rxInstanceId && meta?.EventType == TodoChangeEvent
         );
         ct.Register(() => {
+            logger.LogInformation("SSE connection closed for instance: {InstanceId}", rxInstanceId);
             broadcast.Unsubscribe(rxInstanceId);
         });
         return rxDriver
@@ -63,6 +71,10 @@ public class ExamplesHandler : RequestHandler {
             .RenderSse(
                 broadcast.GetUpdates(rxInstanceId, ct),
                 async (sseMessage, builder) => {
+                    // Correlation ID is still in scope for each event!
+                    logger.LogDebug("Processing SSE event: {Action} for Todo {TodoId}",
+                        sseMessage.Action, sseMessage.Todo.Id);
+
                     //add
                     if (sseMessage.Action == "Add") {
                         builder
@@ -129,7 +141,12 @@ public class ExamplesHandler : RequestHandler {
         [FromQuery(Name = "rx-instance-id")] string rxInstanceId,
         IRxDriver rxDriver,
         RxSseBroadcastService<SseMessage, SseBroadcastMetadata> broadcast,
+        ILogger<ExamplesHandler> logger,
         TodoFormModel model) {
+        // Log with correlation ID (automatically included in log scope)
+        var correlationId = context.GetCorrelationId();
+        logger.LogInformation("Creating new todo with text: {TodoText}, CorrelationId: {CorrelationId}",
+            model.Text, correlationId);
         var validationResult = ValidateTodo(context, rxDriver, false, model);
         if (validationResult != null) {
             return await validationResult.Render();

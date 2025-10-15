@@ -2,11 +2,15 @@ using Microsoft.Extensions.Logging;
 
 namespace RazorX.Framework.Tests.Mocks;
 
+public sealed class TestScope : IDisposable {
+    public void Dispose() { }
+}
+
 public sealed class TestLogger<T> : ILogger<T> {
     public List<string> LogMessages { get; } = [];
     public LogLevel LastLogLevel { get; private set; }
 
-    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => new TestScope();
 
     public bool IsEnabled(LogLevel logLevel) => true;
 

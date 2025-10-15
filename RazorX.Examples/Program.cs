@@ -32,6 +32,7 @@ if (!app.Environment.IsDevelopment()) {
 }
 
 app.UseHttpsRedirection();
+app.UseRxCorrelationId(); // Add correlation ID tracking early in pipeline
 app.UseStaticFiles();
 app.UseAntiforgery();
 app.UseRxAntiforgeryCookie();
