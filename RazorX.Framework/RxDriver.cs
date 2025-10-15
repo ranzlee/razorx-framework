@@ -1094,9 +1094,8 @@ internal sealed class RxResponseBuilder(
         isSseStreaming = true;
 
         // Use heartbeat if specified, otherwise stream without heartbeat
-        var effectiveHeartbeat = heartbeatInterval ?? TimeSpan.FromSeconds(30);
         var eventStream = heartbeatInterval.HasValue
-            ? StreamEventsWithHeartbeatInternal(models, configureEvent, eventType, effectiveHeartbeat, cancellationToken)
+            ? StreamEventsWithHeartbeatInternal(models, configureEvent, eventType, heartbeatInterval.Value, cancellationToken)
             : StreamEventsInternal(models, configureEvent, eventType, cancellationToken);
 
         return TypedResults.ServerSentEvents(eventStream);
