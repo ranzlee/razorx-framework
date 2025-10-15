@@ -98,6 +98,7 @@ public class ExamplesHandler : RequestHandler {
                     await Task.CompletedTask;
                 },
                 eventType: TodoChangeEvent,
+                TimeSpan.FromSeconds(30),
                 cancellationToken: ct
             );
     }
