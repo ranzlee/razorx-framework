@@ -55,7 +55,7 @@ public class ExamplesHandler : RequestHandler {
         RxSseBroadcastService<SseMessage, SseBroadcastMetadata> broadcast,
         ILogger<ExamplesHandler> logger,
         CancellationToken ct) {
-        // Correlation ID is automatically included in this log entry
+        // Activity.Current.TraceId is automatically included in all log entries (W3C Trace Context)
         logger.LogInformation("SSE connection established for instance: {InstanceId}", rxInstanceId);
 
         broadcast.Subscribe(
@@ -71,7 +71,7 @@ public class ExamplesHandler : RequestHandler {
             .RenderSse(
                 broadcast.GetUpdates(rxInstanceId, ct),
                 async (sseMessage, builder) => {
-                    // Correlation ID is still in scope for each event!
+                    // Activity.Current propagates automatically across async boundaries
                     logger.LogDebug("Processing SSE event: {Action} for Todo {TodoId}",
                         sseMessage.Action, sseMessage.Todo.Id);
 
@@ -143,7 +143,7 @@ public class ExamplesHandler : RequestHandler {
         RxSseBroadcastService<SseMessage, SseBroadcastMetadata> broadcast,
         ILogger<ExamplesHandler> logger,
         TodoFormModel model) {
-        // Log with correlation ID (automatically included in log scope)
+        // Activity.Current.TraceId is automatically included in structured logs (W3C Trace Context)
         var correlationId = context.GetCorrelationId();
         logger.LogInformation("Creating new todo with text: {TodoText}, CorrelationId: {CorrelationId}",
             model.Text, correlationId);

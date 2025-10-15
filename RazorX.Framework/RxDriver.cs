@@ -126,6 +126,47 @@ public static class RxDriverServices {
     public static bool IsRxRequest(this HttpRequest request) {
         return request.Headers.ContainsKey("rx-request");
     }
+
+    /// <summary>
+    /// Gets a correlation ID for the current request using .NET's built-in tracing infrastructure.
+    /// </summary>
+    /// <param name="context">The HTTP context.</param>
+    /// <returns>The correlation ID (W3C TraceId or HttpContext.TraceIdentifier).</returns>
+    /// <remarks>
+    /// <para>
+    /// This method leverages .NET's built-in Activity and HttpContext.TraceIdentifier for request correlation.
+    /// The returned ID is compatible with W3C Trace Context standard and OpenTelemetry.
+    /// </para>
+    /// <para>
+    /// Priority order:
+    /// 1. Activity.Current.TraceId (W3C Trace Context standard - 32-character hex string)
+    /// 2. HttpContext.TraceIdentifier (ASP.NET Core auto-generated identifier)
+    /// </para>
+    /// <para>
+    /// Activity.Current is automatically created by ASP.NET Core for all HTTP requests and provides:
+    /// - W3C Trace Context compliance (traceparent/tracestate headers)
+    /// - Automatic propagation across async boundaries
+    /// - Parent-child relationship tracking (TraceId + SpanId)
+    /// - Native OpenTelemetry integration
+    /// - Automatic inclusion in structured logs
+    /// </para>
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// public static async Task&lt;IResult&gt; GetHandler(HttpContext context, IRxDriver rxDriver) {
+    ///     var correlationId = context.GetCorrelationId();
+    ///     // Use in model, logging, etc.
+    ///     return await rxDriver.RenderPage&lt;App, Page, Model&gt;(
+    ///         context,
+    ///         new Model { CorrelationId = correlationId }
+    ///     );
+    /// }
+    /// </code>
+    /// </example>
+    public static string GetCorrelationId(this HttpContext context) {
+        ArgumentNullException.ThrowIfNull(context);
+        return System.Diagnostics.Activity.Current?.TraceId.ToString() ?? context.TraceIdentifier;
+    }
 }
 
 /// <summary>
@@ -703,7 +744,6 @@ internal sealed class RxResponseBuilder(
     private readonly HttpContext context = context;
     private readonly IHtmlRendererWrapper htmlRenderer = htmlRenderer;
     private readonly ILogger logger = logger;
-    private readonly IDisposable? correlationScope = logger.BeginCorrelationScope(context);
     private bool isRendering = false;
     private bool isSseStreaming = false;
     private bool disposed = false;
@@ -1118,7 +1158,6 @@ internal sealed class RxResponseBuilder(
             return;
         }
         content.Dispose();
-        correlationScope?.Dispose();
         disposed = true;
     }
 }
