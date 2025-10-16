@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;
@@ -636,13 +637,30 @@ internal sealed class RxDriver(
         CancellationToken cancellationToken
     ) {
         cancellationToken.ThrowIfCancellationRequested();
-        string output = string.Empty;
-        await RxResponseBuilder.InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
-            cancellationToken.ThrowIfCancellationRequested();
-            var root = await htmlRenderer.RenderComponentAsync(rootComponentType, rootParameters).ConfigureAwait(false);
-            output = root.ToHtmlString();
-        }, logger).ConfigureAwait(false);
-        return Results.Content(output, "text/html");
+        using var activity = RxTelemetry.ActivitySource.StartActivity("razorx.page.render");
+        activity?.SetTag("component.root", rootComponentType.Name);
+        if (rootParameters.TryGetValue<object?>(nameof(IRootComponent.HeadContent), out var headContentType) && headContentType is Type headType) {
+            activity?.SetTag("component.head", headType.Name);
+        }
+        if (rootParameters.TryGetValue<object?>(nameof(IRootComponent.MainContent), out var mainContentType) && mainContentType is Type mainType) {
+            activity?.SetTag("component.page", mainType.Name);
+        }
+        var stopwatch = ValueStopwatch.StartNew();
+        try {
+            string output = string.Empty;
+            await RxResponseBuilder.InvokeOnDispatcherAsync(htmlRenderer.Dispatcher, async () => {
+                cancellationToken.ThrowIfCancellationRequested();
+                var root = await htmlRenderer.RenderComponentAsync(rootComponentType, rootParameters).ConfigureAwait(false);
+                output = root.ToHtmlString();
+            }, logger).ConfigureAwait(false);
+            RxTelemetry.RequestCounter.Add(1,
+                new KeyValuePair<string, object?>("operation", "page"));
+            return Results.Content(output, "text/html");
+        } finally {
+            RxTelemetry.RenderDuration.Record(
+                stopwatch.GetElapsedTime().TotalMilliseconds,
+                new KeyValuePair<string, object?>("operation", "page"));
+        }
     }
 
     public async ValueTask DisposeAsync() {
@@ -904,41 +922,61 @@ internal sealed class RxResponseBuilder(
             throw new InvalidOperationException("Fragment and trigger operations require rx-request header. Use RenderPage methods for full page rendering.");
         }
         isRendering = true;
-        if (closeDialogTrigger != null) {
-            context.Response.Headers.Append("rx-trigger-close-dialog", RxJsonSerializer.Serialize(closeDialogTrigger));
-        }
-        if (focusElementTrigger != null) {
-            context.Response.Headers.Append("rx-trigger-focus-element", RxJsonSerializer.Serialize(focusElementTrigger));
-        }
-        if (resetFormTrigger != null) {
-            context.Response.Headers.Append("rx-trigger-reset-form", RxJsonSerializer.Serialize(resetFormTrigger));
-        }
-        if (setStateTriggers.Count > 0) {
-            foreach (var t in setStateTriggers) {
-                context.Response.Headers.Append("rx-trigger-set-state", RxJsonSerializer.Serialize(t));
+        var fragmentCount = mergeStrategies.Count;
+        var triggerCount =
+            (closeDialogTrigger != null ? 1 : 0) +
+            (focusElementTrigger != null ? 1 : 0) +
+            (resetFormTrigger != null ? 1 : 0) +
+            setStateTriggers.Count +
+            (toastTrigger != null ? 1 : 0);
+        using var activity = RxTelemetry.ActivitySource.StartActivity("razorx.response.build");
+        activity?.SetTag("fragment.count", fragmentCount);
+        activity?.SetTag("trigger.count", triggerCount);
+        var stopwatch = ValueStopwatch.StartNew();
+        try {
+            if (closeDialogTrigger != null) {
+                context.Response.Headers.Append("rx-trigger-close-dialog", RxJsonSerializer.Serialize(closeDialogTrigger));
             }
-        }
-        if (toastTrigger != null) {
-            context.Response.Headers.Append("rx-trigger-toast", RxJsonSerializer.Serialize(toastTrigger));
-        }
-        if (ignoreActiveElementValueOnMorph) {
-            context.Response.Headers.Append("rx-morph-ignore-active", true.ToString());
-        }
-        context.Response.Headers.Append("rx-merge", RxJsonSerializer.Serialize(mergeStrategies));
-        if (renderTasks.Count != 0) {
-            if (logger.IsEnabled(LogLevel.Debug)) {
-                logger.LogDebug("Rendering Fragments");
+            if (focusElementTrigger != null) {
+                context.Response.Headers.Append("rx-trigger-focus-element", RxJsonSerializer.Serialize(focusElementTrigger));
             }
-            await Task.WhenAll(renderTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        string htmlContent;
-        lock (contentLock) {
-            if (content.Length == 0) {
-                return TypedResults.NoContent();
+            if (resetFormTrigger != null) {
+                context.Response.Headers.Append("rx-trigger-reset-form", RxJsonSerializer.Serialize(resetFormTrigger));
             }
-            htmlContent = content.ToString();
+            if (setStateTriggers.Count > 0) {
+                foreach (var t in setStateTriggers) {
+                    context.Response.Headers.Append("rx-trigger-set-state", RxJsonSerializer.Serialize(t));
+                }
+            }
+            if (toastTrigger != null) {
+                context.Response.Headers.Append("rx-trigger-toast", RxJsonSerializer.Serialize(toastTrigger));
+            }
+            if (ignoreActiveElementValueOnMorph) {
+                context.Response.Headers.Append("rx-morph-ignore-active", true.ToString());
+            }
+            context.Response.Headers.Append("rx-merge", RxJsonSerializer.Serialize(mergeStrategies));
+            if (renderTasks.Count != 0) {
+                if (logger.IsEnabled(LogLevel.Debug)) {
+                    logger.LogDebug("Rendering Fragments");
+                }
+                await Task.WhenAll(renderTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            string htmlContent;
+            lock (contentLock) {
+                if (content.Length == 0) {
+                    return TypedResults.NoContent();
+                }
+                htmlContent = content.ToString();
+            }
+            RxTelemetry.RequestCounter.Add(1,
+                new KeyValuePair<string, object?>("operation", "fragment"));
+            RxTelemetry.FragmentCount.Record(fragmentCount);
+            return Results.Content(htmlContent, contentType: "text/html");
+        } finally {
+            RxTelemetry.RenderDuration.Record(
+                stopwatch.GetElapsedTime().TotalMilliseconds,
+                new KeyValuePair<string, object?>("operation", "response"));
         }
-        return Results.Content(htmlContent, contentType: "text/html");
     }
 
     private void AddMergeStrategy(string targetId, FragmentMergeStrategyType fragmentMergeStrategy) {
@@ -1132,12 +1170,14 @@ internal sealed class RxResponseBuilder(
         }
         isRendering = true;
         isSseStreaming = true;
-
-        // Use heartbeat if specified, otherwise stream without heartbeat
+        using var activity = RxTelemetry.ActivitySource.StartActivity("razorx.sse.stream");
+        activity?.SetTag("event.type", eventType);
+        activity?.SetTag("heartbeat.interval", heartbeatInterval?.TotalSeconds.ToString() ?? "none");
+        RxTelemetry.RequestCounter.Add(1,
+            new KeyValuePair<string, object?>("operation", "sse"));
         var eventStream = heartbeatInterval.HasValue
             ? StreamEventsWithHeartbeatInternal(models, configureEvent, eventType, heartbeatInterval.Value, cancellationToken)
             : StreamEventsInternal(models, configureEvent, eventType, cancellationToken);
-
         return TypedResults.ServerSentEvents(eventStream);
     }
 

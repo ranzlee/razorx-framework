@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- AOT Compatibility -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+
+    <!-- XML Documentation -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <DocumentationFile>$(OutputPath)$(AssemblyName).xml</DocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+
+    <!-- NuGet Package Properties -->
+    <GeneratePackageOnBuild Condition="'$(Configuration)' == 'Release' AND '$(CI)' != 'true'">true</GeneratePackageOnBuild>
+    <PackageId>RazorX.Framework.OpenTelemetry</PackageId>
+    <PackageVersion>1.0.0-alpha</PackageVersion>
+    <Authors>Randy Lee</Authors>
+    <Company>RazorX Framework</Company>
+    <Product>RazorX Framework OpenTelemetry Integration</Product>
+    <Title>RazorX Framework - OpenTelemetry Integration</Title>
+    <Description>OpenTelemetry integration for RazorX.Framework providing distributed tracing and metrics collection. Enables observability for RazorX operations including page renders, fragment updates, SSE broadcasts, and memory pool usage.</Description>
+    <Summary>OpenTelemetry instrumentation for RazorX.Framework with distributed tracing and metrics</Summary>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>RazorX;OpenTelemetry;Tracing;Metrics;Observability;SDUI;Distributed-Tracing</PackageTags>
+    <PackageReleaseNotes>Initial alpha release with full tracing and metrics support</PackageReleaseNotes>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/ranzlee/razorx-framework</RepositoryUrl>
+    <RepositoryBranch>main</RepositoryBranch>
+    <PackageProjectUrl>https://github.com/ranzlee/razorx-framework</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <DeterministicSourcePaths>true</DeterministicSourcePaths>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <!-- Framework requirements -->
+    <MinClientVersion>4.0</MinClientVersion>
+    <DevelopmentDependency>false</DevelopmentDependency>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RazorX.Framework\RazorX.Framework.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="OpenTelemetry.Api" Version="1.13.1" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.13.1" />
+    <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
+
+</Project>

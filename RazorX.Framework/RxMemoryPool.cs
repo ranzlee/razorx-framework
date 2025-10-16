@@ -13,6 +13,8 @@ internal sealed class RxMemoryPool(ArrayPool<char>? charPool = null) {
 
     public RentedBuffer<char> RentCharBuffer(int minimumLength) {
         var buffer = _charPool.Rent(minimumLength);
+        RxTelemetry.MemoryPoolRentCounter.Add(1,
+            new KeyValuePair<string, object?>("buffer.size", buffer.Length));
         return new RentedBuffer<char>(buffer, _charPool);
     }
 }
@@ -33,6 +35,8 @@ internal readonly struct RentedBuffer<T> : IDisposable {
     public int Length => _buffer.Length;
 
     public void Dispose() {
+        RxTelemetry.MemoryPoolReturnCounter.Add(1,
+            new KeyValuePair<string, object?>("buffer.size", _buffer.Length));
         _pool.Return(_buffer, clearArray: true);
     }
 }
@@ -47,6 +51,8 @@ internal sealed class PooledStringBuilder : IDisposable {
         Debug.Assert(initialCapacity > 0, "Initial capacity must be positive");
         _pool = pool;
         _buffer = pool.Rent(initialCapacity);
+        RxTelemetry.MemoryPoolRentCounter.Add(1,
+            new KeyValuePair<string, object?>("buffer.size", _buffer.Length));
         _position = 0;
         _disposed = false;
     }
@@ -86,9 +92,14 @@ internal sealed class PooledStringBuilder : IDisposable {
             return;
         }
         var newCapacity = Math.Max(requiredCapacity, _buffer.Length * 2);
+        var oldBufferSize = _buffer.Length;
         var newBuffer = _pool.Rent(newCapacity);
+        RxTelemetry.MemoryPoolRentCounter.Add(1,
+            new KeyValuePair<string, object?>("buffer.size", newBuffer.Length));
         _buffer.AsSpan(0, _position).CopyTo(newBuffer);
         _pool.Return(_buffer, clearArray: true);
+        RxTelemetry.MemoryPoolReturnCounter.Add(1,
+            new KeyValuePair<string, object?>("buffer.size", oldBufferSize));
         _buffer = newBuffer;
     }
 
@@ -106,7 +117,10 @@ internal sealed class PooledStringBuilder : IDisposable {
         if (_disposed) {
             return;
         }
+        var bufferSize = _buffer.Length;
         _pool.Return(_buffer, clearArray: true);
+        RxTelemetry.MemoryPoolReturnCounter.Add(1,
+            new KeyValuePair<string, object?>("buffer.size", bufferSize));
         _disposed = true;
     }
 }

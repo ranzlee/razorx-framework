@@ -139,7 +139,15 @@ public sealed class RxAntiforgeryCookieMiddleware(RequestDelegate next) {
                 context.Request.Method,
                 context.Request.GetDisplayUrl());
         }
-        await antiforgery.ValidateRequestAsync(context).ConfigureAwait(false);
+        try {
+            await antiforgery.ValidateRequestAsync(context).ConfigureAwait(false);
+            RxTelemetry.AntiforgeryValidationCounter.Add(1,
+                new KeyValuePair<string, object?>("result", "success"));
+        } catch {
+            RxTelemetry.AntiforgeryValidationCounter.Add(1,
+                new KeyValuePair<string, object?>("result", "failure"));
+            throw;
+        }
         await next(context).ConfigureAwait(false);
     }
 }

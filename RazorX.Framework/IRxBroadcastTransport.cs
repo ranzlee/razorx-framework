@@ -114,6 +114,8 @@ public interface IRxBroadcastTransport : IDisposable {
 /// <param name="BroadcasterMetadataJson">Optional broadcaster metadata serialized to JSON. Null if no metadata provided.</param>
 /// <param name="SourceServerId">The ID of the server that originated this broadcast.</param>
 /// <param name="TimestampUnixMs">Unix timestamp in milliseconds when the broadcast was sent.</param>
+/// <param name="TraceId">W3C TraceId for distributed tracing correlation. Null if no active trace.</param>
+/// <param name="ParentSpanId">Parent SpanId for distributed tracing. Null if no active span.</param>
 /// <remarks>
 /// <para>
 /// This record is serialized using the framework's RxJsonSerializerContext, ensuring AOT compatibility.
@@ -131,10 +133,17 @@ public interface IRxBroadcastTransport : IDisposable {
 /// Remote servers deserialize the metadata and each subscriber applies their local filter to it.
 /// This enables perfect distributed filtering - filters stay local, metadata travels.
 /// </para>
+/// <para>
+/// <strong>Distributed Tracing</strong>: TraceId and ParentSpanId enable OpenTelemetry distributed
+/// tracing across servers. Remote servers recreate the ActivityContext and link their spans to
+/// the originating trace, providing end-to-end visibility of broadcast operations.
+/// </para>
 /// </remarks>
 internal sealed record TransportMessage(
     string PayloadJson,
     string? BroadcasterMetadataJson,
     string SourceServerId,
-    long TimestampUnixMs
+    long TimestampUnixMs,
+    string? TraceId,
+    string? ParentSpanId
 );

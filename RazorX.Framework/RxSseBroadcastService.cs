@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
@@ -158,6 +159,8 @@ public sealed class RxSseBroadcastService<TModel, TMetadata> : IDisposable {
         this.metadataTypeInfo = metadataTypeInfo;
         broadcastChannel = $"rx-broadcast:{typeof(TModel).FullName}";
         serverId = config?["ServerInstanceId"] ?? Environment.MachineName;
+        var modelType = typeof(TModel).FullName ?? typeof(TModel).Name;
+        RxTelemetry.RegisterSseSubscriberCountCallback(modelType, GetActiveConnectionCount);
         if (this.transport != null) {
             transportCts = new CancellationTokenSource();
             transportListenerTask = Task.Run(ListenToTransportAsync, transportCts.Token);
@@ -312,31 +315,56 @@ public sealed class RxSseBroadcastService<TModel, TMetadata> : IDisposable {
     public async Task BroadcastUpdate(TModel model, TMetadata? broadcasterMetadata = default) {
         ArgumentNullException.ThrowIfNull(model, nameof(model));
         ObjectDisposedException.ThrowIf(disposed, this);
-        await BroadcastToLocalChannels(model, broadcasterMetadata);
-        if (transport != null && modelTypeInfo != null && metadataTypeInfo != null) {
-            try {
-                string modelJson = JsonSerializer.Serialize(model, modelTypeInfo);
-                string? metadataJson = broadcasterMetadata != null
-                    ? JsonSerializer.Serialize(broadcasterMetadata, metadataTypeInfo)
-                    : null;
-                var transportMsg = new TransportMessage(
-                    PayloadJson: modelJson,
-                    BroadcasterMetadataJson: metadataJson,
-                    SourceServerId: serverId,
-                    TimestampUnixMs: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-                );
-                string transportJson = JsonSerializer.Serialize(
-                    transportMsg,
-                    RxJsonSerializerContext.Default.TransportMessage);
-                await transport.PublishAsync(broadcastChannel, transportJson);
-                if (logger.IsEnabled(LogLevel.Debug)) {
-                    logger.LogDebug("Published broadcast to transport channel {Channel}", broadcastChannel);
-                }
-            } catch (Exception ex) {
-                if (logger.IsEnabled(LogLevel.Error)) {
-                    logger.LogError(ex, "Failed to publish broadcast to transport on channel {Channel}", broadcastChannel);
+        using var activity = RxTelemetry.ActivitySource.StartActivity("razorx.sse.broadcast");
+        activity?.SetTag("model.type", typeof(TModel).Name);
+        activity?.SetTag("has.metadata", broadcasterMetadata != null);
+        activity?.SetTag("has.transport", transport != null);
+        var stopwatch = ValueStopwatch.StartNew();
+        var subscriberCount = localSubscribers.Count;
+        try {
+            await BroadcastToLocalChannels(model, broadcasterMetadata);
+            if (transport != null && modelTypeInfo != null && metadataTypeInfo != null) {
+                using var transportActivity = RxTelemetry.ActivitySource.StartActivity(
+                    "razorx.sse.transport.publish",
+                    ActivityKind.Producer);
+                transportActivity?.SetTag("channel", broadcastChannel);
+                transportActivity?.SetTag("server.id", serverId);
+                try {
+                    string modelJson = JsonSerializer.Serialize(model, modelTypeInfo);
+                    string? metadataJson = broadcasterMetadata != null
+                        ? JsonSerializer.Serialize(broadcasterMetadata, metadataTypeInfo)
+                        : null;
+                    var transportMsg = new TransportMessage(
+                        PayloadJson: modelJson,
+                        BroadcasterMetadataJson: metadataJson,
+                        SourceServerId: serverId,
+                        TimestampUnixMs: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                        TraceId: Activity.Current?.TraceId.ToString(),
+                        ParentSpanId: Activity.Current?.SpanId.ToString()
+                    );
+                    string transportJson = JsonSerializer.Serialize(
+                        transportMsg,
+                        RxJsonSerializerContext.Default.TransportMessage);
+                    await transport.PublishAsync(broadcastChannel, transportJson);
+                    if (logger.IsEnabled(LogLevel.Debug)) {
+                        logger.LogDebug("Published broadcast to transport channel {Channel}", broadcastChannel);
+                    }
+                } catch (Exception ex) {
+                    if (logger.IsEnabled(LogLevel.Error)) {
+                        logger.LogError(ex, "Failed to publish broadcast to transport on channel {Channel}", broadcastChannel);
+                    }
                 }
             }
+            RxTelemetry.BroadcastCounter.Add(1,
+                new KeyValuePair<string, object?>("model.type", typeof(TModel).Name),
+                new KeyValuePair<string, object?>("has.metadata", broadcasterMetadata != null),
+                new KeyValuePair<string, object?>("has.transport", transport != null));
+            RxTelemetry.BroadcastSubscriberCount.Record(subscriberCount,
+                new KeyValuePair<string, object?>("model.type", typeof(TModel).Name));
+        } finally {
+            RxTelemetry.BroadcastDuration.Record(
+                stopwatch.GetElapsedTime().TotalMilliseconds,
+                new KeyValuePair<string, object?>("has.transport", transport != null));
         }
     }
 
@@ -380,6 +408,21 @@ public sealed class RxSseBroadcastService<TModel, TMetadata> : IDisposable {
                     if (transportMsg.SourceServerId == serverId) {
                         continue;
                     }
+                    ActivityContext parentContext = default;
+                    if (transportMsg.TraceId != null && transportMsg.ParentSpanId != null) {
+                        parentContext = new ActivityContext(
+                            ActivityTraceId.CreateFromString(transportMsg.TraceId),
+                            ActivitySpanId.CreateFromString(transportMsg.ParentSpanId),
+                            ActivityTraceFlags.Recorded,
+                            isRemote: true
+                        );
+                    }
+                    using var activity = RxTelemetry.ActivitySource.StartActivity(
+                        "razorx.sse.broadcast.receive",
+                        ActivityKind.Consumer,
+                        parentContext);
+                    activity?.SetTag("source.server", transportMsg.SourceServerId);
+                    activity?.SetTag("channel", broadcastChannel);
                     var model = JsonSerializer.Deserialize(
                         transportMsg.PayloadJson,
                         modelTypeInfo!);
@@ -493,6 +536,8 @@ public sealed class RxSseBroadcastService<TModel, TMetadata> : IDisposable {
         if (disposed) {
             return;
         }
+        var modelType = typeof(TModel).FullName ?? typeof(TModel).Name;
+        RxTelemetry.UnregisterSseSubscriberCountCallback(modelType);
         try {
             transportCts?.Cancel();
             if (transportListenerTask != null) {
