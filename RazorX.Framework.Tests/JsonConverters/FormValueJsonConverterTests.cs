@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace RazorX.Framework.Tests.JsonConverters;
 
 /// <summary>

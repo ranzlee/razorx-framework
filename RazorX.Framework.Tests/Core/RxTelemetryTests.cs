@@ -1,7 +1,5 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using RazorX.Framework;
 
 namespace RazorX.Framework.Tests.Core;
 

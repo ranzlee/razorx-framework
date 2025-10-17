@@ -1,10 +1,6 @@
 using System.Diagnostics;
-using System.Diagnostics.Metrics;
 using System.Text.Json;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using RazorX.Framework;
 
 namespace RazorX.Framework.Tests.SSE;
 

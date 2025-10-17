@@ -1,12 +1,7 @@
-using System.Diagnostics;
-using System.Diagnostics.Metrics;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
-using RazorX.Framework;
-using RazorX.Framework.Tests.Mocks;
 
 namespace RazorX.Framework.Tests.Core;
 
