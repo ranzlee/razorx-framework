@@ -124,7 +124,7 @@ public static async Task<IResult> MyHandler(HttpContext context, IRxDriver rxDri
 
 RazorX automatically propagates trace context across servers when using distributed SSE:
 
-```
+```text
 [Server A] POST /todos
   └─ [Server A] razorx.sse.broadcast (TraceId: abc123)
      └─ [Server A] razorx.sse.transport.publish
@@ -177,7 +177,7 @@ docker run -d --name jaeger \
   jaegertracing/all-in-one:latest
 ```
 
-Visit http://localhost:16686 to explore traces.
+Visit [http://localhost:16686](http://localhost:16686) to explore traces.
 
 ## Example: OTLP/gRPC (Production)
 
