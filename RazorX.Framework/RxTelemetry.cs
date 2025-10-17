@@ -53,7 +53,7 @@ internal static class RxTelemetry {
     /// Register with OpenTelemetry via RazorX.Framework.OpenTelemetry package:
     /// <code>
     /// builder.Services.AddOpenTelemetry()
-    ///     .WithTracing(tracing => tracing.AddRazorXInstrumentation());
+    ///     .WithTracing(tracing => tracing.AddRxInstrumentation());
     /// </code>
     /// </para>
     /// </remarks>
@@ -68,7 +68,7 @@ internal static class RxTelemetry {
     /// Register with OpenTelemetry via RazorX.Framework.OpenTelemetry package:
     /// <code>
     /// builder.Services.AddOpenTelemetry()
-    ///     .WithMetrics(metrics => metrics.AddRazorXInstrumentation());
+    ///     .WithMetrics(metrics => metrics.AddRxInstrumentation());
     /// </code>
     /// </para>
     /// </remarks>

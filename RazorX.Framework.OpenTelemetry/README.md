@@ -33,11 +33,11 @@ builder.Services.AddOpenTelemetry()
     .ConfigureResource(resource => resource
         .AddService("MyApp", serviceVersion: "1.0.0"))
     .WithTracing(tracing => tracing
-        .AddRazorXInstrumentation()  // 👈 Add RazorX tracing
+        .AddRxInstrumentation()  // 👈 Add RazorX tracing
         .AddAspNetCoreInstrumentation()
         .AddOtlpExporter())
     .WithMetrics(metrics => metrics
-        .AddRazorXInstrumentation()  // 👈 Add RazorX metrics
+        .AddRxInstrumentation()  // 👈 Add RazorX metrics
         .AddAspNetCoreInstrumentation()
         .AddOtlpExporter());
 
@@ -97,7 +97,7 @@ public static async Task<IResult> MyHandler(HttpContext context, IRxDriver rxDri
 
 ```csharp
 .WithTracing(tracing => tracing
-    .AddRazorXInstrumentation(options => {
+    .AddRxInstrumentation(options => {
         options.RecordPageRenders = true;
         options.RecordBroadcasts = true;
         options.RecordSseStreams = true;
@@ -111,7 +111,7 @@ public static async Task<IResult> MyHandler(HttpContext context, IRxDriver rxDri
 
 ```csharp
 .WithMetrics(metrics => metrics
-    .AddRazorXInstrumentation(options => {
+    .AddRxInstrumentation(options => {
         options.EnableRenderMetrics = true;
         options.EnableSseMetrics = true;
         options.EnableAntiforgeryMetrics = true;
@@ -161,7 +161,7 @@ All operations share the **same W3C TraceId**, enabling end-to-end observability
 ```csharp
 builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing
-        .AddRazorXInstrumentation()
+        .AddRxInstrumentation()
         .AddAspNetCoreInstrumentation()
         .AddJaegerExporter(options => {
             options.AgentHost = "localhost";
@@ -184,14 +184,14 @@ Visit http://localhost:16686 to explore traces.
 ```csharp
 builder.Services.AddOpenTelemetry()
     .WithTracing(tracing => tracing
-        .AddRazorXInstrumentation()
+        .AddRxInstrumentation()
         .AddAspNetCoreInstrumentation()
         .AddOtlpExporter(options => {
             options.Endpoint = new Uri("https://otel-collector:4317");
             options.Protocol = OtlpExportProtocol.Grpc;
         }))
     .WithMetrics(metrics => metrics
-        .AddRazorXInstrumentation()
+        .AddRxInstrumentation()
         .AddAspNetCoreInstrumentation()
         .AddOtlpExporter());
 ```

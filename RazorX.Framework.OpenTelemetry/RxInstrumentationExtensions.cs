@@ -43,12 +43,12 @@ public static class RxInstrumentationExtensions {
     /// <code>
     /// builder.Services.AddOpenTelemetry()
     ///     .WithTracing(tracing => tracing
-    ///         .AddRazorXInstrumentation()
+    ///         .AddRxInstrumentation()
     ///         .AddAspNetCoreInstrumentation()
     ///         .AddOtlpExporter());
     /// </code>
     /// </example>
-    public static TracerProviderBuilder AddRazorXInstrumentation(
+    public static TracerProviderBuilder AddRxInstrumentation(
         this TracerProviderBuilder builder,
         Action<RxTracingOptions>? configure = null) {
         ArgumentNullException.ThrowIfNull(builder);
@@ -95,14 +95,14 @@ public static class RxInstrumentationExtensions {
     /// <code>
     /// builder.Services.AddOpenTelemetry()
     ///     .WithMetrics(metrics => metrics
-    ///         .AddRazorXInstrumentation(options => {
+    ///         .AddRxInstrumentation(options => {
     ///             options.EnableMemoryPoolMetrics = false; // High volume
     ///         })
     ///         .AddAspNetCoreInstrumentation()
     ///         .AddOtlpExporter());
     /// </code>
     /// </example>
-    public static MeterProviderBuilder AddRazorXInstrumentation(
+    public static MeterProviderBuilder AddRxInstrumentation(
         this MeterProviderBuilder builder,
         Action<RxMetricsOptions>? configure = null) {
         ArgumentNullException.ThrowIfNull(builder);
