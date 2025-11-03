@@ -704,6 +704,70 @@ public class RxSseBroadcastMetadataTests {
 
     #endregion
 
+    #region Filter Exception Handling Tests
+
+    [TestMethod]
+    public async Task BroadcastUpdate_FilterThrowsException_LogsWarningAndSkipsSubscriber() {
+        // Arrange
+        _broadcast.Subscribe("sub-good", filter: meta => meta?.TenantId == "tenant-1");
+        _broadcast.Subscribe("sub-bad", filter: meta => throw new InvalidOperationException("Filter error"));
+        _broadcast.Subscribe("sub-good2", filter: meta => meta?.TenantId == "tenant-1");
+
+        var messagesGood1 = new ConcurrentBag<BroadcastTestModel>();
+        var messagesBad = new ConcurrentBag<BroadcastTestModel>();
+        var messagesGood2 = new ConcurrentBag<BroadcastTestModel>();
+
+        var task1 = ConsumeMessages("sub-good", messagesGood1, maxMessages: 1);
+        var task2 = ConsumeMessages("sub-bad", messagesBad, maxMessages: 1);
+        var task3 = ConsumeMessages("sub-good2", messagesGood2, maxMessages: 1);
+        await Task.Delay(100);
+
+        // Act
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Test message" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await Task.Delay(200);
+
+        // Assert
+        Assert.AreEqual(1, messagesGood1.Count, "Good subscriber 1 should receive message");
+        Assert.AreEqual(0, messagesBad.Count, "Bad subscriber should not receive message (filter threw)");
+        Assert.AreEqual(1, messagesGood2.Count, "Good subscriber 2 should receive message");
+
+        // Verify warning was logged
+        Assert.IsTrue(_logger.LogMessages.Any(msg =>
+            msg.Contains("Filter threw exception") &&
+            msg.Contains("sub-bad")));
+    }
+
+    [TestMethod]
+    public async Task BroadcastUpdate_AllFiltersThrow_CompletesWithoutCrashing() {
+        // Arrange
+        _broadcast.Subscribe("sub-1", filter: _ => throw new InvalidOperationException("Error 1"));
+        _broadcast.Subscribe("sub-2", filter: _ => throw new ArgumentException("Error 2"));
+
+        var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        var messages1 = new ConcurrentBag<BroadcastTestModel>();
+        var messages2 = new ConcurrentBag<BroadcastTestModel>();
+        var task1 = ConsumeMessages("sub-1", messages1, ct: cts.Token);
+        var task2 = ConsumeMessages("sub-2", messages2, ct: cts.Token);
+        await Task.Delay(100);
+
+        // Act - should not throw
+        await _broadcast.BroadcastUpdate(
+            new BroadcastTestModel { Message = "Test" },
+            new BroadcastTestMetadata { SubscriberId = "other", TenantId = "tenant-1", Role = "Admin" });
+        await Task.Delay(150);
+
+        // Assert
+        Assert.AreEqual(0, messages1.Count, "No messages should be delivered when filter throws");
+        Assert.AreEqual(0, messages2.Count, "No messages should be delivered when filter throws");
+
+        // Verify warnings were logged
+        Assert.IsTrue(_logger.LogMessages.Count(msg => msg.Contains("Filter threw exception")) >= 2);
+    }
+
+    #endregion
+
     #region Error Handling Tests
 
     [TestMethod]

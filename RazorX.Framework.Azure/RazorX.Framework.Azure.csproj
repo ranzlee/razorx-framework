@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- AOT Compatibility -->
+    <IsAotCompatible>true</IsAotCompatible>
+    <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+    <EnableAotAnalyzer>true</EnableAotAnalyzer>
+
+    <!-- XML Documentation -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
+    <!-- NuGet Package Properties -->
+    <PackageId>RazorX.Framework.Azure</PackageId>
+    <PackageVersion>1.0.0-alpha</PackageVersion>
+    <Authors>Randy Lee</Authors>
+    <Company>RazorX Framework</Company>
+    <Product>RazorX Framework Azure Service Bus Transport</Product>
+    <Title>RazorX.Framework.Azure - Azure Service Bus Transport</Title>
+    <Description>Azure Service Bus transport for distributed RazorX.Framework SSE broadcasts with guaranteed delivery. AOT-compatible.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>RazorX;Azure;Service-Bus;distributed;SSE;server-sent-events;AOT</PackageTags>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/ranzlee/razorx-framework</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/ranzlee/razorx-framework</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.18.2" />
+    <PackageReference Include="Azure.Identity" Version="1.13.1" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Azure" Version="1.7.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../RazorX.Framework/RazorX.Framework.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="README.md" />
+  </ItemGroup>
+</Project>

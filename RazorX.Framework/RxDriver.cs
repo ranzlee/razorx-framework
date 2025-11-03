@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.ServerSentEvents;
 using System.Runtime.CompilerServices;

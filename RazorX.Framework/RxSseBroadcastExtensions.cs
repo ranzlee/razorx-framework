@@ -9,7 +9,7 @@ namespace RazorX.Framework;
 /// <summary>
 /// Extension methods for registering RxSseBroadcastService with dependency injection.
 /// </summary>
-internal static class RxSseBroadcastExtensions {
+public static class RxSseBroadcastExtensions {
     /// <summary>
     /// Registers RxSseBroadcastService with AOT-compatible JSON serialization and subscription-time filtering.
     /// </summary>
@@ -67,7 +67,7 @@ internal static class RxSseBroadcastExtensions {
     ///     options => options.UseRedis("redis-connection-string"));
     /// </code>
     /// </example>
-    internal static IServiceCollection AddRxSseBroadcast<TModel, TMetadata>(
+    public static IServiceCollection AddRxSseBroadcast<TModel, TMetadata>(
         this IServiceCollection services,
         JsonTypeInfo<TModel> modelTypeInfo,
         JsonTypeInfo<TMetadata> metadataTypeInfo,
@@ -92,7 +92,7 @@ internal static class RxSseBroadcastExtensions {
 /// <summary>
 /// Configuration options for distributed broadcast transport.
 /// </summary>
-internal class RxBroadcastTransportOptions {
+public class RxBroadcastTransportOptions {
     internal Func<IServiceProvider, IRxBroadcastTransport>? TransportFactory { get; private set; }
 
     /// <summary>

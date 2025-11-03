@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 
-namespace RazorX.Framework.Tests.Core;
+namespace RazorX.Framework.OpenTelemetry.Tests;
 
 [TestClass]
 public class RxTelemetryTests {

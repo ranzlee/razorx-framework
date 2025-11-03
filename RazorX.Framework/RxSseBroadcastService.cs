@@ -109,7 +109,7 @@ public sealed class RxSseBroadcastService<TModel, TMetadata> : IDisposable {
     private readonly ILogger<RxSseBroadcastService<TModel, TMetadata>> logger;
     private readonly CancellationTokenSource? transportCts;
     private readonly Task? transportListenerTask;
-    private bool disposed = false;
+    private volatile bool disposed = false;
 
     /// <summary>
     /// Initializes a new instance of RxSseBroadcastService.
@@ -373,17 +373,32 @@ public sealed class RxSseBroadcastService<TModel, TMetadata> : IDisposable {
             return;
         }
         var tasks = localSubscribers
-            .Where(kvp => kvp.Value.Filter == null || kvp.Value.Filter(broadcasterMetadata))
-            .Select(async kvp => {
+            .Select(kvp => {
+                // Evaluate filter safely
+                bool shouldBroadcast;
                 try {
-                    await kvp.Value.Channel.Writer.WriteAsync(model);
+                    shouldBroadcast = kvp.Value.Filter == null || kvp.Value.Filter(broadcasterMetadata);
+                } catch (Exception ex) {
+                    if (logger.IsEnabled(LogLevel.Warning)) {
+                        logger.LogWarning(ex,
+                            "Filter threw exception for subscriber {SubscriberId}. Skipping broadcast to this subscriber.",
+                            kvp.Key);
+                    }
+                    shouldBroadcast = false;
+                }
+                return (kvp, shouldBroadcast);
+            })
+            .Where(x => x.shouldBroadcast)
+            .Select(async x => {
+                try {
+                    await x.kvp.Value.Channel.Writer.WriteAsync(model);
                 } catch (ChannelClosedException) {
                     if (logger.IsEnabled(LogLevel.Debug)) {
-                        logger.LogDebug("Channel closed for subscriber {SubscriberId} (client disconnected)", kvp.Key);
+                        logger.LogDebug("Channel closed for subscriber {SubscriberId} (client disconnected)", x.kvp.Key);
                     }
                 } catch (Exception ex) {
                     if (logger.IsEnabled(LogLevel.Warning)) {
-                        logger.LogWarning(ex, "Unexpected error writing to channel for subscriber {SubscriberId}", kvp.Key);
+                        logger.LogWarning(ex, "Unexpected error writing to channel for subscriber {SubscriberId}", x.kvp.Key);
                     }
                 }
             });

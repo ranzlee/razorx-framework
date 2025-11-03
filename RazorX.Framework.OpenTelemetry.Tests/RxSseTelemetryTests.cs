@@ -2,7 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
-namespace RazorX.Framework.Tests.SSE;
+namespace RazorX.Framework.OpenTelemetry.Tests;
 
 [TestClass]
 public class RxSseTelemetryTests {

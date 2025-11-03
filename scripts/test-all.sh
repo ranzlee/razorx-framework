@@ -17,7 +17,20 @@ echo ""
 echo "========================================"
 echo "Running .NET Tests (MSTest)"
 echo "========================================"
+echo "Testing RazorX.Framework.Tests..."
 dotnet test RazorX.Framework.Tests --no-build
+
+echo ""
+echo "Testing RazorX.Framework.OpenTelemetry.Tests..."
+dotnet test RazorX.Framework.OpenTelemetry.Tests --no-build
+
+echo ""
+echo "Testing RazorX.Framework.Redis.Tests..."
+dotnet test RazorX.Framework.Redis.Tests --no-build
+
+echo ""
+echo "Testing RazorX.Framework.Azure.Tests..."
+dotnet test RazorX.Framework.Azure.Tests --no-build
 
 echo ""
 echo "========================================"

@@ -45,30 +45,25 @@ artifacts/
 CLAUDE.md
 .docs
 
+bin
+obj
+
 # RazorX.Framework Project artifacts
-RazorX.Framework/bin/
-RazorX.Framework/obj/
 RazorX.Framework/Node/dist
 RazorX.Framework/Node/node_modules
 RazorX.Framework/nupkg
 RazorX.Framework/*.xml
 
 # RazorX.Framework.OpenTelemetry Project artifacts
-RazorX.Framework.OpenTelemetry/bin/
-RazorX.Framework.OpenTelemetry/obj/
 RazorX.Framework.OpenTelemetry/nupkg
 RazorX.Framework.OpenTelemetry/*.xml
 
 # RazorX.Framework.Tests Project artifacts
-RazorX.Framework.Tests/bin/
-RazorX.Framework.Tests/obj/
 RazorX.Framework.Tests/Node/dist
 RazorX.Framework.Tests/Node/src
 RazorX.Framework.Tests/Node/node_modules
 RazorX.Framework.Tests/Node/coverage
 
 # RazorX.Examples Project artifacts
-RazorX.Examples/bin/
-RazorX.Examples/obj/
 RazorX.Examples/wwwroot/js/razorx.*
 RazorX.Examples/wwwroot/css/razorx.*
