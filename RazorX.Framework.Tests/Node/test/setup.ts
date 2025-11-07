@@ -29,75 +29,40 @@ Object.defineProperty(window, 'location', {
 // Mock fetch
 globalThis.fetch = vi.fn()
 
-// Ensure Blob exists (JSDOM provides it, but make sure it's available)
-if (typeof Blob === 'undefined') {
-  throw new Error('Blob is not available in test environment')
-}
+// Mock File constructor by creating actual Blob instances with File properties
+// This is the ONLY way to ensure instanceof Blob works across all JSDOM environments
+;(globalThis as unknown as Record<string, unknown>).File = function File(
+  bits: BlobPart[],
+  name: string,
+  options?: FilePropertyBag
+): Blob & { name: string; lastModified: number } {
+  // Create an actual Blob instance
+  const blob = new Blob(bits, { type: options?.type || '' })
 
-// Mock File constructor for JSDOM - must ensure instanceof Blob works
-// The key issue: JSDOM on Ubuntu may have Blob in a different realm
-// Solution: Explicitly set the prototype chain after class creation
-const OriginalBlob = globalThis.Blob
+  // Add File-specific properties directly to the Blob instance
+  Object.defineProperty(blob, 'name', {
+    value: name,
+    writable: false,
+    enumerable: true,
+    configurable: false
+  })
 
-class FileImpl {
-  name: string
-  lastModified: number
-  type: string
-  size: number
-  private _bits: BlobPart[]
+  Object.defineProperty(blob, 'lastModified', {
+    value: options?.lastModified ?? Date.now(),
+    writable: false,
+    enumerable: true,
+    configurable: false
+  })
 
-  constructor(bits: BlobPart[], name: string, options?: FilePropertyBag) {
-    this._bits = bits
-    this.name = name
-    this.type = options?.type || ''
-    this.lastModified = options?.lastModified ?? Date.now()
-    // Calculate size from bits
-    this.size = bits.reduce((acc, bit) => {
-      if (typeof bit === 'string') return acc + bit.length
-      if (bit instanceof ArrayBuffer) return acc + bit.byteLength
-      if (ArrayBuffer.isView(bit)) return acc + bit.byteLength
-      return acc
-    }, 0)
-  }
+  // Override toStringTag to identify as File
+  Object.defineProperty(blob, Symbol.toStringTag, {
+    value: 'File',
+    writable: false,
+    enumerable: false,
+    configurable: true
+  })
 
-  // Blob methods
-  slice(start?: number, end?: number, contentType?: string): Blob {
-    return new OriginalBlob(this._bits, { type: contentType })
-  }
-
-  async text(): Promise<string> {
-    return new OriginalBlob(this._bits).text()
-  }
-
-  async arrayBuffer(): Promise<ArrayBuffer> {
-    return new OriginalBlob(this._bits).arrayBuffer()
-  }
-
-  stream(): ReadableStream {
-    return new OriginalBlob(this._bits).stream()
-  }
-
-  get [Symbol.toStringTag]() {
-    return 'File'
-  }
-}
-
-// Crucial: Set prototype to Blob.prototype so instanceof Blob works
-Object.setPrototypeOf(FileImpl.prototype, OriginalBlob.prototype)
-
-// Override global File
-;(globalThis as unknown as Record<string, unknown>).File = FileImpl
-
-// Verify instanceof works
-const testFile = new (globalThis.File as typeof File)(['test'], 'test.txt')
-if (!(testFile instanceof Blob)) {
-  console.error('CRITICAL: File mock does not pass instanceof Blob check!')
-  console.error('testFile instanceof Blob:', testFile instanceof Blob)
-  console.error('testFile.constructor:', testFile.constructor.name)
-  console.error('Blob:', Blob.name)
-  console.error('Object.getPrototypeOf(testFile):', Object.getPrototypeOf(testFile))
-  console.error('Object.getPrototypeOf(testFile.constructor.prototype):', Object.getPrototypeOf(testFile.constructor.prototype))
-  throw new Error('File mock failed instanceof Blob verification')
+  return blob as Blob & { name: string; lastModified: number }
 }
 
 // Mock navigator
