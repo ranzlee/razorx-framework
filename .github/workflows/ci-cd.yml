@@ -348,7 +348,7 @@ jobs:
         dotnet-quality: 'preview'
 
     - name: Download Package
-      uses: actions/download-artifact@v5
+      uses: actions/download-artifact@v6
       with:
         name: nuget-packages
         path: ${{ env.PACKAGE_OUTPUT_DIR }}
@@ -436,7 +436,7 @@ jobs:
     
     steps:
     - name: Download Package
-      uses: actions/download-artifact@v5
+      uses: actions/download-artifact@v6
       with:
         name: nuget-packages
         path: ${{ env.PACKAGE_OUTPUT_DIR }}
@@ -494,7 +494,7 @@ jobs:
     
     steps:
     - name: Download Package
-      uses: actions/download-artifact@v5
+      uses: actions/download-artifact@v6
       with:
         name: nuget-packages
         path: ${{ env.PACKAGE_OUTPUT_DIR }}
