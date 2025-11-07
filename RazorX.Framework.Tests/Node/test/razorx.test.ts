@@ -8041,15 +8041,6 @@ describe('RazorX Framework API Surface Tests', () => {
         processNewElements()
         
         const file = new File(['content'], 'test.txt')
-
-        // Diagnostic logging for Ubuntu debugging
-        console.log('DEBUG: Created file:', file)
-        console.log('DEBUG: file instanceof Blob:', file instanceof Blob)
-        console.log('DEBUG: file instanceof File:', file instanceof File)
-        console.log('DEBUG: typeof file:', typeof file)
-        console.log('DEBUG: file.constructor.name:', file.constructor.name)
-        console.log('DEBUG: file[Symbol.toStringTag]:', file[Symbol.toStringTag as keyof typeof file])
-
         Object.defineProperty(fileInput, 'files', {
           value: [file],
           writable: false
@@ -8057,20 +8048,7 @@ describe('RazorX Framework API Surface Tests', () => {
 
         // Mock the fetch to capture the request body
         let capturedBody: BodyInit | null | undefined = ''
-        let capturedFormData: FormData | null = null
         mockFetch.mockImplementation(async (_url: string, options: RequestInit) => {
-          // Capture the body before it's processed
-          if (options.body instanceof FormData) {
-            capturedFormData = options.body
-            console.log('DEBUG: FormData contents:')
-            options.body.forEach((value, key) => {
-              console.log(`  ${key}:`, value)
-              console.log(`    typeof:`, typeof value)
-              console.log(`    instanceof Blob:`, value instanceof Blob)
-              console.log(`    instanceof File:`, value instanceof File)
-              console.log(`    constructor:`, value.constructor?.name)
-            })
-          }
           capturedBody = options.body
           return new Response(null, { status: 204 })
         })

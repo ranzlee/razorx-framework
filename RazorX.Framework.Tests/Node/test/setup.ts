@@ -29,41 +29,33 @@ Object.defineProperty(window, 'location', {
 // Mock fetch
 globalThis.fetch = vi.fn()
 
-// Mock File constructor by creating actual Blob instances with File properties
-// This is the ONLY way to ensure instanceof Blob works across all JSDOM environments
-;(globalThis as unknown as Record<string, unknown>).File = function File(
-  bits: BlobPart[],
-  name: string,
-  options?: FilePropertyBag
-): Blob & { name: string; lastModified: number } {
-  // Create an actual Blob instance
-  const blob = new Blob(bits, { type: options?.type || '' })
+// Mock File using Proxy to intercept instanceof checks
+// This ensures both instanceof File AND instanceof Blob return true
+const OriginalBlob = globalThis.Blob
 
-  // Add File-specific properties directly to the Blob instance
-  Object.defineProperty(blob, 'name', {
-    value: name,
-    writable: false,
-    enumerable: true,
-    configurable: false
-  })
+function FileConstructor(this: any, bits: BlobPart[], name: string, options?: FilePropertyBag) {
+  const blob = new OriginalBlob(bits, { type: options?.type || '' })
+  Object.defineProperty(blob, 'name', { value: name, writable: false, enumerable: true })
+  Object.defineProperty(blob, 'lastModified', { value: options?.lastModified ?? Date.now(), writable: false, enumerable: true })
+  Object.defineProperty(blob, Symbol.toStringTag, { value: 'File' })
 
-  Object.defineProperty(blob, 'lastModified', {
-    value: options?.lastModified ?? Date.now(),
-    writable: false,
-    enumerable: true,
-    configurable: false
-  })
-
-  // Override toStringTag to identify as File
-  Object.defineProperty(blob, Symbol.toStringTag, {
-    value: 'File',
-    writable: false,
-    enumerable: false,
-    configurable: true
-  })
-
-  return blob as Blob & { name: string; lastModified: number }
+  // Set the prototype so instanceof works
+  Object.setPrototypeOf(blob, FileConstructor.prototype)
+  return blob
 }
+
+// Set up prototype chain: File.prototype -> Blob.prototype
+Object.setPrototypeOf(FileConstructor.prototype, OriginalBlob.prototype)
+
+// Add Symbol.hasInstance to control instanceof behavior
+Object.defineProperty(FileConstructor, Symbol.hasInstance, {
+  value: function(instance: any) {
+    // Check if it's one of our File objects (has name property and is a Blob)
+    return instance instanceof OriginalBlob && 'name' in instance && 'lastModified' in instance
+  }
+})
+
+;(globalThis as unknown as Record<string, unknown>).File = FileConstructor
 
 // Mock navigator
 Object.defineProperty(navigator, 'userAgent', {
