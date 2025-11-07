@@ -29,17 +29,16 @@ Object.defineProperty(window, 'location', {
 // Mock fetch
 globalThis.fetch = vi.fn()
 
-// Mock File constructor for JSDOM (not available by default)
-if (typeof File === 'undefined') {
-  ;(globalThis as unknown as Record<string, unknown>).File = class File extends Blob {
-    name: string
-    lastModified: number
+// Mock File constructor for JSDOM
+// Always override to ensure File properly extends Blob for instanceof checks
+;(globalThis as unknown as Record<string, unknown>).File = class File extends Blob {
+  name: string
+  lastModified: number
 
-    constructor(bits: BlobPart[], name: string, options?: FilePropertyBag) {
-      super(bits, options)
-      this.name = name
-      this.lastModified = options?.lastModified ?? Date.now()
-    }
+  constructor(bits: BlobPart[], name: string, options?: FilePropertyBag) {
+    super(bits, options)
+    this.name = name
+    this.lastModified = options?.lastModified ?? Date.now()
   }
 }
 
