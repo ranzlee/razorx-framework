@@ -29,9 +29,16 @@ Object.defineProperty(window, 'location', {
 // Mock fetch
 globalThis.fetch = vi.fn()
 
+// Ensure Blob exists (JSDOM provides it, but make sure it's available)
+if (typeof Blob === 'undefined') {
+  throw new Error('Blob is not available in test environment')
+}
+
 // Mock File constructor for JSDOM
 // Always override to ensure File properly extends Blob for instanceof checks
-;(globalThis as unknown as Record<string, unknown>).File = class File extends Blob {
+// Use a class expression to capture Blob at definition time
+const BlobConstructor = Blob
+;(globalThis as unknown as Record<string, unknown>).File = class File extends BlobConstructor {
   name: string
   lastModified: number
 
@@ -39,6 +46,11 @@ globalThis.fetch = vi.fn()
     super(bits, options)
     this.name = name
     this.lastModified = options?.lastModified ?? Date.now()
+  }
+
+  // Ensure this is recognized as a Blob
+  get [Symbol.toStringTag]() {
+    return 'File'
   }
 }
 
