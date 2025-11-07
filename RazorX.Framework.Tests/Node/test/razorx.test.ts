@@ -8587,7 +8587,7 @@ describe('RazorX Framework API Surface Tests', () => {
       }
 
       // @ts-expect-error - Mocking EventSource
-      globalThis.EventSource = vi.fn().mockImplementation((url: string) => {
+      globalThis.EventSource = vi.fn().mockImplementation(function(url: string) {
         mockEventSource.url = url
         mockEventSource.readyState = 1 // OPEN
         Promise.resolve().then(() => {
@@ -9061,7 +9061,7 @@ describe('RazorX Framework API Surface Tests', () => {
       let normalHandler: ((event: MessageEvent) => void) | null = null
 
       // Override mock to capture both handlers
-      mockEventSource.addEventListener = vi.fn().mockImplementation((type: string, handler: (event: MessageEvent) => void) => {
+      mockEventSource.addEventListener = vi.fn().mockImplementation(function(type: string, handler: (event: MessageEvent) => void) {
         if (type === 'rx-urgent') {
           urgentHandler = handler
         } else if (type === 'rx-normal') {

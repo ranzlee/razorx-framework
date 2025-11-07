@@ -50,19 +50,23 @@ Object.defineProperty(navigator, 'userAgent', {
 })
 
 // Mock MutationObserver with proper callback handling
-globalThis.MutationObserver = vi.fn().mockImplementation((callback: MutationCallback) => ({
-  observe: vi.fn(),
-  disconnect: vi.fn(),
-  takeRecords: vi.fn(() => []),
-  callback
-}))
+globalThis.MutationObserver = vi.fn().mockImplementation(function(callback: MutationCallback) {
+  return {
+    observe: vi.fn(),
+    disconnect: vi.fn(),
+    takeRecords: vi.fn(() => []),
+    callback
+  }
+})
 
 // Mock IntersectionObserver
-globalThis.IntersectionObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn()
-}))
+globalThis.IntersectionObserver = vi.fn().mockImplementation(function() {
+  return {
+    observe: vi.fn(),
+    unobserve: vi.fn(),
+    disconnect: vi.fn()
+  }
+})
 
 // Mock HTMLFormElement.requestSubmit since jsdom doesn't implement it properly
 if (typeof HTMLFormElement.prototype.requestSubmit === 'function') {

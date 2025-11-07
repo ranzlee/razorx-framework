@@ -252,7 +252,7 @@ describe('Production-Critical Scenarios', () => {
       }
 
       // @ts-expect-error - Mocking EventSource
-      globalThis.EventSource = vi.fn().mockImplementation((url: string) => {
+      globalThis.EventSource = vi.fn().mockImplementation(function(url: string) {
         mockEventSource.url = url
         mockEventSource.readyState = 1
         Promise.resolve().then(() => {
