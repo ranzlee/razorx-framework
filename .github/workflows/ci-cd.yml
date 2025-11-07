@@ -289,36 +289,81 @@ jobs:
     
     - name: Update Version
       run: |
+        # Update version in all packageable projects
         sed -i "s|<PackageVersion>.*</PackageVersion>|<PackageVersion>${{ needs.version.outputs.package-version }}</PackageVersion>|" RazorX.Framework/RazorX.Framework.csproj
+        sed -i "s|<PackageVersion>.*</PackageVersion>|<PackageVersion>${{ needs.version.outputs.package-version }}</PackageVersion>|" RazorX.Framework.OpenTelemetry/RazorX.Framework.OpenTelemetry.csproj
+        sed -i "s|<PackageVersion>.*</PackageVersion>|<PackageVersion>${{ needs.version.outputs.package-version }}</PackageVersion>|" RazorX.Framework.Redis/RazorX.Framework.Redis.csproj
+        sed -i "s|<PackageVersion>.*</PackageVersion>|<PackageVersion>${{ needs.version.outputs.package-version }}</PackageVersion>|" RazorX.Framework.Azure/RazorX.Framework.Azure.csproj
     
     - name: Build for Packaging
       run: |
         dotnet restore --locked-mode
         dotnet build --configuration Release --no-restore -p:ContinuousIntegrationBuild=true
     
-    - name: Create NuGet Package
+    - name: Create NuGet Packages
       run: |
         mkdir -p ${{ env.PACKAGE_OUTPUT_DIR }}
-        dotnet pack RazorX.Framework/RazorX.Framework.csproj \
-          --configuration Release \
-          --no-build \
-          --output ${{ env.PACKAGE_OUTPUT_DIR }} \
-          --include-symbols \
-          --include-source \
-          -p:PackageVersion=${{ needs.version.outputs.package-version }} \
-          -p:SymbolPackageFormat=snupkg
+
+        # Pack all packageable projects
+        PROJECTS=(
+          "RazorX.Framework"
+          "RazorX.Framework.OpenTelemetry"
+          "RazorX.Framework.Redis"
+          "RazorX.Framework.Azure"
+        )
+
+        for project in "${PROJECTS[@]}"; do
+          echo "📦 Packing $project..."
+          dotnet pack $project/$project.csproj \
+            --configuration Release \
+            --no-build \
+            --output ${{ env.PACKAGE_OUTPUT_DIR }} \
+            --include-symbols \
+            --include-source \
+            -p:PackageVersion=${{ needs.version.outputs.package-version }} \
+            -p:SymbolPackageFormat=snupkg
+
+          if [ $? -eq 0 ]; then
+            echo "✅ Successfully packed $project"
+          else
+            echo "❌ Failed to pack $project"
+            exit 1
+          fi
+        done
+
+        echo ""
+        echo "📋 Package Summary:"
+        ls -lh ${{ env.PACKAGE_OUTPUT_DIR }}/*.nupkg
     
-    # Generate SBOM (Software Bill of Materials)
+    # Generate SBOM (Software Bill of Materials) for all packages
     - name: Generate SBOM
       run: |
         dotnet tool install --global Microsoft.Sbom.DotNetTool
-        sbom-tool generate \
-          -b ${{ env.PACKAGE_OUTPUT_DIR }} \
-          -bc RazorX.Framework \
-          -pn RazorX.Framework \
-          -pv ${{ needs.version.outputs.package-version }} \
-          -ps "Randy Lee" \
-          -nsb https://github.com/ranzlee/razorx-framework
+
+        # Generate SBOM for each package
+        PROJECTS=(
+          "RazorX.Framework"
+          "RazorX.Framework.OpenTelemetry"
+          "RazorX.Framework.Redis"
+          "RazorX.Framework.Azure"
+        )
+
+        for project in "${PROJECTS[@]}"; do
+          echo "📋 Generating SBOM for $project..."
+          sbom-tool generate \
+            -b ${{ env.PACKAGE_OUTPUT_DIR }} \
+            -bc $project \
+            -pn $project \
+            -pv ${{ needs.version.outputs.package-version }} \
+            -ps "Randy Lee" \
+            -nsb https://github.com/ranzlee/razorx-framework
+
+          if [ $? -eq 0 ]; then
+            echo "✅ Successfully generated SBOM for $project"
+          else
+            echo "⚠️ Warning: SBOM generation failed for $project (non-fatal)"
+          fi
+        done
     
     - name: Upload Package Artifacts
       uses: actions/upload-artifact@v5
@@ -356,15 +401,22 @@ jobs:
     # Enhanced validation with multiple checks
     - name: Package Structure Validation
       run: |
-        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols." | head -1)
-        echo "Validating package: $PACKAGE_FILE"
-        
-        # Extract and validate
-        mkdir -p validate-extract
-        cd validate-extract
+        echo "🔍 Validating all packages..."
+        echo ""
+
+        # Validate RazorX.Framework (main package with client files)
+        echo "📦 Validating RazorX.Framework..."
+        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "RazorX.Framework.${{ needs.version.outputs.package-version }}.nupkg" | head -1)
+
+        if [[ ! -f "$PACKAGE_FILE" ]]; then
+          echo "❌ Package not found: RazorX.Framework"
+          exit 1
+        fi
+
+        mkdir -p validate-framework
+        cd validate-framework
         unzip -q "$PACKAGE_FILE"
-        
-        # Check required files
+
         REQUIRED_FILES=(
           "contentFiles/any/any/wwwroot/js/razorx.js"
           "contentFiles/any/any/wwwroot/js/razorx.js.map"
@@ -373,46 +425,123 @@ jobs:
           "build/RazorX.Framework.targets"
           "lib/net10.0/RazorX.Framework.dll"
         )
-        
+
         for file in "${REQUIRED_FILES[@]}"; do
           if [[ -f "$file" ]]; then
-            echo "✅ Found: $file"
+            echo "  ✅ Found: $file"
           else
-            echo "❌ Missing: $file"
+            echo "  ❌ Missing: $file"
             exit 1
           fi
         done
+        cd ..
+        echo ""
+
+        # Validate extension packages (OpenTelemetry, Redis, Azure)
+        EXTENSION_PACKAGES=(
+          "RazorX.Framework.OpenTelemetry"
+          "RazorX.Framework.Redis"
+          "RazorX.Framework.Azure"
+        )
+
+        for pkg in "${EXTENSION_PACKAGES[@]}"; do
+          echo "📦 Validating $pkg..."
+          PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "$pkg.${{ needs.version.outputs.package-version }}.nupkg" | head -1)
+
+          if [[ ! -f "$PACKAGE_FILE" ]]; then
+            echo "  ❌ Package not found: $pkg"
+            exit 1
+          fi
+
+          mkdir -p "validate-${pkg}"
+          cd "validate-${pkg}"
+          unzip -q "$PACKAGE_FILE"
+
+          # Check for DLL
+          DLL_FILE="lib/net10.0/$pkg.dll"
+          if [[ -f "$DLL_FILE" ]]; then
+            echo "  ✅ Found: $DLL_FILE"
+          else
+            echo "  ❌ Missing: $DLL_FILE"
+            exit 1
+          fi
+
+          # Check for README
+          if [[ -f "README.md" ]]; then
+            echo "  ✅ Found: README.md"
+          else
+            echo "  ⚠️  Warning: README.md not found"
+          fi
+
+          cd ..
+          echo ""
+        done
+
+        echo "✅ All packages validated successfully!"
     
     - name: Installation Test
       run: |
+        echo "🧪 Testing package installation..."
+        echo ""
+
         # Create test project
         mkdir -p test-install
         cd test-install
         dotnet new web --name TestApp --force
         cd TestApp
-        
-        # Install package
-        dotnet add package RazorX.Framework \
-          --version ${{ needs.version.outputs.package-version }} \
-          --source "${{ env.PACKAGE_OUTPUT_DIR }}"
-        
+
+        # Install all packages
+        PACKAGES=(
+          "RazorX.Framework"
+          "RazorX.Framework.OpenTelemetry"
+          "RazorX.Framework.Redis"
+          "RazorX.Framework.Azure"
+        )
+
+        for pkg in "${PACKAGES[@]}"; do
+          echo "📦 Installing $pkg..."
+          dotnet add package $pkg \
+            --version ${{ needs.version.outputs.package-version }} \
+            --source "${{ env.PACKAGE_OUTPUT_DIR }}"
+
+          if [ $? -eq 0 ]; then
+            echo "  ✅ Successfully installed $pkg"
+          else
+            echo "  ❌ Failed to install $pkg"
+            exit 1
+          fi
+        done
+        echo ""
+
         # Build and verify
+        echo "🔨 Building test project..."
         dotnet build
-        
-        # Check client files
+
+        if [ $? -ne 0 ]; then
+          echo "❌ Build failed"
+          exit 1
+        fi
+        echo "✅ Build succeeded"
+        echo ""
+
+        # Check client files (RazorX.Framework only)
+        echo "🔍 Verifying RazorX.Framework client files..."
         if [[ -f "wwwroot/js/razorx.js" ]]; then
-          echo "✅ JavaScript files installed correctly"
+          echo "  ✅ JavaScript files installed correctly"
         else
-          echo "❌ JavaScript files not found"
+          echo "  ❌ JavaScript files not found"
           exit 1
         fi
-        
+
         if [[ -f "wwwroot/css/razorx.css" ]]; then
-          echo "✅ CSS files installed correctly"
+          echo "  ✅ CSS files installed correctly"
         else
-          echo "❌ CSS files not found"
+          echo "  ❌ CSS files not found"
           exit 1
         fi
+
+        echo ""
+        echo "✅ All packages installed and verified successfully!"
     
     - name: Security Scan
       run: |
@@ -453,28 +582,55 @@ jobs:
       with:
         subject-path: '${{ env.PACKAGE_OUTPUT_DIR }}/*.nupkg'
     
-    - name: Publish Package
+    - name: Publish Packages
       run: |
-        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols." | head -1)
-        SYMBOL_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.snupkg" | head -1)
-        
-        echo "📦 Publishing: $(basename $PACKAGE_FILE)"
-        
-        # Publish main package
-        dotnet nuget push "$PACKAGE_FILE" \
-          --api-key ${{ github.token }} \
-          --source https://nuget.pkg.github.com/ranzlee/index.json \
-          --skip-duplicate \
-          --no-symbols
-        
-        # Publish symbols if available
-        if [[ -f "$SYMBOL_FILE" ]]; then
-          echo "🔍 Publishing symbols: $(basename $SYMBOL_FILE)"
+        echo "📦 Publishing all packages to GitHub Packages..."
+        echo ""
+
+        # Find all packages (exclude symbols)
+        PACKAGES=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols.")
+
+        for PACKAGE_FILE in $PACKAGES; do
+          PACKAGE_NAME=$(basename "$PACKAGE_FILE")
+          echo "📦 Publishing: $PACKAGE_NAME"
+
+          dotnet nuget push "$PACKAGE_FILE" \
+            --api-key ${{ github.token }} \
+            --source https://nuget.pkg.github.com/ranzlee/index.json \
+            --skip-duplicate \
+            --no-symbols
+
+          if [ $? -eq 0 ]; then
+            echo "  ✅ Successfully published $PACKAGE_NAME"
+          else
+            echo "  ❌ Failed to publish $PACKAGE_NAME"
+            exit 1
+          fi
+          echo ""
+        done
+
+        # Publish all symbol packages
+        echo "🔍 Publishing symbol packages..."
+        SYMBOLS=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.snupkg")
+
+        for SYMBOL_FILE in $SYMBOLS; do
+          SYMBOL_NAME=$(basename "$SYMBOL_FILE")
+          echo "🔍 Publishing: $SYMBOL_NAME"
+
           dotnet nuget push "$SYMBOL_FILE" \
             --api-key ${{ github.token }} \
             --source https://nuget.pkg.github.com/ranzlee/index.json \
             --skip-duplicate
-        fi
+
+          if [ $? -eq 0 ]; then
+            echo "  ✅ Successfully published $SYMBOL_NAME"
+          else
+            echo "  ⚠️  Warning: Failed to publish symbols for $SYMBOL_NAME (non-fatal)"
+          fi
+          echo ""
+        done
+
+        echo "✅ All packages published to GitHub Packages!"
     
     - name: Package Metrics
       run: |
@@ -505,84 +661,177 @@ jobs:
         dotnet-version: ${{ env.DOTNET_VERSION }}
         dotnet-quality: 'preview'
 
-    - name: Verify Package Before Publishing
+    - name: Verify Packages Before Publishing
       run: |
-        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols." | head -1)
-        echo "📦 Package to publish: $(basename $PACKAGE_FILE)"
-        echo "📏 Package size: $(du -h $PACKAGE_FILE | cut -f1)"
-        
+        echo "🔍 Verifying all packages before publishing to NuGet.org..."
+        echo ""
+
+        # List all packages to publish
+        PACKAGES=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols.")
+
+        echo "📦 Packages to publish:"
+        for PACKAGE_FILE in $PACKAGES; do
+          PACKAGE_NAME=$(basename "$PACKAGE_FILE")
+          PACKAGE_SIZE=$(du -h "$PACKAGE_FILE" | cut -f1)
+          echo "  • $PACKAGE_NAME ($PACKAGE_SIZE)"
+        done
+        echo ""
+
         # Verify package metadata
         dotnet nuget locals all --list
-        
+        echo ""
+
         # Test package installation locally
+        echo "🧪 Testing package installation..."
         mkdir -p test-local-install
         cd test-local-install
         dotnet new classlib --name TestInstall --force
         cd TestInstall
-        dotnet add package RazorX.Framework --version ${{ needs.version.outputs.package-version }} --source "${{ env.PACKAGE_OUTPUT_DIR }}"
-        
-        if [ $? -eq 0 ]; then
-          echo "✅ Package installation test successful"
-        else
-          echo "❌ Package installation test failed"
-          exit 1
-        fi
+
+        PACKAGE_IDS=(
+          "RazorX.Framework"
+          "RazorX.Framework.OpenTelemetry"
+          "RazorX.Framework.Redis"
+          "RazorX.Framework.Azure"
+        )
+
+        for pkg in "${PACKAGE_IDS[@]}"; do
+          echo "  📦 Installing $pkg..."
+          dotnet add package $pkg --version ${{ needs.version.outputs.package-version }} --source "${{ env.PACKAGE_OUTPUT_DIR }}"
+
+          if [ $? -eq 0 ]; then
+            echo "    ✅ Installation test successful"
+          else
+            echo "    ❌ Installation test failed"
+            exit 1
+          fi
+        done
+
+        echo ""
+        echo "✅ All packages verified and ready for publishing!"
     
     - name: Publish to NuGet.org
       env:
         NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
       run: |
-        PACKAGE_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols." | head -1)
-        SYMBOL_FILE=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.snupkg" | head -1)
-        
-        echo "📦 Publishing to NuGet.org: $(basename $PACKAGE_FILE)"
+        echo "📦 Publishing all packages to NuGet.org..."
         echo "🔖 Version: ${{ needs.version.outputs.package-version }}"
         echo "🏷️ Pre-release: ${{ needs.version.outputs.is-prerelease }}"
-        
-        # Publish main package
-        dotnet nuget push "$PACKAGE_FILE" \
-          --api-key $NUGET_API_KEY \
-          --source https://api.nuget.org/v3/index.json \
-          --skip-duplicate \
-          --no-symbols
-        
-        # Publish symbols if available
-        if [[ -f "$SYMBOL_FILE" ]]; then
-          echo "🔍 Publishing symbols: $(basename $SYMBOL_FILE)"
+        echo ""
+
+        # Find all packages (exclude symbols)
+        PACKAGES=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.nupkg" | grep -v ".symbols.")
+
+        for PACKAGE_FILE in $PACKAGES; do
+          PACKAGE_NAME=$(basename "$PACKAGE_FILE")
+          echo "📦 Publishing: $PACKAGE_NAME"
+
+          dotnet nuget push "$PACKAGE_FILE" \
+            --api-key $NUGET_API_KEY \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate \
+            --no-symbols
+
+          if [ $? -eq 0 ]; then
+            echo "  ✅ Successfully published $PACKAGE_NAME"
+          else
+            echo "  ❌ Failed to publish $PACKAGE_NAME"
+            exit 1
+          fi
+          echo ""
+        done
+
+        # Publish all symbol packages
+        echo "🔍 Publishing symbol packages..."
+        SYMBOLS=$(find ${{ env.PACKAGE_OUTPUT_DIR }} -name "*.snupkg")
+
+        for SYMBOL_FILE in $SYMBOLS; do
+          SYMBOL_NAME=$(basename "$SYMBOL_FILE")
+          echo "🔍 Publishing: $SYMBOL_NAME"
+
           dotnet nuget push "$SYMBOL_FILE" \
             --api-key $NUGET_API_KEY \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
-        fi
+
+          if [ $? -eq 0 ]; then
+            echo "  ✅ Successfully published $SYMBOL_NAME"
+          else
+            echo "  ⚠️  Warning: Failed to publish symbols for $SYMBOL_NAME (non-fatal)"
+          fi
+          echo ""
+        done
+
+        echo "✅ All packages published to NuGet.org!"
     
     - name: Verify NuGet.org Availability
       run: |
-        echo "⏳ Waiting for package to be available on NuGet.org..."
+        echo "⏳ Waiting for packages to be available on NuGet.org..."
         sleep 30  # Give NuGet.org time to process
-        
-        # Check if package is available
-        RESPONSE=$(curl -s "https://api.nuget.org/v3-flatcontainer/razorx.framework/${{ needs.version.outputs.package-version }}/razorx.framework.${{ needs.version.outputs.package-version }}.nupkg" -o /dev/null -w "%{http_code}")
-        
-        if [ "$RESPONSE" = "200" ]; then
-          echo "✅ Package is now available on NuGet.org!"
-          echo "🔗 View at: https://www.nuget.org/packages/RazorX.Framework/${{ needs.version.outputs.package-version }}"
-        else
-          echo "⚠️ Package may still be processing. Check NuGet.org in a few minutes."
-        fi
+        echo ""
+
+        # Check all packages
+        PACKAGES=(
+          "razorx.framework"
+          "razorx.framework.opentelemetry"
+          "razorx.framework.redis"
+          "razorx.framework.azure"
+        )
+
+        for pkg in "${PACKAGES[@]}"; do
+          echo "🔍 Checking $pkg..."
+          RESPONSE=$(curl -s "https://api.nuget.org/v3-flatcontainer/$pkg/${{ needs.version.outputs.package-version }}/$pkg.${{ needs.version.outputs.package-version }}.nupkg" -o /dev/null -w "%{http_code}")
+
+          if [ "$RESPONSE" = "200" ]; then
+            echo "  ✅ Package is now available!"
+            # Convert to PascalCase for display URL
+            DISPLAY_NAME=$(echo "$pkg" | sed 's/\b\(.\)/\u\1/g' | sed 's/\./ /g' | sed 's/ /./g')
+            echo "  🔗 https://www.nuget.org/packages/$DISPLAY_NAME/${{ needs.version.outputs.package-version }}"
+          else
+            echo "  ⚠️  Package may still be processing (HTTP $RESPONSE)"
+          fi
+          echo ""
+        done
+
+        echo "ℹ️  If packages show as processing, check NuGet.org in a few minutes."
     
     - name: Create Deployment Record
       if: success()
       run: |
         echo "## 📦 NuGet.org Deployment" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "- **Package**: RazorX.Framework" >> $GITHUB_STEP_SUMMARY
-        echo "- **Version**: \`${{ needs.version.outputs.package-version }}\`" >> $GITHUB_STEP_SUMMARY
-        echo "- **Type**: ${{ needs.version.outputs.is-prerelease == 'true' && '🔵 Pre-release' || '🚀 Stable' }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **URL**: [View on NuGet.org](https://www.nuget.org/packages/RazorX.Framework/${{ needs.version.outputs.package-version }})" >> $GITHUB_STEP_SUMMARY
+        echo "**Version**: \`${{ needs.version.outputs.package-version }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "**Type**: ${{ needs.version.outputs.is-prerelease == 'true' && '🔵 Pre-release' || '🚀 Stable' }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Installation" >> $GITHUB_STEP_SUMMARY
+        echo "### 📦 Published Packages" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "| Package | NuGet Link |" >> $GITHUB_STEP_SUMMARY
+        echo "|---------|------------|" >> $GITHUB_STEP_SUMMARY
+        echo "| **RazorX.Framework** | [View on NuGet.org](https://www.nuget.org/packages/RazorX.Framework/${{ needs.version.outputs.package-version }}) |" >> $GITHUB_STEP_SUMMARY
+        echo "| **RazorX.Framework.OpenTelemetry** | [View on NuGet.org](https://www.nuget.org/packages/RazorX.Framework.OpenTelemetry/${{ needs.version.outputs.package-version }}) |" >> $GITHUB_STEP_SUMMARY
+        echo "| **RazorX.Framework.Redis** | [View on NuGet.org](https://www.nuget.org/packages/RazorX.Framework.Redis/${{ needs.version.outputs.package-version }}) |" >> $GITHUB_STEP_SUMMARY
+        echo "| **RazorX.Framework.Azure** | [View on NuGet.org](https://www.nuget.org/packages/RazorX.Framework.Azure/${{ needs.version.outputs.package-version }}) |" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 💻 Installation" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Core Framework:**" >> $GITHUB_STEP_SUMMARY
         echo '```bash' >> $GITHUB_STEP_SUMMARY
         echo "dotnet add package RazorX.Framework --version ${{ needs.version.outputs.package-version }}" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**OpenTelemetry Integration:**" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        echo "dotnet add package RazorX.Framework.OpenTelemetry --version ${{ needs.version.outputs.package-version }}" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Redis Transport:**" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        echo "dotnet add package RazorX.Framework.Redis --version ${{ needs.version.outputs.package-version }}" >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Azure Service Bus Transport:**" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        echo "dotnet add package RazorX.Framework.Azure --version ${{ needs.version.outputs.package-version }}" >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
 
   # Job 7: Create Release and Generate Notes
