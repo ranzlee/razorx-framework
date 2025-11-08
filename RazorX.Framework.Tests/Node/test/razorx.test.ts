@@ -82,22 +82,26 @@ describe('RazorX Framework API Surface Tests', () => {
   beforeAll(() => {
     // Setup global mocks that persist across all tests
     Object.defineProperty(globalThis, 'MutationObserver', {
-      value: vi.fn().mockImplementation((callback) => ({
-        observe: vi.fn(),
-        disconnect: vi.fn(),
-        takeRecords: vi.fn(() => []),
-        callback: callback  // Store callback for manual triggering
-      })),
+      value: vi.fn().mockImplementation(function(callback) {
+        return {
+          observe: vi.fn(),
+          disconnect: vi.fn(),
+          takeRecords: vi.fn(() => []),
+          callback: callback  // Store callback for manual triggering
+        }
+      }),
       writable: true
     })
 
     Object.defineProperty(globalThis, 'IntersectionObserver', {
-      value: vi.fn().mockImplementation((callback) => ({
-        observe: vi.fn(),
-        unobserve: vi.fn(),
-        disconnect: vi.fn(),
-        callback: callback  // Store callback for manual triggering
-      })),
+      value: vi.fn().mockImplementation(function(callback) {
+        return {
+          observe: vi.fn(),
+          unobserve: vi.fn(),
+          disconnect: vi.fn(),
+          callback: callback  // Store callback for manual triggering
+        }
+      }),
       writable: true
     })
 
@@ -8572,7 +8576,7 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Mock EventSource
       mockEventSource = {
-        addEventListener: vi.fn().mockImplementation((type: string, handler: (event: MessageEvent) => void) => {
+        addEventListener: vi.fn().mockImplementation(function(type: string, handler: (event: MessageEvent) => void) {
           if (type === 'rx-server-sent-event') {
             mockEventSource._rxEventHandler = handler
           }

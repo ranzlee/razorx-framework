@@ -237,18 +237,24 @@ jobs:
       run: dotnet test --no-build --configuration ${{ needs.version.outputs.build-config }} --verbosity normal --logger "trx;LogFileName=${{ matrix.os }}-test-results.trx" --collect:"XPlat Code Coverage" --results-directory ./TestResults -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
     
     - name: Test (JavaScript)
-      if: github.event.inputs.skip_tests != 'true' && matrix.os == 'ubuntu-latest'
+      if: github.event.inputs.skip_tests != 'true'
       shell: bash
       run: |
         # Verify source files match before testing
-        echo "=== Verifying razorx.ts synchronization ==="
+        echo "=== Verifying razorx.ts synchronization on ${{ matrix.os }} ==="
         diff -q RazorX.Framework/Node/src/razorx.ts RazorX.Framework.Tests/Node/src/razorx.ts || {
           echo "WARNING: razorx.ts files differ! Forcing sync..."
           cp -f RazorX.Framework/Node/src/razorx.ts RazorX.Framework.Tests/Node/src/razorx.ts
         }
 
-        echo "Framework hash: $(md5sum RazorX.Framework/Node/src/razorx.ts | cut -d' ' -f1)"
-        echo "Tests hash:     $(md5sum RazorX.Framework.Tests/Node/src/razorx.ts | cut -d' ' -f1)"
+        # Cross-platform hash verification
+        if command -v md5sum &> /dev/null; then
+          echo "Framework hash: $(md5sum RazorX.Framework/Node/src/razorx.ts | cut -d' ' -f1)"
+          echo "Tests hash:     $(md5sum RazorX.Framework.Tests/Node/src/razorx.ts | cut -d' ' -f1)"
+        elif command -v md5 &> /dev/null; then
+          echo "Framework hash: $(md5 -q RazorX.Framework/Node/src/razorx.ts)"
+          echo "Tests hash:     $(md5 -q RazorX.Framework.Tests/Node/src/razorx.ts)"
+        fi
 
         # Run tests with coverage
         cd RazorX.Framework.Tests/Node
