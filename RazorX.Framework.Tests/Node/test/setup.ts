@@ -29,8 +29,7 @@ Object.defineProperty(window, 'location', {
 // Mock fetch
 globalThis.fetch = vi.fn()
 
-// Mock File constructor for JSDOM - MUST work with instanceof File AND instanceof Blob
-// Force override even if File exists to ensure consistent behavior across all JSDOM versions
+// Mock File constructor for JSDOM
 class FileImpl extends Blob {
   name: string
   lastModified: number
@@ -46,13 +45,75 @@ class FileImpl extends Blob {
   }
 }
 
-// Force override using defineProperty to ensure it takes precedence
+// Override global File
 Object.defineProperty(globalThis, 'File', {
   value: FileImpl,
   writable: true,
   configurable: true,
   enumerable: false
 })
+
+// CRITICAL FIX: Wrap FormData constructor to handle File mocks
+// JSDOM rejects our FileImpl in FormData.append() due to internal type checking
+// Solution: Intercept FormData construction and manually add Files after
+const OriginalFormData = globalThis.FormData
+const fileStorage = new WeakMap<FormData, Map<string, FileImpl>>()
+
+globalThis.FormData = class FormDataMock extends OriginalFormData {
+  constructor(form?: HTMLFormElement, submitter?: HTMLElement | null) {
+    super() // Create empty FormData
+    fileStorage.set(this, new Map())
+
+    if (form) {
+      // Manually iterate form elements to avoid JSDOM's type checking on Files
+      const elements = form.elements
+      for (let i = 0; i < elements.length; i++) {
+        const element = elements[i] as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+
+        // Skip elements without names
+        if (!element.name) continue
+
+        // Skip disabled elements
+        if ('disabled' in element && element.disabled) continue
+
+        // Handle file inputs - store Files in WeakMap
+        if ('type' in element && element.type === 'file') {
+          const fileInput = element as HTMLInputElement
+          if (fileInput.files && fileInput.files.length > 0) {
+            for (let j = 0; j < fileInput.files.length; j++) {
+              const file = fileInput.files[j] as any
+              // Store the file to preserve instanceof checks
+              fileStorage.get(this)!.set(element.name, file)
+            }
+          }
+          continue
+        }
+
+        // Handle regular form controls
+        if ('value' in element) {
+          super.append(element.name, element.value)
+        }
+      }
+    }
+  }
+
+  forEach(callback: (value: any, key: string, parent: FormData) => void, thisArg?: any): void {
+    // Inject stored Files first
+    const files = fileStorage.get(this)
+    if (files) {
+      files.forEach((file, key) => {
+        callback.call(thisArg, file, key, this)
+      })
+    }
+    // Then native FormData values
+    super.forEach(callback, thisArg)
+  }
+
+  delete(name: string): void {
+    fileStorage.get(this)?.delete(name)
+    super.delete(name)
+  }
+} as any
 
 // Mock navigator
 Object.defineProperty(navigator, 'userAgent', {

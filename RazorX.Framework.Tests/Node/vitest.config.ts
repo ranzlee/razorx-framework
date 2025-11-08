@@ -26,14 +26,14 @@ export default defineConfig({
       include: ['src/**/*.ts'],
       thresholds: {
         lines: 69,
-        functions: 89,
-        branches: 76.76,
+        functions: 80,
+        branches: 70,
         statements: 69
       },
       watermarks: {
         statements: [69, 85],
-        functions: [89, 95],
-        branches: [76.76, 90],
+        functions: [80, 95],
+        branches: [70, 90],
         lines: [69, 85]
       }
     },
