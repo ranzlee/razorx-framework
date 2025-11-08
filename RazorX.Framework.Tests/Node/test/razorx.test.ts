@@ -8059,6 +8059,20 @@ describe('RazorX Framework API Surface Tests', () => {
         console.log('file.__proto__.__proto__:', Object.getPrototypeOf(Object.getPrototypeOf(file)))
         console.log('===============================')
 
+        // CRITICAL TEST: Check if FormData preserves instanceof
+        console.log('===== FORMDATA INSTANCEOF TEST =====')
+        const testFormData = new FormData()
+        testFormData.append('testfile', file)
+        testFormData.append('textfield', 'test value')
+        testFormData.forEach((value, key) => {
+          console.log(`testFormData[${key}]:`, value)
+          console.log(`  typeof:`, typeof value)
+          console.log(`  instanceof File:`, value instanceof File)
+          console.log(`  instanceof Blob:`, value instanceof Blob)
+          console.log(`  constructor.name:`, (value as any).constructor?.name)
+        })
+        console.log('=====================================')
+
         Object.defineProperty(fileInput, 'files', {
           value: [file],
           writable: false
