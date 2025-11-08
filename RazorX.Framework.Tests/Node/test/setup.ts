@@ -64,42 +64,42 @@ globalThis.FormData = class FormDataMock extends OriginalFormData {
     fileStorage.set({} as any, new Map()) // Temporary placeholder
 
     if (form) {
-      // Extract and temporarily remove file inputs to avoid JSDOM type checking
-      const fileInputs: Array<{input: HTMLInputElement, files: FileList, parent: Node, nextSibling: Node | null}> = []
+      // Temporarily hide files from FormData by clearing input.files
+      const fileInputsWithFiles: Array<{input: HTMLInputElement, files: FileList, descriptor: PropertyDescriptor}> = []
       const elements = Array.from(form.elements)
 
       for (const element of elements) {
         if ('type' in element && element.type === 'file') {
           const fileInput = element as HTMLInputElement
           if (fileInput.files && fileInput.files.length > 0) {
-            // Save file input state
-            fileInputs.push({
+            // Save original files and property descriptor
+            const descriptor = Object.getOwnPropertyDescriptor(fileInput, 'files')!
+            fileInputsWithFiles.push({
               input: fileInput,
               files: fileInput.files,
-              parent: fileInput.parentNode!,
-              nextSibling: fileInput.nextSibling
+              descriptor
             })
-            // Temporarily remove from DOM so native FormData doesn't see it
-            fileInput.remove()
+            // Temporarily set files to null so FormData(form) skips them
+            Object.defineProperty(fileInput, 'files', {
+              value: null,
+              writable: true,
+              configurable: true
+            })
           }
         }
       }
 
-      // Now call native FormData constructor - it will process all non-file inputs
+      // Call native FormData constructor with all elements present (no removal!)
       super(form, submitter)
 
-      // Restore file inputs to DOM
-      for (const {input, files, parent, nextSibling} of fileInputs) {
-        if (nextSibling) {
-          parent.insertBefore(input, nextSibling)
-        } else {
-          parent.appendChild(input)
-        }
+      // Restore original files properties
+      for (const {input, files, descriptor} of fileInputsWithFiles) {
+        Object.defineProperty(input, 'files', descriptor)
       }
 
-      // Store files in WeakMap
+      // Store files in WeakMap for forEach injection
       const fileMap = new Map<string, FileImpl>()
-      for (const {input, files} of fileInputs) {
+      for (const {files, input} of fileInputsWithFiles) {
         if (input.name) {
           for (let j = 0; j < files.length; j++) {
             fileMap.set(input.name, files[j] as any)
