@@ -61,39 +61,56 @@ const fileStorage = new WeakMap<FormData, Map<string, FileImpl>>()
 
 globalThis.FormData = class FormDataMock extends OriginalFormData {
   constructor(form?: HTMLFormElement, submitter?: HTMLElement | null) {
-    super() // Create empty FormData
-    fileStorage.set(this, new Map())
+    fileStorage.set({} as any, new Map()) // Temporary placeholder
 
     if (form) {
-      // Manually iterate form elements to avoid JSDOM's type checking on Files
-      const elements = form.elements
-      for (let i = 0; i < elements.length; i++) {
-        const element = elements[i] as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
+      // Extract and temporarily remove file inputs to avoid JSDOM type checking
+      const fileInputs: Array<{input: HTMLInputElement, files: FileList, parent: Node, nextSibling: Node | null}> = []
+      const elements = Array.from(form.elements)
 
-        // Skip elements without names
-        if (!element.name) continue
-
-        // Skip disabled elements
-        if ('disabled' in element && element.disabled) continue
-
-        // Handle file inputs - store Files in WeakMap
+      for (const element of elements) {
         if ('type' in element && element.type === 'file') {
           const fileInput = element as HTMLInputElement
           if (fileInput.files && fileInput.files.length > 0) {
-            for (let j = 0; j < fileInput.files.length; j++) {
-              const file = fileInput.files[j] as any
-              // Store the file to preserve instanceof checks
-              fileStorage.get(this)!.set(element.name, file)
-            }
+            // Save file input state
+            fileInputs.push({
+              input: fileInput,
+              files: fileInput.files,
+              parent: fileInput.parentNode!,
+              nextSibling: fileInput.nextSibling
+            })
+            // Temporarily remove from DOM so native FormData doesn't see it
+            fileInput.remove()
           }
-          continue
-        }
-
-        // Handle regular form controls
-        if ('value' in element) {
-          super.append(element.name, element.value)
         }
       }
+
+      // Now call native FormData constructor - it will process all non-file inputs
+      super(form, submitter)
+
+      // Restore file inputs to DOM
+      for (const {input, files, parent, nextSibling} of fileInputs) {
+        if (nextSibling) {
+          parent.insertBefore(input, nextSibling)
+        } else {
+          parent.appendChild(input)
+        }
+      }
+
+      // Store files in WeakMap
+      const fileMap = new Map<string, FileImpl>()
+      for (const {input, files} of fileInputs) {
+        if (input.name) {
+          for (let j = 0; j < files.length; j++) {
+            fileMap.set(input.name, files[j] as any)
+          }
+        }
+      }
+      fileStorage.set(this, fileMap)
+    } else {
+      // No form - just call super
+      super(form, submitter)
+      fileStorage.set(this, new Map())
     }
   }
 
