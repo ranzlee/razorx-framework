@@ -29,108 +29,19 @@ Object.defineProperty(window, 'location', {
 // Mock fetch
 globalThis.fetch = vi.fn()
 
-// Mock File constructor for JSDOM
-class FileImpl extends Blob {
-  name: string
-  lastModified: number
+// Mock File constructor for JSDOM (not available by default)
+if (typeof File === 'undefined') {
+  ;(globalThis as unknown as Record<string, unknown>).File = class File extends Blob {
+    name: string
+    lastModified: number
 
-  constructor(bits: BlobPart[], name: string, options?: FilePropertyBag) {
-    super(bits, { type: options?.type || '' })
-    this.name = name
-    this.lastModified = options?.lastModified ?? Date.now()
-  }
-
-  get [Symbol.toStringTag](): string {
-    return 'File'
+    constructor(bits: BlobPart[], name: string, options?: FilePropertyBag) {
+      super(bits, options)
+      this.name = name
+      this.lastModified = options?.lastModified ?? Date.now()
+    }
   }
 }
-
-// Override global File
-Object.defineProperty(globalThis, 'File', {
-  value: FileImpl,
-  writable: true,
-  configurable: true,
-  enumerable: false
-})
-
-// CRITICAL FIX: Wrap FormData constructor to handle File mocks
-// JSDOM rejects our FileImpl in FormData.append() due to internal type checking
-// Solution: Intercept FormData construction and manually add Files after
-const OriginalFormData = globalThis.FormData
-const fileStorage = new WeakMap<FormData, Map<string, FileImpl>>()
-
-globalThis.FormData = class FormDataMock extends OriginalFormData {
-  constructor(form?: HTMLFormElement, submitter?: HTMLElement | null) {
-    fileStorage.set({} as any, new Map()) // Temporary placeholder
-
-    if (form) {
-      // Temporarily hide files from FormData by clearing input.files
-      const fileInputsWithFiles: Array<{input: HTMLInputElement, files: FileList, descriptor: PropertyDescriptor}> = []
-      const elements = Array.from(form.elements)
-
-      for (const element of elements) {
-        if ('type' in element && element.type === 'file') {
-          const fileInput = element as HTMLInputElement
-          if (fileInput.files && fileInput.files.length > 0) {
-            // Save original files and property descriptor
-            const descriptor = Object.getOwnPropertyDescriptor(fileInput, 'files')!
-            fileInputsWithFiles.push({
-              input: fileInput,
-              files: fileInput.files,
-              descriptor
-            })
-            // Temporarily set files to null so FormData(form) skips them
-            Object.defineProperty(fileInput, 'files', {
-              value: null,
-              writable: true,
-              configurable: true
-            })
-          }
-        }
-      }
-
-      // Call native FormData constructor with all elements present (no removal!)
-      super(form, submitter)
-
-      // Restore original files properties
-      for (const {input, files, descriptor} of fileInputsWithFiles) {
-        Object.defineProperty(input, 'files', descriptor)
-      }
-
-      // Store files in WeakMap for forEach injection
-      const fileMap = new Map<string, FileImpl>()
-      for (const {files, input} of fileInputsWithFiles) {
-        if (input.name) {
-          for (let j = 0; j < files.length; j++) {
-            fileMap.set(input.name, files[j] as any)
-          }
-        }
-      }
-      fileStorage.set(this, fileMap)
-    } else {
-      // No form - just call super
-      super(form, submitter)
-      fileStorage.set(this, new Map())
-    }
-  }
-
-  forEach(callback: (value: any, key: string, parent: FormData) => void, thisArg?: any): void {
-    // Inject stored Files first
-    const files = fileStorage.get(this)
-    if (files) {
-      files.forEach((file, key) => {
-        callback.call(thisArg, file, key, this)
-      })
-    }
-    // Then native FormData values
-    super.forEach(callback, thisArg)
-  }
-
-  delete(name: string): void {
-    fileStorage.get(this)?.delete(name)
-    super.delete(name)
-  }
-} as any
 
 // Mock navigator
 Object.defineProperty(navigator, 'userAgent', {

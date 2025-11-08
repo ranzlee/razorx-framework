@@ -82,26 +82,22 @@ describe('RazorX Framework API Surface Tests', () => {
   beforeAll(() => {
     // Setup global mocks that persist across all tests
     Object.defineProperty(globalThis, 'MutationObserver', {
-      value: vi.fn().mockImplementation(function(callback) {
-        return {
-          observe: vi.fn(),
-          disconnect: vi.fn(),
-          takeRecords: vi.fn(() => []),
-          callback: callback  // Store callback for manual triggering
-        }
-      }),
+      value: vi.fn().mockImplementation((callback) => ({
+        observe: vi.fn(),
+        disconnect: vi.fn(),
+        takeRecords: vi.fn(() => []),
+        callback: callback  // Store callback for manual triggering
+      })),
       writable: true
     })
 
     Object.defineProperty(globalThis, 'IntersectionObserver', {
-      value: vi.fn().mockImplementation(function(callback) {
-        return {
-          observe: vi.fn(),
-          unobserve: vi.fn(),
-          disconnect: vi.fn(),
-          callback: callback  // Store callback for manual triggering
-        }
-      }),
+      value: vi.fn().mockImplementation((callback) => ({
+        observe: vi.fn(),
+        unobserve: vi.fn(),
+        disconnect: vi.fn(),
+        callback: callback  // Store callback for manual triggering
+      })),
       writable: true
     })
 
@@ -8014,154 +8010,45 @@ describe('RazorX Framework API Surface Tests', () => {
     
     describe('FormData & Request Processing', () => {
       test('files extracted from FormData before JSON encoding', async () => {
-        // Setup FormData mock ONLY for this test to avoid affecting coverage on other tests
-        const OriginalFormData = globalThis.FormData
-        const fileStorage = new WeakMap<FormData, Map<string, any>>()
-        let mockCallCount = 0
-
-        globalThis.FormData = class FormDataMock extends OriginalFormData {
-          constructor(form?: HTMLFormElement, submitter?: HTMLElement | null) {
-            mockCallCount++
-            console.log(`[FormDataMock constructor #${mockCallCount}] called with form:`, form?.id || 'none')
-            fileStorage.set({} as any, new Map())
-
-            if (form) {
-              // Temporarily remove file inputs, let native FormData process form, then restore
-              const fileInputs: Array<{input: HTMLInputElement, files: FileList, parent: Node, nextSibling: Node | null}> = []
-              const elements = Array.from(form.elements)
-
-              for (const element of elements) {
-                if ('type' in element && element.type === 'file') {
-                  const fileInput = element as HTMLInputElement
-                  if (fileInput.files && fileInput.files.length > 0) {
-                    fileInputs.push({
-                      input: fileInput,
-                      files: fileInput.files,
-                      parent: fileInput.parentNode!,
-                      nextSibling: fileInput.nextSibling
-                    })
-                    fileInput.remove()
-                  }
-                }
-              }
-
-              console.log(`[FormDataMock] Calling super(form, submitter) with ${form.elements.length} elements`)
-              try {
-                super(form, submitter)
-                console.log(`[FormDataMock] super() succeeded`)
-              } catch (error) {
-                console.error(`[FormDataMock] super() FAILED:`, error)
-                throw error
-              }
-
-              for (const {input, parent, nextSibling} of fileInputs) {
-                if (nextSibling) {
-                  parent.insertBefore(input, nextSibling)
-                } else {
-                  parent.appendChild(input)
-                }
-              }
-
-              const fileMap = new Map<string, any>()
-              for (const {input, files} of fileInputs) {
-                if (input.name) {
-                  for (let j = 0; j < files.length; j++) {
-                    fileMap.set(input.name, files[j] as any)
-                  }
-                }
-              }
-              fileStorage.set(this, fileMap)
-            } else {
-              super(form, submitter)
-              fileStorage.set(this, new Map())
-            }
-          }
-
-          forEach(callback: (value: any, key: string, parent: FormData) => void, thisArg?: any): void {
-            const files = fileStorage.get(this)
-            if (files) {
-              files.forEach((file, key) => {
-                callback.call(thisArg, file, key, this)
-              })
-            }
-            super.forEach(callback, thisArg)
-          }
-
-          delete(name: string): void {
-            fileStorage.get(this)?.delete(name)
-            super.delete(name)
-          }
-        } as any
-
-        try {
-          const formId = getUniqueId('form')
-          const fileInputId = getUniqueId('file-input')
-          const textInputId = getUniqueId('text-input')
-
-          const form = createElementWithId('form', formId, {
-            'data-rx-action': '/submit',
-            'data-rx-trigger': 'submit'
-          }) as HTMLFormElement
-
-          const fileInput = createElementWithId('input', fileInputId, {
-            'type': 'file',
-            'name': 'testfile',
-            'data-rx-action': '/upload'
-          }) as HTMLInputElement
-
-          const textInput = createElementWithId('input', textInputId, {
-            'type': 'text',
-            'name': 'textfield',
-            'value': 'test value'
-          }) as HTMLInputElement
-
-          form.appendChild(fileInput)
-          form.appendChild(textInput)
-          document.body.appendChild(form)
-          processNewElements()
-
-          const file = new File(['content'], 'test.txt')
-          Object.defineProperty(fileInput, 'files', {
-            value: [file],
-            writable: false
-          })
-
-        // Mock XMLHttpRequest - framework uses property-based handlers (xhr.onload)
-        ;(globalThis as any).XMLHttpRequest = vi.fn().mockImplementation(function() {
-          const xhr: any = {
-            open: vi.fn(),
-            send: vi.fn(function() {
-              // Trigger onload to simulate successful upload
-              Promise.resolve().then(() => {
-                if (xhr.onload) xhr.onload()
-              })
-            }),
-            setRequestHeader: vi.fn(),
-            upload: {
-              onprogress: null,
-              addEventListener: vi.fn()
-            },
-            addEventListener: vi.fn(),
-            status: 204,
-            statusText: 'No Content',
-            getAllResponseHeaders: vi.fn(() => ''),
-            responseText: '',
-            timeout: 0,
-            onload: null,
-            onerror: null,
-            onabort: null,
-            ontimeout: null
-          }
-          return xhr
+        const formId = getUniqueId('form')
+        const fileInputId = getUniqueId('file-input')
+        const textInputId = getUniqueId('text-input')
+        
+        const form = createElementWithId('form', formId, {
+          'data-rx-action': '/submit',
+          'data-rx-trigger': 'submit'
+        }) as HTMLFormElement
+        
+        const fileInput = createElementWithId('input', fileInputId, {
+          'type': 'file',
+          'name': 'testfile',
+          'data-rx-action': '/upload'
+        }) as HTMLInputElement
+        
+        const textInput = createElementWithId('input', textInputId, {
+          'type': 'text',
+          'name': 'textfield',
+          'value': 'test value'
+        }) as HTMLInputElement
+        
+        form.appendChild(fileInput)
+        form.appendChild(textInput)
+        document.body.appendChild(form)
+        processNewElements()
+        
+        const file = new File(['content'], 'test.txt')
+        Object.defineProperty(fileInput, 'files', {
+          value: [file],
+          writable: false
         })
-
-        // Mock fetch to capture the JSON body (after files are uploaded via XHR)
+        
+        // Mock the fetch to capture the request body
         let capturedBody: BodyInit | null | undefined = ''
         mockFetch.mockImplementation(async (_url: string, options: RequestInit) => {
           capturedBody = options.body
           return new Response(null, { status: 204 })
         })
-
+        
         const submitEvent = new Event('submit', { bubbles: true, cancelable: true })
         form.dispatchEvent(submitEvent)
 
@@ -8171,16 +8058,10 @@ describe('RazorX Framework API Surface Tests', () => {
           expect(capturedBody).toBeTruthy()
         })
 
-          // Check that the final request body is JSON and contains only the text field
-          const bodyJson = JSON.parse(capturedBody as string)
-          expect(bodyJson.textfield).toBe('test value')
-          expect(bodyJson.testfile).toBeUndefined()
-        } finally {
-          // Restore original FormData to not affect other tests
-          console.log(`[FormDataMock] Restoring original FormData. Mock was called ${mockCallCount} times.`)
-          globalThis.FormData = OriginalFormData
-          console.log(`[FormDataMock] Restored. Current FormData:`, globalThis.FormData.name)
-        }
+        // Check that the final request body is JSON and contains only the text field
+        const bodyJson = JSON.parse(capturedBody as string)
+        expect(bodyJson.textfield).toBe('test value')
+        expect(bodyJson.testfile).toBeUndefined()
       })
     })
     
@@ -8691,7 +8572,7 @@ describe('RazorX Framework API Surface Tests', () => {
 
       // Mock EventSource
       mockEventSource = {
-        addEventListener: vi.fn().mockImplementation(function(type: string, handler: (event: MessageEvent) => void) {
+        addEventListener: vi.fn().mockImplementation((type: string, handler: (event: MessageEvent) => void) => {
           if (type === 'rx-server-sent-event') {
             mockEventSource._rxEventHandler = handler
           }
