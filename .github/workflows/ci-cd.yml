@@ -240,17 +240,18 @@ jobs:
       if: github.event.inputs.skip_tests != 'true' && matrix.os == 'ubuntu-latest'
       shell: bash
       run: |
-        # Ensure Framework JavaScript is built and Tests have fresh source
-        cd RazorX.Framework/Node
-        npm ci || npm install
-        npm run build
+        # Verify source files match before testing
+        echo "=== Verifying razorx.ts synchronization ==="
+        diff -q RazorX.Framework/Node/src/razorx.ts RazorX.Framework.Tests/Node/src/razorx.ts || {
+          echo "WARNING: razorx.ts files differ! Forcing sync..."
+          cp -f RazorX.Framework/Node/src/razorx.ts RazorX.Framework.Tests/Node/src/razorx.ts
+        }
 
-        # Copy built files to Tests directory
-        cp -f src/razorx.ts ../../RazorX.Framework.Tests/Node/src/razorx.ts
-        cp -f src/razorx.css ../../RazorX.Framework.Tests/Node/src/razorx.css
+        echo "Framework hash: $(md5sum RazorX.Framework/Node/src/razorx.ts | cut -d' ' -f1)"
+        echo "Tests hash:     $(md5sum RazorX.Framework.Tests/Node/src/razorx.ts | cut -d' ' -f1)"
 
         # Run tests with coverage
-        cd ../../RazorX.Framework.Tests/Node
+        cd RazorX.Framework.Tests/Node
         npm ci || npm install
         npm run test:coverage
     

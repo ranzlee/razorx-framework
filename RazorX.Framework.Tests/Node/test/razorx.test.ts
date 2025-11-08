@@ -8017,9 +8017,12 @@ describe('RazorX Framework API Surface Tests', () => {
         // Setup FormData mock ONLY for this test to avoid affecting coverage on other tests
         const OriginalFormData = globalThis.FormData
         const fileStorage = new WeakMap<FormData, Map<string, any>>()
+        let mockCallCount = 0
 
         globalThis.FormData = class FormDataMock extends OriginalFormData {
           constructor(form?: HTMLFormElement, submitter?: HTMLElement | null) {
+            mockCallCount++
+            console.log(`[FormDataMock constructor #${mockCallCount}] called with form:`, form?.id || 'none')
             fileStorage.set({} as any, new Map())
 
             if (form) {
@@ -8042,7 +8045,14 @@ describe('RazorX Framework API Surface Tests', () => {
                 }
               }
 
-              super(form, submitter)
+              console.log(`[FormDataMock] Calling super(form, submitter) with ${form.elements.length} elements`)
+              try {
+                super(form, submitter)
+                console.log(`[FormDataMock] super() succeeded`)
+              } catch (error) {
+                console.error(`[FormDataMock] super() FAILED:`, error)
+                throw error
+              }
 
               for (const {input, parent, nextSibling} of fileInputs) {
                 if (nextSibling) {
@@ -8167,7 +8177,9 @@ describe('RazorX Framework API Surface Tests', () => {
           expect(bodyJson.testfile).toBeUndefined()
         } finally {
           // Restore original FormData to not affect other tests
+          console.log(`[FormDataMock] Restoring original FormData. Mock was called ${mockCallCount} times.`)
           globalThis.FormData = OriginalFormData
+          console.log(`[FormDataMock] Restored. Current FormData:`, globalThis.FormData.name)
         }
       })
     })
