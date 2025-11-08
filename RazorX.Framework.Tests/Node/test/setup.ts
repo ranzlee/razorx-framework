@@ -53,10 +53,84 @@ Object.defineProperty(globalThis, 'File', {
   enumerable: false
 })
 
-// Export FormData utilities for tests that need File mock support
-// Store the original FormData for tests to use
-;(globalThis as any).__OriginalFormData__ = globalThis.FormData
-;(globalThis as any).__FileStorage__ = new WeakMap<FormData, Map<string, FileImpl>>()
+// CRITICAL FIX: Wrap FormData constructor to handle File mocks
+// JSDOM rejects our FileImpl in FormData.append() due to internal type checking
+// Solution: Intercept FormData construction and manually add Files after
+const OriginalFormData = globalThis.FormData
+const fileStorage = new WeakMap<FormData, Map<string, FileImpl>>()
+
+globalThis.FormData = class FormDataMock extends OriginalFormData {
+  constructor(form?: HTMLFormElement, submitter?: HTMLElement | null) {
+    fileStorage.set({} as any, new Map()) // Temporary placeholder
+
+    if (form) {
+      // Extract and temporarily remove file inputs to avoid JSDOM type checking
+      const fileInputs: Array<{input: HTMLInputElement, files: FileList, parent: Node, nextSibling: Node | null}> = []
+      const elements = Array.from(form.elements)
+
+      for (const element of elements) {
+        if ('type' in element && element.type === 'file') {
+          const fileInput = element as HTMLInputElement
+          if (fileInput.files && fileInput.files.length > 0) {
+            // Save file input state
+            fileInputs.push({
+              input: fileInput,
+              files: fileInput.files,
+              parent: fileInput.parentNode!,
+              nextSibling: fileInput.nextSibling
+            })
+            // Temporarily remove from DOM so native FormData doesn't see it
+            fileInput.remove()
+          }
+        }
+      }
+
+      // Now call native FormData constructor - it will process all non-file inputs
+      super(form, submitter)
+
+      // Restore file inputs to DOM
+      for (const {input, files, parent, nextSibling} of fileInputs) {
+        if (nextSibling) {
+          parent.insertBefore(input, nextSibling)
+        } else {
+          parent.appendChild(input)
+        }
+      }
+
+      // Store files in WeakMap
+      const fileMap = new Map<string, FileImpl>()
+      for (const {input, files} of fileInputs) {
+        if (input.name) {
+          for (let j = 0; j < files.length; j++) {
+            fileMap.set(input.name, files[j] as any)
+          }
+        }
+      }
+      fileStorage.set(this, fileMap)
+    } else {
+      // No form - just call super
+      super(form, submitter)
+      fileStorage.set(this, new Map())
+    }
+  }
+
+  forEach(callback: (value: any, key: string, parent: FormData) => void, thisArg?: any): void {
+    // Inject stored Files first
+    const files = fileStorage.get(this)
+    if (files) {
+      files.forEach((file, key) => {
+        callback.call(thisArg, file, key, this)
+      })
+    }
+    // Then native FormData values
+    super.forEach(callback, thisArg)
+  }
+
+  delete(name: string): void {
+    fileStorage.get(this)?.delete(name)
+    super.delete(name)
+  }
+} as any
 
 // Mock navigator
 Object.defineProperty(navigator, 'userAgent', {
