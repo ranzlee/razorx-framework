@@ -29,33 +29,30 @@ Object.defineProperty(window, 'location', {
 // Mock fetch
 globalThis.fetch = vi.fn()
 
-// Mock File using Proxy to intercept instanceof checks
-// This ensures both instanceof File AND instanceof Blob return true
-const OriginalBlob = globalThis.Blob
+// Mock File constructor for JSDOM - MUST work with instanceof File AND instanceof Blob
+// Force override even if File exists to ensure consistent behavior across all JSDOM versions
+class FileImpl extends Blob {
+  name: string
+  lastModified: number
 
-function FileConstructor(this: any, bits: BlobPart[], name: string, options?: FilePropertyBag) {
-  const blob = new OriginalBlob(bits, { type: options?.type || '' })
-  Object.defineProperty(blob, 'name', { value: name, writable: false, enumerable: true })
-  Object.defineProperty(blob, 'lastModified', { value: options?.lastModified ?? Date.now(), writable: false, enumerable: true })
-  Object.defineProperty(blob, Symbol.toStringTag, { value: 'File' })
+  constructor(bits: BlobPart[], name: string, options?: FilePropertyBag) {
+    super(bits, { type: options?.type || '' })
+    this.name = name
+    this.lastModified = options?.lastModified ?? Date.now()
+  }
 
-  // Set the prototype so instanceof works
-  Object.setPrototypeOf(blob, FileConstructor.prototype)
-  return blob
+  get [Symbol.toStringTag](): string {
+    return 'File'
+  }
 }
 
-// Set up prototype chain: File.prototype -> Blob.prototype
-Object.setPrototypeOf(FileConstructor.prototype, OriginalBlob.prototype)
-
-// Add Symbol.hasInstance to control instanceof behavior
-Object.defineProperty(FileConstructor, Symbol.hasInstance, {
-  value: function(instance: any) {
-    // Check if it's one of our File objects (has name property and is a Blob)
-    return instance instanceof OriginalBlob && 'name' in instance && 'lastModified' in instance
-  }
+// Force override using defineProperty to ensure it takes precedence
+Object.defineProperty(globalThis, 'File', {
+  value: FileImpl,
+  writable: true,
+  configurable: true,
+  enumerable: false
 })
-
-;(globalThis as unknown as Record<string, unknown>).File = FileConstructor
 
 // Mock navigator
 Object.defineProperty(navigator, 'userAgent', {

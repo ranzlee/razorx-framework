@@ -5,6 +5,12 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     isolate: true,
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: true
+      }
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov', 'json-summary'],
