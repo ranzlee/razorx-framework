@@ -8014,37 +8014,107 @@ describe('RazorX Framework API Surface Tests', () => {
     
     describe('FormData & Request Processing', () => {
       test('files extracted from FormData before JSON encoding', async () => {
-        const formId = getUniqueId('form')
-        const fileInputId = getUniqueId('file-input')
-        const textInputId = getUniqueId('text-input')
-        
-        const form = createElementWithId('form', formId, {
-          'data-rx-action': '/submit',
-          'data-rx-trigger': 'submit'
-        }) as HTMLFormElement
-        
-        const fileInput = createElementWithId('input', fileInputId, {
-          'type': 'file',
-          'name': 'testfile',
-          'data-rx-action': '/upload'
-        }) as HTMLInputElement
-        
-        const textInput = createElementWithId('input', textInputId, {
-          'type': 'text',
-          'name': 'textfield',
-          'value': 'test value'
-        }) as HTMLInputElement
-        
-        form.appendChild(fileInput)
-        form.appendChild(textInput)
-        document.body.appendChild(form)
-        processNewElements()
-        
-        const file = new File(['content'], 'test.txt')
-        Object.defineProperty(fileInput, 'files', {
-          value: [file],
-          writable: false
-        })
+        // Setup FormData mock ONLY for this test to avoid affecting coverage on other tests
+        const OriginalFormData = globalThis.FormData
+        const fileStorage = new WeakMap<FormData, Map<string, any>>()
+
+        globalThis.FormData = class FormDataMock extends OriginalFormData {
+          constructor(form?: HTMLFormElement, submitter?: HTMLElement | null) {
+            fileStorage.set({} as any, new Map())
+
+            if (form) {
+              // Temporarily remove file inputs, let native FormData process form, then restore
+              const fileInputs: Array<{input: HTMLInputElement, files: FileList, parent: Node, nextSibling: Node | null}> = []
+              const elements = Array.from(form.elements)
+
+              for (const element of elements) {
+                if ('type' in element && element.type === 'file') {
+                  const fileInput = element as HTMLInputElement
+                  if (fileInput.files && fileInput.files.length > 0) {
+                    fileInputs.push({
+                      input: fileInput,
+                      files: fileInput.files,
+                      parent: fileInput.parentNode!,
+                      nextSibling: fileInput.nextSibling
+                    })
+                    fileInput.remove()
+                  }
+                }
+              }
+
+              super(form, submitter)
+
+              for (const {input, parent, nextSibling} of fileInputs) {
+                if (nextSibling) {
+                  parent.insertBefore(input, nextSibling)
+                } else {
+                  parent.appendChild(input)
+                }
+              }
+
+              const fileMap = new Map<string, any>()
+              for (const {input, files} of fileInputs) {
+                if (input.name) {
+                  for (let j = 0; j < files.length; j++) {
+                    fileMap.set(input.name, files[j] as any)
+                  }
+                }
+              }
+              fileStorage.set(this, fileMap)
+            } else {
+              super(form, submitter)
+              fileStorage.set(this, new Map())
+            }
+          }
+
+          forEach(callback: (value: any, key: string, parent: FormData) => void, thisArg?: any): void {
+            const files = fileStorage.get(this)
+            if (files) {
+              files.forEach((file, key) => {
+                callback.call(thisArg, file, key, this)
+              })
+            }
+            super.forEach(callback, thisArg)
+          }
+
+          delete(name: string): void {
+            fileStorage.get(this)?.delete(name)
+            super.delete(name)
+          }
+        } as any
+
+        try {
+          const formId = getUniqueId('form')
+          const fileInputId = getUniqueId('file-input')
+          const textInputId = getUniqueId('text-input')
+
+          const form = createElementWithId('form', formId, {
+            'data-rx-action': '/submit',
+            'data-rx-trigger': 'submit'
+          }) as HTMLFormElement
+
+          const fileInput = createElementWithId('input', fileInputId, {
+            'type': 'file',
+            'name': 'testfile',
+            'data-rx-action': '/upload'
+          }) as HTMLInputElement
+
+          const textInput = createElementWithId('input', textInputId, {
+            'type': 'text',
+            'name': 'textfield',
+            'value': 'test value'
+          }) as HTMLInputElement
+
+          form.appendChild(fileInput)
+          form.appendChild(textInput)
+          document.body.appendChild(form)
+          processNewElements()
+
+          const file = new File(['content'], 'test.txt')
+          Object.defineProperty(fileInput, 'files', {
+            value: [file],
+            writable: false
+          })
 
         // Mock XMLHttpRequest - framework uses property-based handlers (xhr.onload)
         ;(globalThis as any).XMLHttpRequest = vi.fn().mockImplementation(function() {
@@ -8091,10 +8161,14 @@ describe('RazorX Framework API Surface Tests', () => {
           expect(capturedBody).toBeTruthy()
         })
 
-        // Check that the final request body is JSON and contains only the text field
-        const bodyJson = JSON.parse(capturedBody as string)
-        expect(bodyJson.textfield).toBe('test value')
-        expect(bodyJson.testfile).toBeUndefined()
+          // Check that the final request body is JSON and contains only the text field
+          const bodyJson = JSON.parse(capturedBody as string)
+          expect(bodyJson.textfield).toBe('test value')
+          expect(bodyJson.testfile).toBeUndefined()
+        } finally {
+          // Restore original FormData to not affect other tests
+          globalThis.FormData = OriginalFormData
+        }
       })
     })
     
