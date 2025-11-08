@@ -239,8 +239,18 @@ jobs:
     - name: Test (JavaScript)
       if: github.event.inputs.skip_tests != 'true' && matrix.os == 'ubuntu-latest'
       shell: bash
-      working-directory: RazorX.Framework.Tests/Node
       run: |
+        # Ensure Framework JavaScript is built and Tests have fresh source
+        cd RazorX.Framework/Node
+        npm ci || npm install
+        npm run build
+
+        # Copy built files to Tests directory
+        cp -f src/razorx.ts ../../RazorX.Framework.Tests/Node/src/razorx.ts
+        cp -f src/razorx.css ../../RazorX.Framework.Tests/Node/src/razorx.css
+
+        # Run tests with coverage
+        cd ../../RazorX.Framework.Tests/Node
         npm ci || npm install
         npm run test:coverage
     
