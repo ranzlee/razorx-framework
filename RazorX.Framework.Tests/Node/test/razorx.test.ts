@@ -8041,14 +8041,44 @@ describe('RazorX Framework API Surface Tests', () => {
         processNewElements()
         
         const file = new File(['content'], 'test.txt')
+
+        // CRITICAL DIAGNOSTIC - DO NOT REMOVE UNTIL UBUNTU ISSUE RESOLVED
+        console.log('===== FILE MOCK DIAGNOSTIC =====')
+        console.log('Created file:', file)
+        console.log('file instanceof File:', file instanceof File)
+        console.log('file instanceof Blob:', file instanceof Blob)
+        console.log('typeof file:', typeof file)
+        console.log('file.constructor:', file.constructor)
+        console.log('file.constructor.name:', file.constructor.name)
+        console.log('globalThis.File:', (globalThis as any).File)
+        console.log('globalThis.Blob:', (globalThis as any).Blob)
+        console.log('File.prototype:', (globalThis as any).File?.prototype)
+        console.log('Blob.prototype:', (globalThis as any).Blob?.prototype)
+        console.log('File.prototype.__proto__ === Blob.prototype:', Object.getPrototypeOf((globalThis as any).File?.prototype) === (globalThis as any).Blob?.prototype)
+        console.log('file.__proto__:', Object.getPrototypeOf(file))
+        console.log('file.__proto__.__proto__:', Object.getPrototypeOf(Object.getPrototypeOf(file)))
+        console.log('===============================')
+
         Object.defineProperty(fileInput, 'files', {
           value: [file],
           writable: false
         })
 
-        // Mock the fetch to capture the request body
+        // Mock the fetch to capture FormData state
         let capturedBody: BodyInit | null | undefined = ''
         mockFetch.mockImplementation(async (_url: string, options: RequestInit) => {
+          // Log FormData contents if it's FormData
+          if (options.body instanceof FormData) {
+            console.log('===== FORMDATA AT FETCH =====')
+            options.body.forEach((value, key) => {
+              console.log(`FormData[${key}]:`, value)
+              console.log(`  typeof:`, typeof value)
+              console.log(`  instanceof Blob:`, value instanceof Blob)
+              console.log(`  instanceof File:`, value instanceof File)
+              console.log(`  constructor.name:`, value.constructor?.name)
+            })
+            console.log('============================')
+          }
           capturedBody = options.body
           return new Response(null, { status: 204 })
         })
