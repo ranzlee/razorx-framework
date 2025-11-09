@@ -27,7 +27,7 @@ on:
 
 env:
   DOTNET_VERSION: '10.0.x'
-  NODE_VERSION: '20'
+  NODE_VERSION: '22'
   PACKAGE_OUTPUT_DIR: ${{ github.workspace }}/packages
   CI: true
   DOTNET_NOLOGO: true
