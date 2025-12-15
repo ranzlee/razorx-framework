@@ -191,7 +191,7 @@ jobs:
     
     # Enhanced caching with hash-based keys
     - name: Cache - NuGet
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.nuget/packages
         key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}-${{ needs.version.outputs.package-version }}
@@ -200,7 +200,7 @@ jobs:
           ${{ runner.os }}-nuget-
     
     - name: Cache - Build Output
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           **/bin
@@ -299,7 +299,7 @@ jobs:
         cache-dependency-path: RazorX.Framework/Node/package-lock.json
     
     - name: Restore Caches
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ~/.nuget/packages
         key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/packages.lock.json') }}-${{ needs.version.outputs.package-version }}
