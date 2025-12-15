@@ -266,7 +266,7 @@ jobs:
     # on pull requests from forks. See .github/workflows/test-reporter.yml
     - name: Upload Test Results
       if: always()
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: test-results-${{ matrix.os }}
         path: |
@@ -383,7 +383,7 @@ jobs:
         done
     
     - name: Upload Package Artifacts
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v6
       with:
         name: nuget-packages
         path: |
